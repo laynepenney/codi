@@ -190,8 +190,9 @@ Insert a JSDoc comment BEFORE line 25:
 RULES:
 1. Note the LINE NUMBER from read_file output (shown as "N: code")
 2. Use insert_line with that line number to insert the JSDoc BEFORE it
-3. Document ONE function at a time
-4. After inserting, line numbers shift! Re-read the file if documenting multiple items`;
+3. **CRITICAL: Insert in REVERSE ORDER (largest line numbers first!)**
+   - This prevents line numbers from shifting incorrectly
+   - Example: If documenting lines 25, 50, 75 → insert at 75 first, then 50, then 25`;
 
     if (isGlobPattern) {
       return `Add documentation to files matching "${filePath}".
