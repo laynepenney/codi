@@ -8,6 +8,7 @@ export { GrepTool } from './grep.js';
 export { ListDirectoryTool } from './list-directory.js';
 export { EditFileTool } from './edit-file.js';
 export { PatchFileTool } from './patch-file.js';
+export { InsertLineTool } from './insert-line.js';
 
 import { globalRegistry } from './registry.js';
 import { ReadFileTool } from './read-file.js';
@@ -18,6 +19,7 @@ import { GrepTool } from './grep.js';
 import { ListDirectoryTool } from './list-directory.js';
 import { EditFileTool } from './edit-file.js';
 import { PatchFileTool } from './patch-file.js';
+import { InsertLineTool } from './insert-line.js';
 
 /**
  * Register all default tools with the global registry.
@@ -27,6 +29,7 @@ export function registerDefaultTools(): void {
   globalRegistry.register(new ReadFileTool());
   globalRegistry.register(new WriteFileTool());
   globalRegistry.register(new EditFileTool());
+  globalRegistry.register(new InsertLineTool());
   globalRegistry.register(new PatchFileTool());
 
   // File exploration

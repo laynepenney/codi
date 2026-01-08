@@ -58,13 +58,14 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 
 | Tool | Parameters | Example |
 |------|------------|---------|
-| read_file | path (required) | {"name":"read_file","arguments":{"path":"src/index.ts"}} |
-| write_file | path, content (both required) | {"name":"write_file","arguments":{"path":"file.ts","content":"..."}} |
-| edit_file | path, old_string, new_string (all required) | {"name":"edit_file","arguments":{"path":"file.ts","old_string":"old","new_string":"new"}} |
-| glob | pattern (required) | {"name":"glob","arguments":{"pattern":"src/**/*.ts"}} |
-| grep | pattern (required), path (optional) | {"name":"grep","arguments":{"pattern":"TODO","path":"src"}} |
-| list_directory | path (optional, defaults to .) | {"name":"list_directory","arguments":{"path":"src"}} |
-| bash | command (required) | {"name":"bash","arguments":{"command":"npm test"}} |
+| read_file | path | {"name":"read_file","arguments":{"path":"src/index.ts"}} |
+| write_file | path, content | {"name":"write_file","arguments":{"path":"file.ts","content":"..."}} |
+| insert_line | path, line, content | {"name":"insert_line","arguments":{"path":"file.ts","line":5,"content":"// comment"}} |
+| edit_file | path, old_string, new_string | {"name":"edit_file","arguments":{"path":"file.ts","old_string":"old","new_string":"new"}} |
+| glob | pattern | {"name":"glob","arguments":{"pattern":"src/**/*.ts"}} |
+| grep | pattern, path (optional) | {"name":"grep","arguments":{"pattern":"TODO","path":"src"}} |
+| list_directory | path (optional) | {"name":"list_directory","arguments":{"path":"src"}} |
+| bash | command | {"name":"bash","arguments":{"command":"npm test"}} |
 
 ## CRITICAL RULES
 1. Output tools as JSON in a code block. Example:

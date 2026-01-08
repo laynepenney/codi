@@ -173,47 +173,42 @@ export const docCommand: Command = {
     const isGlobPattern = filePath.includes('*');
 
     const editInstructions = `
-## How to add documentation using edit_file
+## How to add documentation using insert_line
 
-For each undocumented function/class/interface, use edit_file to prepend a JSDoc comment.
+Use insert_line to add JSDoc comments. Just specify the line number and content.
 
-Example - to document this:
+Example - if a function is on line 25:
 \`\`\`
-export function calculateTotal(items: Item[]): number {
+25: export function calculateTotal(items: Item[]): number {
 \`\`\`
 
-Use:
+Insert a JSDoc comment BEFORE line 25:
 \`\`\`json
-{"name": "edit_file", "arguments": {"path": "file.ts", "old_string": "export function calculateTotal(items: Item[]): number {", "new_string": "/**\\n * Calculates the total price.\\n * @param items - Items to sum\\n * @returns Total price\\n */\\nexport function calculateTotal(items: Item[]): number {"}}
+{"name": "insert_line", "arguments": {"path": "file.ts", "line": 25, "content": "/**\\n * Calculates the total price.\\n * @param items - Items to sum\\n * @returns Total price\\n */"}}
 \`\`\`
 
 RULES:
-1. old_string must match the file EXACTLY (copy it precisely)
-2. new_string = JSDoc comment + original code (prepend the comment)
-3. Document ONE thing at a time
-
-ERROR HANDLING:
-- If edit_file fails with "String not found", use read_file to see the current file state
-- After re-reading, try again with the EXACT string from the file
-- Do NOT guess what's in the file - always verify with read_file
-- After 2 consecutive failures, STOP and report the issue`;
+1. Note the LINE NUMBER from read_file output (shown as "N: code")
+2. Use insert_line with that line number to insert the JSDoc BEFORE it
+3. Document ONE function at a time
+4. After inserting, line numbers shift! Re-read the file if documenting multiple items`;
 
     if (isGlobPattern) {
       return `Add documentation to files matching "${filePath}".
 
 Steps:
 1. Use glob: {"pattern": "${filePath}"}
-2. For EACH file, use read_file to see the code
-3. For EACH undocumented function/class, use edit_file to add JSDoc
+2. For EACH file, use read_file to see the code (note line numbers!)
+3. For EACH undocumented function/class, use insert_line to add JSDoc
 ${editInstructions}`;
     }
 
     return `Add documentation to "${filePath}".
 
 Steps:
-1. Use read_file: {"path": "${filePath}"}
-2. Identify all functions, classes, interfaces that need JSDoc
-3. Use edit_file for EACH one to add documentation
+1. Use read_file: {"path": "${filePath}"} - note the line numbers!
+2. Find functions, classes, interfaces that need JSDoc (note their line numbers)
+3. Use insert_line for EACH one to add documentation before it
 ${editInstructions}`;
   },
 };
