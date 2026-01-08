@@ -83,6 +83,7 @@ export interface AgentOptions {
   toolRegistry: ToolRegistry;
   systemPrompt?: string;
   useTools?: boolean; // Set to false for models that don't support tool use
+  debug?: boolean; // Log messages sent to the model
   onText?: (text: string) => void;
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
@@ -97,6 +98,7 @@ export class Agent {
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
   private useTools: boolean;
+  private debug: boolean;
   private messages: Message[] = [];
   private callbacks: {
     onText?: (text: string) => void;
@@ -108,6 +110,7 @@ export class Agent {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
     this.useTools = options.useTools ?? true;
+    this.debug = options.debug ?? false;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
       onText: options.onText,
@@ -161,6 +164,29 @@ Always use tools to interact with the filesystem rather than asking the user to 
         { role: 'assistant', content: 'I understand. I will help you with coding tasks using the available tools.' },
         ...this.messages,
       ];
+
+      // Debug: log messages being sent
+      if (this.debug) {
+        console.log('\n' + '='.repeat(60));
+        console.log('DEBUG: Messages being sent to model:');
+        console.log('='.repeat(60));
+        for (const msg of messagesWithSystem) {
+          console.log(`\n[${msg.role.toUpperCase()}]:`);
+          if (typeof msg.content === 'string') {
+            // Truncate long messages
+            const preview = msg.content.length > 500
+              ? msg.content.slice(0, 500) + `\n... (${msg.content.length} chars total)`
+              : msg.content;
+            console.log(preview);
+          } else {
+            console.log(JSON.stringify(msg.content, null, 2).slice(0, 500));
+          }
+        }
+        if (tools) {
+          console.log(`\nTools: ${tools.map(t => t.name).join(', ')}`);
+        }
+        console.log('='.repeat(60) + '\n');
+      }
 
       // Call the model with streaming
       const response = await this.provider.streamChat(

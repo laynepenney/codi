@@ -28,6 +28,7 @@ program
   .option('-m, --model <name>', 'Model to use')
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
   .option('--no-tools', 'Disable tool use (for models that don\'t support it)')
+  .option('--debug', 'Show messages sent to the model')
   .parse();
 
 const options = program.opts();
@@ -182,6 +183,7 @@ async function main() {
     toolRegistry: globalRegistry,
     systemPrompt: generateSystemPrompt(projectInfo, useTools),
     useTools,
+    debug: options.debug,
     onText: (text) => process.stdout.write(text),
     onToolCall: (name, input) => {
       console.log(chalk.yellow(`\n\n📎 ${name}`));
