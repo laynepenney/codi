@@ -21,8 +21,8 @@ import { registerWorkflowCommands } from './commands/workflow-commands.js';
 
 // CLI setup
 program
-  .name('ai-assistant')
-  .description('A hybrid AI coding assistant')
+  .name('codi')
+  .description('Your AI coding wingman')
   .version('0.1.0')
   .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama)', 'auto')
   .option('-m, --model <name>', 'Model to use')
@@ -100,7 +100,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
 }
 
 async function main() {
-  console.log(chalk.bold.blue('\n🤖 AI Coding Assistant\n'));
+  console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
   const projectInfo = await detectProject();

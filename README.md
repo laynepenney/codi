@@ -1,6 +1,6 @@
-# AI Assistant
+# Codi
 
-A hybrid AI coding assistant CLI that supports both cloud APIs (Claude, OpenAI) and local models (Ollama).
+Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models via Ollama.
 
 ## Features
 

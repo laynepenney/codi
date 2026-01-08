@@ -1,17 +1,27 @@
 {
-  "name": "ai-assistant",
+  "name": "codi",
   "version": "0.1.0",
-  "description": "A hybrid AI coding assistant supporting Claude API and local models",
+  "description": "Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "ai-assistant": "dist/index.js"
+    "codi": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts"
   },
+  "keywords": [
+    "ai",
+    "coding",
+    "assistant",
+    "claude",
+    "openai",
+    "ollama",
+    "llm",
+    "cli"
+  ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
     "openai": "^4.70.0",
