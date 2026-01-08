@@ -237,11 +237,14 @@ Always use tools to interact with the filesystem rather than asking the user to 
         consecutiveErrors = 0; // Reset on success
       }
 
-      // Add tool results to messages
+      // Add tool results to messages (include is_error flag so model knows about failures)
       const resultBlocks: ContentBlock[] = toolResults.map((result) => ({
         type: 'tool_result' as const,
         tool_use_id: result.tool_use_id,
-        content: result.content,
+        content: result.is_error
+          ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
+          : result.content,
+        is_error: result.is_error,
       }));
 
       this.messages.push({

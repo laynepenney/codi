@@ -112,6 +112,7 @@ export class AnthropicProvider extends BaseProvider {
             type: 'tool_result' as const,
             tool_use_id: block.tool_use_id || '',
             content: block.content || '',
+            is_error: block.is_error || false,
           };
         }
         return { type: 'text' as const, text: '' };
