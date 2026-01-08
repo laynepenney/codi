@@ -206,28 +206,44 @@ Always use tools to interact with the filesystem rather than asking the user to 
         }
       }
 
+      // Check if tool calls are extracted (non-native) vs native API calls
+      const isExtractedToolCall = response.toolCalls.length > 0 &&
+        response.toolCalls[0].id.startsWith('extracted_');
+
       // Store assistant response
       if (response.content || response.toolCalls.length > 0) {
-        const contentBlocks: ContentBlock[] = [];
-
         if (response.content) {
-          contentBlocks.push({ type: 'text', text: response.content });
           finalResponse = response.content;
         }
 
-        for (const toolCall of response.toolCalls) {
-          contentBlocks.push({
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.input,
+        if (isExtractedToolCall) {
+          // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
+          this.messages.push({
+            role: 'assistant',
+            content: response.content || '',
+          });
+        } else {
+          // For native tool calls, use content blocks
+          const contentBlocks: ContentBlock[] = [];
+
+          if (response.content) {
+            contentBlocks.push({ type: 'text', text: response.content });
+          }
+
+          for (const toolCall of response.toolCalls) {
+            contentBlocks.push({
+              type: 'tool_use',
+              id: toolCall.id,
+              name: toolCall.name,
+              input: toolCall.input,
+            });
+          }
+
+          this.messages.push({
+            role: 'assistant',
+            content: contentBlocks,
           });
         }
-
-        this.messages.push({
-          role: 'assistant',
-          content: contentBlocks,
-        });
       }
 
       // If no tool calls, we're done
@@ -263,26 +279,46 @@ Always use tools to interact with the filesystem rather than asking the user to 
         consecutiveErrors = 0; // Reset on success
       }
 
-      // Add tool results to messages (include is_error flag so model knows about failures)
-      const resultBlocks: ContentBlock[] = toolResults.map((result) => ({
-        type: 'tool_result' as const,
-        tool_use_id: result.tool_use_id,
-        content: result.is_error
-          ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
-          : result.content,
-        is_error: result.is_error,
-      }));
+      // Add tool results to messages
+      if (isExtractedToolCall) {
+        // For extracted tool calls, format results as plain text
+        let resultText = '';
+        for (let i = 0; i < toolResults.length; i++) {
+          const result = toolResults[i];
+          const toolName = response.toolCalls[i].name;
+          if (result.is_error) {
+            resultText += `ERROR from ${toolName}: ${result.content}\n\n`;
+          } else {
+            resultText += `Result from ${toolName}:\n${result.content}\n\n`;
+          }
+        }
+        resultText += 'Continue with your task - use more tools if needed, or provide your final response if done.';
 
-      // Add a reminder to help model stay on track
-      resultBlocks.push({
-        type: 'text' as const,
-        text: '\n\nAbove are the tool results. Continue with your task - use more tools if needed, or provide your final response if done.',
-      });
+        this.messages.push({
+          role: 'user',
+          content: resultText,
+        });
+      } else {
+        // For native tool calls, use content blocks
+        const resultBlocks: ContentBlock[] = toolResults.map((result) => ({
+          type: 'tool_result' as const,
+          tool_use_id: result.tool_use_id,
+          content: result.is_error
+            ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
+            : result.content,
+          is_error: result.is_error,
+        }));
 
-      this.messages.push({
-        role: 'user',
-        content: resultBlocks,
-      });
+        resultBlocks.push({
+          type: 'text' as const,
+          text: '\n\nContinue with your task - use more tools if needed, or provide your final response if done.',
+        });
+
+        this.messages.push({
+          role: 'user',
+          content: resultBlocks,
+        });
+      }
     }
 
     if (iterations >= MAX_ITERATIONS) {
