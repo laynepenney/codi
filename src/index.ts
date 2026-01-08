@@ -27,12 +27,16 @@ program
   .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama)', 'auto')
   .option('-m, --model <name>', 'Model to use')
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
+  .option('--no-tools', 'Disable tool use (for models that don\'t support it)')
   .parse();
 
 const options = program.opts();
 
-function generateSystemPrompt(projectInfo: ProjectInfo | null): string {
-  let prompt = `You are an expert AI coding assistant with deep knowledge of software development. You have access to tools that allow you to read, write, and edit files, search codebases, and execute commands.
+function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean): string {
+  let prompt: string;
+
+  if (useTools) {
+    prompt = `You are an expert AI coding assistant with deep knowledge of software development. You have access to tools that allow you to read, write, and edit files, search codebases, and execute commands.
 
 ## Your Capabilities
 - Read and understand code in any language
@@ -61,6 +65,27 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null): string {
 - \`bash\`: Execute shell commands
 
 Always use tools to interact with the filesystem rather than asking the user to do it.`;
+  } else {
+    // Fallback mode for models without tool support
+    prompt = `You are an expert AI coding assistant with deep knowledge of software development.
+
+## Your Capabilities
+- Read and understand code in any language
+- Write clean, well-documented code
+- Debug issues and suggest fixes
+- Refactor and optimize code
+- Generate tests
+- Explain complex code clearly
+
+## Guidelines
+Since you cannot directly access the filesystem, please:
+1. **Ask for file contents**: If you need to see code, ask the user to paste it
+2. **Provide complete code**: When writing code, provide the complete file contents
+3. **Give clear instructions**: Tell the user exactly what commands to run
+4. **Be specific**: Reference exact file paths and line numbers when possible
+
+When suggesting changes, format them clearly so the user can apply them manually.`;
+  }
 
   if (projectInfo) {
     prompt += `\n\n## Current Project Context\n${formatProjectContext(projectInfo)}`;
@@ -113,7 +138,13 @@ async function main() {
   registerCodeCommands();
   registerWorkflowCommands();
 
-  console.log(chalk.dim(`Tools: ${globalRegistry.listTools().length} registered`));
+  const useTools = options.tools !== false; // --no-tools sets this to false
+
+  if (useTools) {
+    console.log(chalk.dim(`Tools: ${globalRegistry.listTools().length} registered`));
+  } else {
+    console.log(chalk.yellow('Tools: disabled (--no-tools mode)'));
+  }
   console.log(chalk.dim(`Commands: ${getAllCommands().length} available`));
 
   // Create provider
@@ -139,7 +170,8 @@ async function main() {
   const agent = new Agent({
     provider,
     toolRegistry: globalRegistry,
-    systemPrompt: generateSystemPrompt(projectInfo),
+    systemPrompt: generateSystemPrompt(projectInfo, useTools),
+    useTools,
     onText: (text) => process.stdout.write(text),
     onToolCall: (name, input) => {
       console.log(chalk.yellow(`\n\n📎 ${name}`));

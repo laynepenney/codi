@@ -8,6 +8,7 @@ export interface AgentOptions {
   provider: BaseProvider;
   toolRegistry: ToolRegistry;
   systemPrompt?: string;
+  useTools?: boolean; // Set to false for models that don't support tool use
   onText?: (text: string) => void;
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
@@ -21,6 +22,7 @@ export class Agent {
   private provider: BaseProvider;
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
+  private useTools: boolean;
   private messages: Message[] = [];
   private callbacks: {
     onText?: (text: string) => void;
@@ -31,6 +33,7 @@ export class Agent {
   constructor(options: AgentOptions) {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
+    this.useTools = options.useTools ?? true;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
       onText: options.onText,
@@ -72,8 +75,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
     while (iterations < MAX_ITERATIONS) {
       iterations++;
 
-      // Get tool definitions if provider supports them
-      const tools = this.provider.supportsToolUse()
+      // Get tool definitions if provider supports them and tools are enabled
+      const tools = (this.useTools && this.provider.supportsToolUse())
         ? this.toolRegistry.getDefinitions()
         : undefined;
 
