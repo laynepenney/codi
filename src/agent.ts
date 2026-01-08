@@ -273,6 +273,12 @@ Always use tools to interact with the filesystem rather than asking the user to 
         is_error: result.is_error,
       }));
 
+      // Add a reminder to help model stay on track
+      resultBlocks.push({
+        type: 'text' as const,
+        text: '\n\nAbove are the tool results. Continue with your task - use more tools if needed, or provide your final response if done.',
+      });
+
       this.messages.push({
         role: 'user',
         content: resultBlocks,
