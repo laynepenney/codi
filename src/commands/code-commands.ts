@@ -42,19 +42,21 @@ export const refactorCommand: Command = {
     const filePath = parts[0];
     const focusArea = parts.slice(1).join(' ');
 
-    let prompt = `Please read "${filePath}" and suggest refactoring improvements.`;
+    let prompt = `Refactor "${filePath}" to improve code quality.`;
     if (focusArea) {
       prompt += ` Focus on: ${focusArea}.`;
     }
-    prompt += `\n\nConsider:
-1. Code readability and clarity
-2. DRY (Don't Repeat Yourself) violations
-3. Function/method length and complexity
-4. Naming conventions
-5. Error handling
-6. Performance optimizations
+    prompt += `\n\nSteps:
+1. Read the file using read_file
+2. Analyze for improvements:
+   - Code readability and clarity
+   - DRY violations
+   - Function complexity
+   - Naming conventions
+   - Error handling
+3. Use edit_file to apply the improvements
 
-After analysis, implement the most impactful improvements.`;
+IMPORTANT: Use edit_file to make changes. Do not just output code.`;
 
     return prompt;
   },
@@ -78,13 +80,15 @@ export const fixCommand: Command = {
       return `Please describe the issue to fix: /fix ${filePath} <issue_description>`;
     }
 
-    return `Please read "${filePath}" and fix the following issue: ${issue}
+    return `Fix this issue in "${filePath}": ${issue}
 
 Steps:
-1. Read the file to understand the current implementation
-2. Identify the root cause of the issue
-3. Implement a fix
-4. Explain what was wrong and how you fixed it`;
+1. Read the file using read_file
+2. Identify the root cause
+3. Use edit_file to implement the fix
+4. Briefly explain what was wrong and how you fixed it
+
+IMPORTANT: Use edit_file to apply the fix. Do not just output code.`;
   },
 };
 
@@ -167,16 +171,18 @@ export const docCommand: Command = {
 
     const filePath = args.trim();
 
-    return `Please read "${filePath}" and add comprehensive documentation.
+    return `Add comprehensive documentation to "${filePath}".
 
-Add:
-1. File/module-level documentation explaining purpose
-2. JSDoc/docstrings for all functions, classes, and methods
-3. Parameter descriptions and return types
-4. Usage examples where helpful
-5. Any important notes or warnings
+Steps:
+1. First, read the file using read_file
+2. Add documentation:
+   - File/module-level documentation explaining purpose
+   - JSDoc/docstrings for all functions, classes, and methods
+   - Parameter descriptions and return types
+   - Usage examples where helpful
+3. Use write_file to save the documented version back to "${filePath}"
 
-Update the file with the documentation.`;
+IMPORTANT: You must use write_file to save your changes. Do not just output the code.`;
   },
 };
 
@@ -192,17 +198,19 @@ export const optimizeCommand: Command = {
 
     const filePath = args.trim();
 
-    return `Please read "${filePath}" and optimize for performance.
+    return `Optimize "${filePath}" for performance.
 
-Analyze:
-1. Algorithm complexity - can any O(n²) become O(n)?
-2. Unnecessary iterations or redundant operations
-3. Memory usage and potential leaks
-4. Caching opportunities
-5. Async/parallel processing opportunities
-6. Database query optimization (if applicable)
+Steps:
+1. Read the file using read_file
+2. Analyze for:
+   - Algorithm complexity improvements
+   - Unnecessary iterations
+   - Caching opportunities
+   - Async/parallel processing
+3. Use edit_file to apply optimizations
+4. Briefly explain the improvements
 
-Implement the optimizations and explain the improvements.`;
+IMPORTANT: Use edit_file to apply changes. Do not just output code.`;
   },
 };
 
