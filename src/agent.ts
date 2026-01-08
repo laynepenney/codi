@@ -5,6 +5,36 @@ import { ToolRegistry } from './tools/registry.js';
 const MAX_ITERATIONS = 20; // Prevent infinite loops
 
 /**
+ * Attempt to fix common JSON issues from LLM output:
+ * - Single quotes instead of double quotes
+ */
+function tryFixJson(jsonStr: string): string {
+  let fixed = jsonStr;
+
+  // Replace single-quoted strings after colons (handles multi-line)
+  // Match: : 'content' and replace with : "content"
+  fixed = fixed.replace(/:(\s*)'((?:[^'\\]|\\.)*)'/gs, ':$1"$2"');
+
+  return fixed;
+}
+
+/**
+ * Try to parse JSON, attempting to fix common issues if standard parse fails.
+ */
+function tryParseJson(jsonStr: string): unknown | null {
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Try to fix common issues
+    try {
+      return JSON.parse(tryFixJson(jsonStr));
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
  * Try to extract tool calls from text when models output JSON instead of using
  * proper function calling (common with Ollama models).
  */
@@ -18,35 +48,28 @@ function extractToolCallsFromText(text: string, availableTools: string[]): ToolC
   while ((match = jsonPattern.exec(text)) !== null) {
     const toolName = match[1];
     if (availableTools.includes(toolName)) {
-      try {
-        const args = JSON.parse(match[2]);
+      const args = tryParseJson(match[2]);
+      if (args && typeof args === 'object') {
         toolCalls.push({
           id: `extracted_${Date.now()}_${toolCalls.length}`,
           name: toolName,
-          input: args,
+          input: args as Record<string, unknown>,
         });
-      } catch {
-        // Failed to parse arguments, skip
       }
     }
   }
 
-  // Pattern 2: Simple JSON object with tool name as a key or direct format
+  // Pattern 2: Look for JSON in code blocks
   if (toolCalls.length === 0) {
-    // Try to find standalone JSON objects
-    const standalonePattern = /```json\s*(\{[\s\S]*?\})\s*```/g;
+    const standalonePattern = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/g;
     while ((match = standalonePattern.exec(text)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        if (parsed.name && availableTools.includes(parsed.name)) {
-          toolCalls.push({
-            id: `extracted_${Date.now()}_${toolCalls.length}`,
-            name: parsed.name,
-            input: parsed.arguments || parsed.parameters || parsed.input || {},
-          });
-        }
-      } catch {
-        // Not valid JSON, skip
+      const parsed = tryParseJson(match[1]) as Record<string, unknown> | null;
+      if (parsed?.name && availableTools.includes(parsed.name as string)) {
+        toolCalls.push({
+          id: `extracted_${Date.now()}_${toolCalls.length}`,
+          name: parsed.name as string,
+          input: (parsed.arguments || parsed.parameters || parsed.input || {}) as Record<string, unknown>,
+        });
       }
     }
   }
