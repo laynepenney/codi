@@ -5,9 +5,11 @@ A hybrid AI coding assistant CLI that supports both cloud APIs (Claude, OpenAI) 
 ## Features
 
 - **Multiple Providers**: Switch between Claude API, OpenAI API, or local models via Ollama
-- **Tool Use**: AI can read/write files and execute bash commands
+- **Tool Use**: AI can read/write files, search code, and execute commands
+- **Code Assistance**: Built-in commands for explaining, refactoring, testing, and reviewing code
+- **Project Context**: Auto-detects project type, language, and framework
 - **Streaming**: Real-time response streaming
-- **Extensible**: Easy to add new tools and providers
+- **Extensible**: Easy to add new tools, commands, and providers
 
 ## Installation
 
@@ -45,13 +47,64 @@ npm run dev -- --provider ollama --model llama3.2
 | `-m, --model <name>` | Model name to use |
 | `--base-url <url>` | Custom API base URL |
 
-### Commands
+## Commands
+
+### Built-in Commands
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show help |
+| `/help` | Show all available commands |
 | `/clear` | Clear conversation history |
+| `/context` | Show detected project context |
 | `/exit` | Exit the assistant |
+
+### Code Assistance
+
+| Command | Description |
+|---------|-------------|
+| `/explain <file> [function]` | Explain code in a file |
+| `/refactor <file> [focus]` | Suggest refactoring improvements |
+| `/fix <file> <issue>` | Fix a bug or issue |
+| `/test <file> [function]` | Generate tests |
+| `/review <file>` | Perform a code review |
+| `/doc <file>` | Generate documentation |
+| `/optimize <file>` | Optimize for performance |
+
+### Workflow Commands
+
+| Command | Description |
+|---------|-------------|
+| `/new <type> <name>` | Create new component, hook, service, etc. |
+| `/scaffold <feature>` | Scaffold a complete feature with multiple files |
+| `/debug <issue>` | Help debug an issue |
+| `/setup <tool>` | Set up tooling (typescript, eslint, prettier, testing, ci, docker) |
+| `/migrate <from> <to> [path]` | Migrate code patterns (e.g., callbacks to promises) |
+
+## Tools
+
+The AI has access to these tools for interacting with your codebase:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read file contents |
+| `write_file` | Create or overwrite files |
+| `edit_file` | Make targeted search/replace edits |
+| `patch_file` | Apply unified diff patches |
+| `glob` | Find files by pattern |
+| `grep` | Search file contents with regex |
+| `list_directory` | List directory contents |
+| `bash` | Execute shell commands |
+
+## Project Detection
+
+The assistant automatically detects your project type and adapts its responses:
+
+| Project Type | Detection | Frameworks |
+|--------------|-----------|------------|
+| Node.js | `package.json` | React, Next.js, Vue, Angular, Express, Fastify, NestJS |
+| Python | `pyproject.toml`, `requirements.txt`, `setup.py` | Django, Flask, FastAPI |
+| Rust | `Cargo.toml` | - |
+| Go | `go.mod` | - |
 
 ## Architecture
 
@@ -59,7 +112,12 @@ npm run dev -- --provider ollama --model llama3.2
 src/
 ├── index.ts              # CLI entry point
 ├── agent.ts              # Agent loop orchestration
+├── context.ts            # Project detection
 ├── types.ts              # TypeScript types
+├── commands/
+│   ├── index.ts          # Command registry
+│   ├── code-commands.ts  # /explain, /refactor, /fix, etc.
+│   └── workflow-commands.ts  # /new, /scaffold, /setup, etc.
 ├── providers/
 │   ├── base.ts           # Abstract provider interface
 │   ├── anthropic.ts      # Claude API provider
@@ -70,6 +128,11 @@ src/
     ├── registry.ts       # Tool registry
     ├── read-file.ts      # Read file tool
     ├── write-file.ts     # Write file tool
+    ├── edit-file.ts      # Edit file tool
+    ├── patch-file.ts     # Patch file tool
+    ├── glob.ts           # Glob tool
+    ├── grep.ts           # Grep tool
+    ├── list-directory.ts # List directory tool
     ├── bash.ts           # Bash command tool
     └── index.ts          # Tool exports
 ```
@@ -80,7 +143,9 @@ src/
 
 2. **Tool System**: Tools are defined with JSON schemas and registered with the `ToolRegistry`. The AI model can call these tools to interact with the filesystem
 
-3. **Agent Loop**: The `Agent` class orchestrates the conversation:
+3. **Command System**: Slash commands transform user input into specialized prompts that guide the AI for specific tasks
+
+4. **Agent Loop**: The `Agent` class orchestrates the conversation:
    - Send user message + tool definitions to the model
    - Receive response (text and/or tool calls)
    - Execute any tool calls
@@ -118,20 +183,23 @@ export class MyTool extends BaseTool {
 
 Then register it in `src/tools/index.ts`.
 
-## Adding a New Provider
-
-Extend `BaseProvider` and implement the required methods:
+## Adding a New Command
 
 ```typescript
-import { BaseProvider } from './providers/base.js';
+import { registerCommand, type Command } from './commands/index.js';
 
-export class MyProvider extends BaseProvider {
-  async chat(messages, tools?) { /* ... */ }
-  async streamChat(messages, tools?, onChunk?) { /* ... */ }
-  supportsToolUse() { return true; }
-  getName() { return 'MyProvider'; }
-  getModel() { return 'model-name'; }
-}
+export const myCommand: Command = {
+  name: 'mycommand',
+  aliases: ['mc'],
+  description: 'Description of the command',
+  usage: '/mycommand <arg>',
+  execute: async (args, context) => {
+    // Return a prompt string to send to the AI
+    return `Do something with: ${args}`;
+  },
+};
+
+registerCommand(myCommand);
 ```
 
 ## Recommended Local Models
