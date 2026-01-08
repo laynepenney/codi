@@ -41,16 +41,25 @@ export class ReadFileTool extends BaseTool {
     }
 
     const content = await readFile(resolvedPath, 'utf-8');
+    const lines = content.split('\n');
+
+    // Add line numbers to help with insert_line tool
+    const formatWithLineNumbers = (linesToFormat: string[]): string => {
+      const padding = String(linesToFormat.length).length;
+      return linesToFormat
+        .map((line, i) => `${String(i + 1).padStart(padding)}: ${line}`)
+        .join('\n');
+    };
 
     if (maxLines && maxLines > 0) {
-      const lines = content.split('\n');
-      const truncated = lines.slice(0, maxLines).join('\n');
+      const truncated = lines.slice(0, maxLines);
+      let result = formatWithLineNumbers(truncated);
       if (lines.length > maxLines) {
-        return `${truncated}\n\n... (truncated, showing ${maxLines} of ${lines.length} lines)`;
+        result += `\n\n... (truncated, showing ${maxLines} of ${lines.length} lines)`;
       }
-      return truncated;
+      return result;
     }
 
-    return content;
+    return formatWithLineNumbers(lines);
   }
 }
