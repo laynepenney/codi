@@ -163,26 +163,42 @@ export const docCommand: Command = {
   name: 'doc',
   aliases: ['d'],
   description: 'Generate documentation for code',
-  usage: '/doc <file_path>',
+  usage: '/doc <file_path_or_pattern>',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /doc <file_path>';
     }
 
     const filePath = args.trim();
+    const isGlobPattern = filePath.includes('*');
 
-    return `Add comprehensive documentation to "${filePath}".
+    if (isGlobPattern) {
+      return `Add documentation to files matching "${filePath}".
 
 Steps:
-1. First, read the file using read_file
-2. Add documentation:
-   - File/module-level documentation explaining purpose
-   - JSDoc/docstrings for all functions, classes, and methods
-   - Parameter descriptions and return types
-   - Usage examples where helpful
-3. Use write_file to save the documented version back to "${filePath}"
+1. Use glob tool with pattern "${filePath}" to find matching files
+2. For EACH file found:
+   a. Use read_file to read the file contents
+   b. Add JSDoc/docstrings for all functions, classes, methods
+   c. Use write_file to save the documented version (same path)
+3. Continue until all files are documented
 
-IMPORTANT: You must use write_file to save your changes. Do not just output the code.`;
+CRITICAL RULES:
+- ONLY use tools (glob, read_file, write_file). NEVER output code as text.
+- Process files one at a time: read -> document -> write -> next file
+- The glob tool takes: {"pattern": "${filePath}"}
+- The read_file tool takes: {"path": "exact/file/path"}
+- The write_file tool takes: {"path": "exact/file/path", "content": "..."}`;
+    }
+
+    return `Add documentation to "${filePath}".
+
+Steps:
+1. Use read_file with {"path": "${filePath}"} to read the file
+2. Add JSDoc/docstrings for all functions, classes, and methods
+3. Use write_file with {"path": "${filePath}", "content": "documented code"} to save
+
+CRITICAL: ONLY use tools. NEVER output code as text. You MUST call write_file to save.`;
   },
 };
 

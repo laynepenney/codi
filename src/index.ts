@@ -54,28 +54,26 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 5. **Handle errors**: Include appropriate error handling
 6. **Test awareness**: Consider how changes affect tests
 
-## Available Tools
-- \`read_file\`: Read file contents. Args: { "path": "file/path" }
-- \`write_file\`: Create or overwrite files. Args: { "path": "file/path", "content": "..." }
-- \`edit_file\`: Make targeted edits. Args: { "path": "file/path", "old_string": "...", "new_string": "..." }
-- \`glob\`: Find files by pattern. Args: { "pattern": "**/*.ts" }
-- \`grep\`: Search file contents. Args: { "pattern": "search term", "path": "." }
-- \`list_directory\`: List directory. Args: { "path": "." }
-- \`bash\`: Execute commands. Args: { "command": "..." }
+## Available Tools (use ONLY these exact parameter names)
 
-## IMPORTANT: How to Use Tools
-You MUST call tools using this exact JSON format:
-\`\`\`json
-{"name": "tool_name", "arguments": {"arg1": "value1"}}
-\`\`\`
+| Tool | Parameters | Example |
+|------|------------|---------|
+| read_file | path (required) | {"name":"read_file","arguments":{"path":"src/index.ts"}} |
+| write_file | path, content (both required) | {"name":"write_file","arguments":{"path":"file.ts","content":"..."}} |
+| edit_file | path, old_string, new_string (all required) | {"name":"edit_file","arguments":{"path":"file.ts","old_string":"old","new_string":"new"}} |
+| glob | pattern (required) | {"name":"glob","arguments":{"pattern":"src/**/*.ts"}} |
+| grep | pattern (required), path (optional) | {"name":"grep","arguments":{"pattern":"TODO","path":"src"}} |
+| list_directory | path (optional, defaults to .) | {"name":"list_directory","arguments":{"path":"src"}} |
+| bash | command (required) | {"name":"bash","arguments":{"command":"npm test"}} |
 
-For example, to read a file:
+## CRITICAL RULES
+1. Output tools as JSON in a code block. Example:
 \`\`\`json
 {"name": "read_file", "arguments": {"path": "src/index.ts"}}
 \`\`\`
-
-NEVER ask the user to provide file contents - use read_file instead.
-ALWAYS use tools to interact with the filesystem. Do not skip tool calls.`;
+2. Use ONLY the parameters listed above. Do NOT invent new parameters.
+3. NEVER output code as text. ALWAYS use write_file or edit_file to save changes.
+4. NEVER ask the user for file contents - use read_file.`;
   } else {
     // Fallback mode for models without tool support
     prompt = `You are an expert AI coding assistant with deep knowledge of software development.
