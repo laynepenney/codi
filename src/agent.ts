@@ -1,8 +1,58 @@
-import type { Message, ContentBlock, ToolResult } from './types.js';
+import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 
 const MAX_ITERATIONS = 20; // Prevent infinite loops
+
+/**
+ * Try to extract tool calls from text when models output JSON instead of using
+ * proper function calling (common with Ollama models).
+ */
+function extractToolCallsFromText(text: string, availableTools: string[]): ToolCall[] {
+  const toolCalls: ToolCall[] = [];
+
+  // Pattern 1: {"name": "tool_name", "arguments": {...}} or {"name": "tool_name", "parameters": {...}}
+  const jsonPattern = /\{[\s\S]*?"name"\s*:\s*"(\w+)"[\s\S]*?(?:"arguments"|"parameters"|"input")\s*:\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})[\s\S]*?\}/g;
+
+  let match;
+  while ((match = jsonPattern.exec(text)) !== null) {
+    const toolName = match[1];
+    if (availableTools.includes(toolName)) {
+      try {
+        const args = JSON.parse(match[2]);
+        toolCalls.push({
+          id: `extracted_${Date.now()}_${toolCalls.length}`,
+          name: toolName,
+          input: args,
+        });
+      } catch {
+        // Failed to parse arguments, skip
+      }
+    }
+  }
+
+  // Pattern 2: Simple JSON object with tool name as a key or direct format
+  if (toolCalls.length === 0) {
+    // Try to find standalone JSON objects
+    const standalonePattern = /```json\s*(\{[\s\S]*?\})\s*```/g;
+    while ((match = standalonePattern.exec(text)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (parsed.name && availableTools.includes(parsed.name)) {
+          toolCalls.push({
+            id: `extracted_${Date.now()}_${toolCalls.length}`,
+            name: parsed.name,
+            input: parsed.arguments || parsed.parameters || parsed.input || {},
+          });
+        }
+      } catch {
+        // Not valid JSON, skip
+      }
+    }
+  }
+
+  return toolCalls;
+}
 
 export interface AgentOptions {
   provider: BaseProvider;
@@ -93,6 +143,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
         tools,
         this.callbacks.onText
       );
+
+      // If no tool calls were detected via API but tools are enabled,
+      // try to extract tool calls from the text (for models that output JSON as text)
+      if (response.toolCalls.length === 0 && this.useTools && response.content) {
+        const availableTools = this.toolRegistry.listTools();
+        const extractedCalls = extractToolCallsFromText(response.content, availableTools);
+        if (extractedCalls.length > 0) {
+          response.toolCalls = extractedCalls;
+          response.stopReason = 'tool_use';
+        }
+      }
 
       // Store assistant response
       if (response.content || response.toolCalls.length > 0) {
