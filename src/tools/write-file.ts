@@ -1,0 +1,49 @@
+import { writeFile, mkdir } from 'fs/promises';
+import { dirname, resolve } from 'path';
+import { BaseTool } from './base.js';
+import type { ToolDefinition } from '../types.js';
+
+export class WriteFileTool extends BaseTool {
+  getDefinition(): ToolDefinition {
+    return {
+      name: 'write_file',
+      description: 'Write content to a file. Creates the file if it does not exist, or overwrites it if it does. Parent directories are created automatically.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'The path to the file to write (relative or absolute)',
+          },
+          content: {
+            type: 'string',
+            description: 'The content to write to the file',
+          },
+        },
+        required: ['path', 'content'],
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>): Promise<string> {
+    const path = input.path as string;
+    const content = input.content as string;
+
+    if (!path) {
+      throw new Error('Path is required');
+    }
+
+    if (content === undefined) {
+      throw new Error('Content is required');
+    }
+
+    const resolvedPath = resolve(process.cwd(), path);
+
+    // Create parent directories if needed
+    await mkdir(dirname(resolvedPath), { recursive: true });
+
+    await writeFile(resolvedPath, content, 'utf-8');
+
+    return `Successfully wrote ${content.length} characters to ${resolvedPath}`;
+  }
+}

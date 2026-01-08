@@ -1,0 +1,27 @@
+{
+  "name": "ai-assistant",
+  "version": "0.1.0",
+  "description": "A hybrid AI coding assistant supporting Claude API and local models",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "ai-assistant": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "openai": "^4.70.0",
+    "commander": "^12.1.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2"
+  }
+}
