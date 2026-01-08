@@ -55,16 +55,27 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 6. **Test awareness**: Consider how changes affect tests
 
 ## Available Tools
-- \`read_file\`: Read file contents
-- \`write_file\`: Create or overwrite files
-- \`edit_file\`: Make targeted search/replace edits
-- \`patch_file\`: Apply unified diff patches
-- \`glob\`: Find files by pattern
-- \`grep\`: Search file contents
-- \`list_directory\`: List directory contents
-- \`bash\`: Execute shell commands
+- \`read_file\`: Read file contents. Args: { "path": "file/path" }
+- \`write_file\`: Create or overwrite files. Args: { "path": "file/path", "content": "..." }
+- \`edit_file\`: Make targeted edits. Args: { "path": "file/path", "old_string": "...", "new_string": "..." }
+- \`glob\`: Find files by pattern. Args: { "pattern": "**/*.ts" }
+- \`grep\`: Search file contents. Args: { "pattern": "search term", "path": "." }
+- \`list_directory\`: List directory. Args: { "path": "." }
+- \`bash\`: Execute commands. Args: { "command": "..." }
 
-Always use tools to interact with the filesystem rather than asking the user to do it.`;
+## IMPORTANT: How to Use Tools
+You MUST call tools using this exact JSON format:
+\`\`\`json
+{"name": "tool_name", "arguments": {"arg1": "value1"}}
+\`\`\`
+
+For example, to read a file:
+\`\`\`json
+{"name": "read_file", "arguments": {"path": "src/index.ts"}}
+\`\`\`
+
+NEVER ask the user to provide file contents - use read_file instead.
+ALWAYS use tools to interact with the filesystem. Do not skip tool calls.`;
   } else {
     // Fallback mode for models without tool support
     prompt = `You are an expert AI coding assistant with deep knowledge of software development.
