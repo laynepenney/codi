@@ -60,17 +60,38 @@ function extractToolCallsFromText(text: string, availableTools: string[]): ToolC
     }
   }
 
-  // Pattern 2: Look for JSON in code blocks
+  // Pattern 2: Look for JSON in code blocks (objects or arrays)
   if (toolCalls.length === 0) {
-    const standalonePattern = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/g;
-    while ((match = standalonePattern.exec(text)) !== null) {
-      const parsed = tryParseJson(match[1]) as Record<string, unknown> | null;
-      if (parsed?.name && availableTools.includes(parsed.name as string)) {
-        toolCalls.push({
-          id: `extracted_${Date.now()}_${toolCalls.length}`,
-          name: parsed.name as string,
-          input: (parsed.arguments || parsed.parameters || parsed.input || {}) as Record<string, unknown>,
-        });
+    const codeBlockPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+    while ((match = codeBlockPattern.exec(text)) !== null) {
+      const content = match[1].trim();
+      if (!content.startsWith('{') && !content.startsWith('[')) continue;
+
+      const parsed = tryParseJson(content);
+      if (!parsed) continue;
+
+      // Handle array of tool calls
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item?.name && availableTools.includes(item.name as string)) {
+            toolCalls.push({
+              id: `extracted_${Date.now()}_${toolCalls.length}`,
+              name: item.name as string,
+              input: (item.arguments || item.parameters || item.input || {}) as Record<string, unknown>,
+            });
+          }
+        }
+      }
+      // Handle single object
+      else {
+        const obj = parsed as Record<string, unknown>;
+        if (obj.name && availableTools.includes(obj.name as string)) {
+          toolCalls.push({
+            id: `extracted_${Date.now()}_${toolCalls.length}`,
+            name: obj.name as string,
+            input: (obj.arguments || obj.parameters || obj.input || {}) as Record<string, unknown>,
+          });
+        }
       }
     }
   }
