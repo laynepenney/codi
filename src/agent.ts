@@ -3,6 +3,7 @@ import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 
 const MAX_ITERATIONS = 20; // Prevent infinite loops
+const MAX_CONSECUTIVE_ERRORS = 3; // Stop after repeated failures
 
 /**
  * Attempt to fix common JSON issues from LLM output:
@@ -143,6 +144,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     });
 
     let iterations = 0;
+    let consecutiveErrors = 0;
     let finalResponse = '';
 
     while (iterations < MAX_ITERATIONS) {
@@ -209,6 +211,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // Execute tool calls
       const toolResults: ToolResult[] = [];
+      let hasError = false;
 
       for (const toolCall of response.toolCalls) {
         this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
@@ -216,7 +219,22 @@ Always use tools to interact with the filesystem rather than asking the user to 
         const result = await this.toolRegistry.execute(toolCall);
         toolResults.push(result);
 
+        if (result.is_error) {
+          hasError = true;
+        }
+
         this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
+      }
+
+      // Track consecutive errors
+      if (hasError) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          finalResponse += '\n\n(Stopping due to repeated errors. Please check the issue and try again.)';
+          break;
+        }
+      } else {
+        consecutiveErrors = 0; // Reset on success
       }
 
       // Add tool results to messages

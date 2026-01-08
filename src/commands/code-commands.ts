@@ -173,26 +173,30 @@ export const docCommand: Command = {
     const isGlobPattern = filePath.includes('*');
 
     const editInstructions = `
-## How to add documentation using edit_file (SAFE METHOD)
+## How to add documentation using edit_file
 
-For each undocumented function/class/interface, use edit_file to insert a JSDoc comment.
+For each undocumented function/class/interface, use edit_file to prepend a JSDoc comment.
 
-Example - to document this function:
+Example - to document this:
 \`\`\`
 export function calculateTotal(items: Item[]): number {
 \`\`\`
 
-Use edit_file like this:
+Use:
 \`\`\`json
-{"name": "edit_file", "arguments": {"path": "file.ts", "old_string": "export function calculateTotal(items: Item[]): number {", "new_string": "/**\\n * Calculates the total price of all items.\\n * @param items - Array of items to sum\\n * @returns The total price\\n */\\nexport function calculateTotal(items: Item[]): number {"}}
+{"name": "edit_file", "arguments": {"path": "file.ts", "old_string": "export function calculateTotal(items: Item[]): number {", "new_string": "/**\\n * Calculates the total price.\\n * @param items - Items to sum\\n * @returns Total price\\n */\\nexport function calculateTotal(items: Item[]): number {"}}
 \`\`\`
 
-CRITICAL RULES:
-- Use edit_file for EACH function/class/interface separately
-- The old_string must match EXACTLY (including whitespace)
-- Add the JSDoc comment BEFORE the function signature in new_string
-- Include the original code in new_string (you're prepending the comment)
-- NEVER output code as text - ONLY use edit_file tool calls`;
+RULES:
+1. old_string must match the file EXACTLY (copy it precisely)
+2. new_string = JSDoc comment + original code (prepend the comment)
+3. Document ONE thing at a time
+
+ERROR HANDLING:
+- If edit_file fails with "String not found", use read_file to see the current file state
+- After re-reading, try again with the EXACT string from the file
+- Do NOT guess what's in the file - always verify with read_file
+- After 2 consecutive failures, STOP and report the issue`;
 
     if (isGlobPattern) {
       return `Add documentation to files matching "${filePath}".
