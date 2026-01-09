@@ -164,28 +164,23 @@ export class OpenAICompatibleProvider extends BaseProvider {
         } as OpenAI.ChatCompletionMessageParam;
       }
 
-      // Handle content blocks (tool results need special handling in OpenAI format)
+      // Handle content blocks - OpenAI requires all tool_calls in a single assistant message
       const parts: OpenAI.ChatCompletionMessageParam[] = [];
+      const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [];
+      let textContent = '';
 
       for (const block of msg.content) {
         if (block.type === 'text') {
-          parts.push({
-            role: msg.role,
-            content: block.text || '',
-          } as OpenAI.ChatCompletionMessageParam);
+          textContent += block.text || '';
         } else if (block.type === 'tool_use' && msg.role === 'assistant') {
-          parts.push({
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: block.id || '',
-              type: 'function',
-              function: {
-                name: block.name || '',
-                arguments: JSON.stringify(block.input || {}),
-              },
-            }],
-          } as OpenAI.ChatCompletionMessageParam);
+          toolCalls.push({
+            id: block.id || '',
+            type: 'function',
+            function: {
+              name: block.name || '',
+              arguments: JSON.stringify(block.input || {}),
+            },
+          });
         } else if (block.type === 'tool_result') {
           parts.push({
             role: 'tool',
@@ -195,7 +190,21 @@ export class OpenAICompatibleProvider extends BaseProvider {
         }
       }
 
-      return parts.length === 1 ? parts[0] : parts;
+      // If there were tool calls, create a single assistant message with all of them
+      if (toolCalls.length > 0) {
+        parts.unshift({
+          role: 'assistant',
+          content: textContent || null,
+          tool_calls: toolCalls,
+        } as OpenAI.ChatCompletionMessageParam);
+      } else if (textContent) {
+        parts.unshift({
+          role: msg.role,
+          content: textContent,
+        } as OpenAI.ChatCompletionMessageParam);
+      }
+
+      return parts;
     }).flat();
   }
 
