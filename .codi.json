@@ -1,6 +1,6 @@
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
+  "provider": "ollama",
+  "model": "llama3.2",
   "autoApprove": ["read_file", "glob", "grep", "list_directory"],
   "systemPromptAdditions": "This is the Codi codebase - an AI coding assistant CLI tool. Follow the patterns established in CLAUDE.md. Use ES modules with .js extensions in imports. Prefer async/await. Run tests with 'npm test' and build with 'npm run build'.",
   "projectContext": "Codi is a TypeScript CLI tool that provides an interactive AI coding assistant. It supports multiple providers (Anthropic, OpenAI, Ollama, RunPod) and includes filesystem tools, git commands, session persistence, usage tracking, and workspace configuration.",
