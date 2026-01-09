@@ -172,6 +172,49 @@ function summarizeToolResult(toolName: string, content: string, isError: boolean
 }
 
 /**
+ * Check if a message contains tool_result blocks (orphaned without preceding tool_calls).
+ */
+function hasToolResultBlocks(msg: Message): boolean {
+  if (typeof msg.content === 'string') return false;
+  return msg.content.some(block => block.type === 'tool_result');
+}
+
+/**
+ * Check if a message contains tool_use blocks.
+ */
+function hasToolUseBlocks(msg: Message): boolean {
+  if (typeof msg.content === 'string') return false;
+  return msg.content.some(block => block.type === 'tool_use');
+}
+
+/**
+ * Find the first safe starting index for recent messages.
+ * Messages can't start with orphaned tool_result (needs preceding tool_calls).
+ * Returns the index of the first message that's safe to start with.
+ */
+function findSafeStartIndex(messages: Message[]): number {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    // Safe starts: user with plain text, or assistant (even with tool_use, we keep the pair)
+    if (msg.role === 'user' && !hasToolResultBlocks(msg)) {
+      return i;
+    }
+    if (msg.role === 'assistant') {
+      // If assistant has tool_use, make sure next message exists and has results
+      if (hasToolUseBlocks(msg)) {
+        if (i + 1 < messages.length && hasToolResultBlocks(messages[i + 1])) {
+          return i; // Safe: assistant with tool_use followed by tool_result
+        }
+        // Otherwise skip this incomplete pair
+        continue;
+      }
+      return i; // Plain assistant message is safe
+    }
+  }
+  return messages.length; // No safe start found, will clear all
+}
+
+/**
  * Truncate old tool results in message history to save context.
  * Keeps recent tool results intact, truncates older ones to summaries.
  */
@@ -291,8 +334,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
     }
 
     // Split messages: older ones to summarize, recent ones to keep
-    const messagesToSummarize = this.messages.slice(0, -RECENT_MESSAGES_TO_KEEP);
-    const recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+    let recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+
+    // Ensure recent messages don't start with orphaned tool_result
+    // (OpenAI requires tool_result to follow assistant with tool_calls)
+    const safeStartIdx = findSafeStartIndex(recentMessages);
+    if (safeStartIdx > 0) {
+      recentMessages = recentMessages.slice(safeStartIdx);
+    }
+
+    const messagesToSummarize = this.messages.slice(0, this.messages.length - recentMessages.length);
 
     if (messagesToSummarize.length === 0) {
       // All messages are "recent", just truncate the oldest
@@ -592,8 +643,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
     // If compactContext didn't run (tokens were under limit), force it
     if (this.messages.length === originalMessages.length) {
-      const messagesToSummarize = this.messages.slice(0, -RECENT_MESSAGES_TO_KEEP);
-      const recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+      let recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+
+      // Ensure recent messages don't start with orphaned tool_result
+      const safeStartIdx = findSafeStartIndex(recentMessages);
+      if (safeStartIdx > 0) {
+        recentMessages = recentMessages.slice(safeStartIdx);
+      }
+
+      const messagesToSummarize = this.messages.slice(0, this.messages.length - recentMessages.length);
 
       const oldContent = messagesToSummarize
         .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
