@@ -70,13 +70,15 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 | bash | command | {"name":"bash","arguments":{"command":"npm test"}} |
 
 ## CRITICAL RULES
-1. Output tools as JSON in a code block. Example:
+1. To use a tool, output ONLY this exact JSON format in a code block:
 \`\`\`json
 {"name": "read_file", "arguments": {"path": "src/index.ts"}}
 \`\`\`
-2. Use ONLY the parameters listed above. Do NOT invent new parameters.
-3. NEVER output code as text. ALWAYS use write_file or edit_file to save changes.
-4. NEVER ask the user for file contents - use read_file.`;
+2. WAIT for the tool result before continuing. Do NOT make up file contents.
+3. Use ONLY these tools: read_file, write_file, edit_file, insert_line, glob, grep, list_directory, bash
+4. Use ONLY the parameters listed in the table above. Do NOT invent parameters.
+5. NEVER pretend to read a file - you MUST use read_file and wait for the actual contents.
+6. NEVER output code as text. ALWAYS use write_file or edit_file to save changes.`;
   } else {
     // Fallback mode for models without tool support
     prompt = `You are an expert AI coding assistant with deep knowledge of software development.

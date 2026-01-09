@@ -5,6 +5,9 @@ import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCal
 const DEFAULT_MODEL = 'gpt-4o';
 const MAX_TOKENS = 4096;
 
+// Models that use max_completion_tokens instead of max_tokens
+const COMPLETION_TOKEN_MODELS = ['gpt-5', 'o1', 'o3'];
+
 /**
  * OpenAI-compatible provider that works with:
  * - OpenAI API
@@ -28,6 +31,13 @@ export class OpenAICompatibleProvider extends BaseProvider {
     this.providerName = config.providerName || 'OpenAI';
   }
 
+  private getTokenParams(): { max_tokens?: number; max_completion_tokens?: number } {
+    const usesCompletionTokens = COMPLETION_TOKEN_MODELS.some(m => this.model.startsWith(m));
+    return usesCompletionTokens
+      ? { max_completion_tokens: MAX_TOKENS }
+      : { max_tokens: MAX_TOKENS };
+  }
+
   async chat(messages: Message[], tools?: ToolDefinition[], systemPrompt?: string): Promise<ProviderResponse> {
     const convertedMessages = this.convertMessages(messages);
     const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
@@ -36,7 +46,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
     const response = await this.client.chat.completions.create({
       model: this.model,
-      max_tokens: MAX_TOKENS,
+      ...this.getTokenParams(),
       messages: messagesWithSystem,
       tools: tools ? this.convertTools(tools) : undefined,
     });
@@ -57,7 +67,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
     const stream = await this.client.chat.completions.create({
       model: this.model,
-      max_tokens: MAX_TOKENS,
+      ...this.getTokenParams(),
       messages: messagesWithSystem,
       tools: tools ? this.convertTools(tools) : undefined,
       stream: true,
@@ -103,17 +113,8 @@ export class OpenAICompatibleProvider extends BaseProvider {
             existing.name = toolCallDelta.function.name;
           }
           if (toolCallDelta.function?.arguments) {
-            // Accumulate arguments JSON string
-            const currentArgs = JSON.stringify(existing.input);
-            const newArgs = toolCallDelta.function.arguments;
-            try {
-              existing.input = JSON.parse(
-                currentArgs === '{}' ? newArgs : currentArgs.slice(0, -1) + newArgs.slice(1)
-              );
-            } catch {
-              // Arguments still being streamed, store raw
-              (existing as any)._rawArgs = ((existing as any)._rawArgs || '') + newArgs;
-            }
+            // Accumulate arguments JSON string (parse at the end)
+            (existing as any)._rawArgs = ((existing as any)._rawArgs || '') + toolCallDelta.function.arguments;
           }
         }
       }
