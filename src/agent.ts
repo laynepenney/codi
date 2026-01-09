@@ -6,6 +6,8 @@ const MAX_ITERATIONS = 20; // Prevent infinite loops
 const MAX_CONSECUTIVE_ERRORS = 3; // Stop after repeated failures
 const MAX_CONTEXT_TOKENS = 8000; // Trigger compaction when exceeded
 const RECENT_MESSAGES_TO_KEEP = 6; // Keep recent messages verbatim during compaction
+const TOOL_RESULT_TRUNCATE_THRESHOLD = 500; // Truncate old tool results longer than this
+const RECENT_TOOL_RESULTS_TO_KEEP = 2; // Keep this many recent tool result messages untruncated
 
 /**
  * Attempt to fix common JSON issues from LLM output:
@@ -130,6 +132,86 @@ function getMessageText(message: Message): string {
  */
 function countMessageTokens(messages: Message[]): number {
   return messages.reduce((total, msg) => total + estimateTokens(getMessageText(msg)), 0);
+}
+
+/**
+ * Create a short summary of a tool result for truncation.
+ */
+function summarizeToolResult(toolName: string, content: string, isError: boolean): string {
+  const lines = content.split('\n').length;
+  const chars = content.length;
+
+  if (isError) {
+    // Keep first line of error for context
+    const firstLine = content.split('\n')[0].slice(0, 100);
+    return `[${toolName} ERROR: ${firstLine}...]`;
+  }
+
+  // Create summary based on tool type
+  switch (toolName) {
+    case 'read_file':
+    case 'list_directory':
+      return `[${toolName}: ${lines} lines, ${chars} chars]`;
+    case 'glob':
+    case 'grep': {
+      const matchCount = content.split('\n').filter(l => l.trim()).length;
+      return `[${toolName}: ${matchCount} matches]`;
+    }
+    case 'bash': {
+      const preview = content.slice(0, 100).replace(/\n/g, ' ');
+      return `[${toolName}: ${preview}${chars > 100 ? '...' : ''} (${lines} lines)]`;
+    }
+    case 'write_file':
+    case 'edit_file':
+    case 'insert_line':
+    case 'patch_file':
+      return `[${toolName}: success]`;
+    default:
+      return `[${toolName}: ${lines} lines, ${chars} chars]`;
+  }
+}
+
+/**
+ * Truncate old tool results in message history to save context.
+ * Keeps recent tool results intact, truncates older ones to summaries.
+ */
+function truncateOldToolResults(messages: Message[]): void {
+  // Find indices of messages containing tool_result blocks
+  const toolResultIndices: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (typeof msg.content !== 'string') {
+      const hasToolResult = msg.content.some(block => block.type === 'tool_result');
+      if (hasToolResult) {
+        toolResultIndices.push(i);
+      }
+    }
+  }
+
+  // Keep recent tool results, truncate older ones
+  const indicesToTruncate = toolResultIndices.slice(0, -RECENT_TOOL_RESULTS_TO_KEEP);
+
+  for (const idx of indicesToTruncate) {
+    const msg = messages[idx];
+    if (typeof msg.content === 'string') continue;
+
+    msg.content = msg.content.map(block => {
+      if (block.type !== 'tool_result') return block;
+      if (!block.content || block.content.length <= TOOL_RESULT_TRUNCATE_THRESHOLD) return block;
+
+      // Truncate to summary
+      const summary = summarizeToolResult(
+        block.name || 'tool',
+        block.content,
+        !!block.is_error
+      );
+
+      return {
+        ...block,
+        content: summary,
+      };
+    });
+  }
 }
 
 export interface AgentOptions {
@@ -435,9 +517,10 @@ Always use tools to interact with the filesystem rather than asking the user to 
         });
       } else {
         // For native tool calls, use content blocks
-        const resultBlocks: ContentBlock[] = toolResults.map((result) => ({
+        const resultBlocks: ContentBlock[] = toolResults.map((result, i) => ({
           type: 'tool_result' as const,
           tool_use_id: result.tool_use_id,
+          name: response.toolCalls[i].name, // Store tool name for truncation summaries
           content: result.is_error
             ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
             : result.content,
@@ -454,6 +537,9 @@ Always use tools to interact with the filesystem rather than asking the user to 
           content: resultBlocks,
         });
       }
+
+      // Truncate old tool results to save context
+      truncateOldToolResults(this.messages);
     }
 
     if (iterations >= MAX_ITERATIONS) {
