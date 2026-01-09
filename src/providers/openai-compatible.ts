@@ -71,11 +71,13 @@ export class OpenAICompatibleProvider extends BaseProvider {
       messages: messagesWithSystem,
       tools: tools ? this.convertTools(tools) : undefined,
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     let fullContent = '';
     let reasoningContent = '';
     const toolCalls: Map<number, ToolCall> = new Map();
+    let streamUsage: { prompt_tokens: number; completion_tokens: number } | null = null;
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta;
@@ -118,6 +120,14 @@ export class OpenAICompatibleProvider extends BaseProvider {
           }
         }
       }
+
+      // Capture usage from final chunk (when stream_options.include_usage is true)
+      if (chunk.usage) {
+        streamUsage = {
+          prompt_tokens: chunk.usage.prompt_tokens,
+          completion_tokens: chunk.usage.completion_tokens,
+        };
+      }
     }
 
     // Parse any remaining raw arguments
@@ -134,18 +144,27 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
     const hasToolCalls = toolCalls.size > 0;
 
-    // Estimate tokens for streaming (rough approximation: ~4 chars per token)
-    const estimatedOutputTokens = Math.ceil((fullContent.length + reasoningContent.length) / 4);
+    // Use actual usage from stream if available, otherwise estimate
+    let usage: { inputTokens: number; outputTokens: number };
+    if (streamUsage) {
+      usage = {
+        inputTokens: streamUsage.prompt_tokens,
+        outputTokens: streamUsage.completion_tokens,
+      };
+    } else {
+      // Fallback: estimate tokens (rough approximation: ~4 chars per token)
+      usage = {
+        inputTokens: 0,
+        outputTokens: Math.ceil((fullContent.length + reasoningContent.length) / 4),
+      };
+    }
 
     return {
       content: fullContent,
       toolCalls: Array.from(toolCalls.values()),
       stopReason: hasToolCalls ? 'tool_use' : 'end_turn',
       reasoningContent: reasoningContent || undefined,
-      usage: {
-        inputTokens: 0, // Cannot estimate input tokens in streaming mode
-        outputTokens: estimatedOutputTokens,
-      },
+      usage,
     };
   }
 
