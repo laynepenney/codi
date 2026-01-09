@@ -15,11 +15,13 @@ export abstract class BaseProvider {
    * Send a chat completion request to the model.
    * @param messages - Conversation history
    * @param tools - Optional tool definitions for function calling
+   * @param systemPrompt - Optional system prompt (uses native API support when available)
    * @returns Provider response with content and any tool calls
    */
   abstract chat(
     messages: Message[],
-    tools?: ToolDefinition[]
+    tools?: ToolDefinition[],
+    systemPrompt?: string
   ): Promise<ProviderResponse>;
 
   /**
@@ -27,12 +29,14 @@ export abstract class BaseProvider {
    * @param messages - Conversation history
    * @param tools - Optional tool definitions
    * @param onChunk - Callback for each text chunk received
+   * @param systemPrompt - Optional system prompt (uses native API support when available)
    * @returns Final provider response
    */
   abstract streamChat(
     messages: Message[],
     tools?: ToolDefinition[],
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    systemPrompt?: string
   ): Promise<ProviderResponse>;
 
   /**

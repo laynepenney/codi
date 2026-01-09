@@ -286,19 +286,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
         systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
       }
 
-      // Prepare messages with system prompt
-      const messagesWithSystem: Message[] = [
-        { role: 'user', content: systemContext },
-        { role: 'assistant', content: 'I understand. I will help you with coding tasks using the available tools.' },
-        ...this.messages,
-      ];
-
       // Debug: log messages being sent
       if (this.debug) {
         console.log('\n' + '='.repeat(60));
         console.log('DEBUG: Messages being sent to model:');
         console.log('='.repeat(60));
-        for (const msg of messagesWithSystem) {
+        console.log('\n[SYSTEM]:');
+        const systemPreview = systemContext.length > 500
+          ? systemContext.slice(0, 500) + `\n... (${systemContext.length} chars total)`
+          : systemContext;
+        console.log(systemPreview);
+        for (const msg of this.messages) {
           console.log(`\n[${msg.role.toUpperCase()}]:`);
           if (typeof msg.content === 'string') {
             // Truncate long messages
@@ -316,11 +314,12 @@ Always use tools to interact with the filesystem rather than asking the user to 
         console.log('='.repeat(60) + '\n');
       }
 
-      // Call the model with streaming
+      // Call the model with streaming (using native system prompt support)
       const response = await this.provider.streamChat(
-        messagesWithSystem,
+        this.messages,
         tools,
-        this.callbacks.onText
+        this.callbacks.onText,
+        systemContext
       );
 
       // If no tool calls were detected via API but tools are enabled,

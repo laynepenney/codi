@@ -28,11 +28,16 @@ export class OpenAICompatibleProvider extends BaseProvider {
     this.providerName = config.providerName || 'OpenAI';
   }
 
-  async chat(messages: Message[], tools?: ToolDefinition[]): Promise<ProviderResponse> {
+  async chat(messages: Message[], tools?: ToolDefinition[], systemPrompt?: string): Promise<ProviderResponse> {
+    const convertedMessages = this.convertMessages(messages);
+    const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
+      ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
+      : convertedMessages;
+
     const response = await this.client.chat.completions.create({
       model: this.model,
       max_tokens: MAX_TOKENS,
-      messages: this.convertMessages(messages),
+      messages: messagesWithSystem,
       tools: tools ? this.convertTools(tools) : undefined,
     });
 
@@ -42,12 +47,18 @@ export class OpenAICompatibleProvider extends BaseProvider {
   async streamChat(
     messages: Message[],
     tools?: ToolDefinition[],
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    systemPrompt?: string
   ): Promise<ProviderResponse> {
+    const convertedMessages = this.convertMessages(messages);
+    const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
+      ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
+      : convertedMessages;
+
     const stream = await this.client.chat.completions.create({
       model: this.model,
       max_tokens: MAX_TOKENS,
-      messages: this.convertMessages(messages),
+      messages: messagesWithSystem,
       tools: tools ? this.convertTools(tools) : undefined,
       stream: true,
     });

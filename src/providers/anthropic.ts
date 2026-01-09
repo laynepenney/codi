@@ -17,10 +17,11 @@ export class AnthropicProvider extends BaseProvider {
     this.model = config.model || DEFAULT_MODEL;
   }
 
-  async chat(messages: Message[], tools?: ToolDefinition[]): Promise<ProviderResponse> {
+  async chat(messages: Message[], tools?: ToolDefinition[], systemPrompt?: string): Promise<ProviderResponse> {
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: MAX_TOKENS,
+      ...(systemPrompt && { system: systemPrompt }),
       messages: this.convertMessages(messages),
       tools: tools as Anthropic.Tool[] | undefined,
     });
@@ -31,11 +32,13 @@ export class AnthropicProvider extends BaseProvider {
   async streamChat(
     messages: Message[],
     tools?: ToolDefinition[],
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    systemPrompt?: string
   ): Promise<ProviderResponse> {
     const stream = this.client.messages.stream({
       model: this.model,
       max_tokens: MAX_TOKENS,
+      ...(systemPrompt && { system: systemPrompt }),
       messages: this.convertMessages(messages),
       tools: tools as Anthropic.Tool[] | undefined,
     });
