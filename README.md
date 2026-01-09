@@ -68,6 +68,7 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 | `--no-tools` | Disable tool use (chat-only mode) | Tools enabled |
 | `-y, --yes` | Auto-approve all tool operations | Prompt for approval |
 | `--debug` | Show messages sent to the model | Disabled |
+| `-s, --session <name>` | Load a saved session on startup | - |
 
 ## Commands
 
@@ -118,6 +119,19 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 | `/undo [what]` | Safely undo git changes (commits, staged, etc.) |
 | `/merge <branch>` | Help merge branches with conflict guidance |
 | `/rebase <branch>` | Help rebase with safety warnings |
+
+### Session Commands
+
+| Command | Description |
+|---------|-------------|
+| `/save [name]` | Save current conversation to a session file |
+| `/load <name>` | Load a previously saved session |
+| `/sessions` | List all saved sessions |
+| `/sessions info [name]` | Show details about a session |
+| `/sessions delete <name>` | Delete a saved session |
+| `/sessions clear` | Delete all saved sessions |
+
+Sessions are stored in `~/.codi/sessions/` and include the full conversation history, any compaction summaries, and metadata about the project and model used.
 
 ## Tools
 
@@ -318,7 +332,7 @@ See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guideli
 
 Key areas for expansion:
 - ~~**Git Integration**: `/commit`, `/branch`, `/pr` commands~~ (Implemented!)
-- **Session Persistence**: Save/load conversations
+- ~~**Session Persistence**: Save/load conversations~~ (Implemented!)
 - **Workspace Config**: Per-project `.codi.json` configuration
 - **Plugin System**: Third-party extensions
 - **Vision Support**: Screenshot/image analysis for compatible models

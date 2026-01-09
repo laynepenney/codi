@@ -54,6 +54,13 @@ import {
 import { registerCodeCommands } from './commands/code-commands.js';
 import { registerWorkflowCommands } from './commands/workflow-commands.js';
 import { registerGitCommands } from './commands/git-commands.js';
+import {
+  registerSessionCommands,
+  setSessionAgent,
+  getCurrentSessionName,
+  setCurrentSessionName,
+} from './commands/session-commands.js';
+import { loadSession } from './session.js';
 
 // CLI setup
 program
@@ -67,6 +74,7 @@ program
   .option('--no-tools', "Disable tool use (for models that don't support it)")
   .option('-y, --yes', 'Auto-approve all tool operations (skip confirmation prompts)')
   .option('--debug', 'Show messages sent to the model')
+  .option('-s, --session <name>', 'Load a saved session on startup')
   .parse();
 
 const options = program.opts();
@@ -200,6 +208,13 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /merge <branch>    - Merge branches'));
   console.log(chalk.dim('  /rebase <branch>   - Rebase onto branch'));
 
+  console.log(chalk.bold('\nSessions:'));
+  console.log(chalk.dim('  /save [name]       - Save conversation to session'));
+  console.log(chalk.dim('  /load <name>       - Load a saved session'));
+  console.log(chalk.dim('  /sessions          - List saved sessions'));
+  console.log(chalk.dim('  /sessions info     - Show current session info'));
+  console.log(chalk.dim('  /sessions delete   - Delete a session'));
+
   if (projectInfo) {
     console.log(chalk.bold('\nProject:'));
     console.log(
@@ -263,6 +278,129 @@ function promptConfirmation(rl: ReturnType<typeof createInterface>, message: str
 }
 
 /**
+ * Handle session command output messages.
+ */
+function handleSessionOutput(output: string): void {
+  const parts = output.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__SESSION_SAVED__': {
+      const name = parts[1];
+      const status = parts[2];
+      const count = parts[3];
+      console.log(chalk.green(`\nSession ${status === 'new' ? 'saved' : 'updated'}: ${name}`));
+      console.log(chalk.dim(`${count} messages saved.`));
+      break;
+    }
+
+    case '__SESSION_LOADED__': {
+      const name = parts[1];
+      const count = parts[2];
+      const hasSummary = parts[3] === 'yes';
+      console.log(chalk.green(`\nSession loaded: ${name}`));
+      console.log(chalk.dim(`${count} messages restored.`));
+      if (hasSummary) {
+        console.log(chalk.dim('Session includes conversation summary.'));
+      }
+      break;
+    }
+
+    case '__SESSION_NOT_FOUND__': {
+      const name = parts[1];
+      console.log(chalk.yellow(`\nSession not found: ${name}`));
+      console.log(chalk.dim('Use /sessions to list available sessions.'));
+      break;
+    }
+
+    case '__SESSION_LIST__': {
+      const lines = output.split('\n').slice(1);
+      console.log(chalk.bold('\nSaved Sessions:'));
+      for (const line of lines) {
+        console.log(chalk.dim(`  ${line}`));
+      }
+      break;
+    }
+
+    case '__SESSION_LIST_EMPTY__': {
+      console.log(chalk.dim('\nNo saved sessions found.'));
+      console.log(chalk.dim('Use /save [name] to save the current conversation.'));
+      break;
+    }
+
+    case '__SESSION_MULTIPLE__': {
+      const pattern = parts[1];
+      const lines = output.split('\n').slice(1);
+      console.log(chalk.yellow(`\nMultiple sessions match "${pattern}":`));
+      for (const line of lines) {
+        console.log(chalk.dim(`  ${line}`));
+      }
+      console.log(chalk.dim('\nPlease specify more precisely.'));
+      break;
+    }
+
+    case '__SESSION_DELETED__': {
+      const name = parts[1];
+      console.log(chalk.green(`\nSession deleted: ${name}`));
+      break;
+    }
+
+    case '__SESSION_DELETE_NO_NAME__': {
+      console.log(chalk.yellow('\nPlease specify a session name to delete.'));
+      console.log(chalk.dim('Usage: /sessions delete <name>'));
+      break;
+    }
+
+    case '__SESSION_NO_CURRENT__': {
+      console.log(chalk.dim('\nNo session currently loaded.'));
+      console.log(chalk.dim('Use /load <name> to load a session.'));
+      break;
+    }
+
+    case '__SESSION_INFO__': {
+      const infoJson = parts.slice(1).join(':');
+      try {
+        const info = JSON.parse(infoJson);
+        console.log(chalk.bold('\nSession Info:'));
+        console.log(chalk.dim(`  Name: ${info.name}`));
+        console.log(chalk.dim(`  Messages: ${info.messages}`));
+        console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
+        if (info.project) console.log(chalk.dim(`  Project: ${info.project}`));
+        if (info.provider) console.log(chalk.dim(`  Provider: ${info.provider}`));
+        if (info.model) console.log(chalk.dim(`  Model: ${info.model}`));
+        console.log(chalk.dim(`  Created: ${new Date(info.created).toLocaleString()}`));
+        console.log(chalk.dim(`  Updated: ${new Date(info.updated).toLocaleString()}`));
+      } catch {
+        console.log(chalk.dim('\nSession info unavailable.'));
+      }
+      break;
+    }
+
+    case '__SESSION_CLEARED__': {
+      const count = parts[1];
+      console.log(chalk.green(`\nCleared ${count} sessions.`));
+      break;
+    }
+
+    case '__SESSION_DIR__': {
+      const dir = parts.slice(1).join(':');
+      console.log(chalk.dim(`\nSessions directory: ${dir}`));
+      break;
+    }
+
+    case '__SESSION_UNKNOWN_ACTION__': {
+      const action = parts[1];
+      console.log(chalk.yellow(`\nUnknown sessions action: ${action}`));
+      console.log(chalk.dim('Usage: /sessions [list|delete <name>|info <name>|clear|dir]'));
+      break;
+    }
+
+    default:
+      console.log(chalk.dim(output));
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -290,6 +428,7 @@ async function main() {
   registerCodeCommands();
   registerWorkflowCommands();
   registerGitCommands();
+  registerSessionCommands();
 
   const useTools = options.tools !== false; // --no-tools sets this to false
 
@@ -365,6 +504,29 @@ async function main() {
       return promptConfirmation(rl, promptText);
     },
   });
+
+  // Set up session commands with agent reference
+  setSessionAgent(
+    agent,
+    provider.getName(),
+    provider.getModel(),
+    projectInfo?.name
+  );
+
+  // Load session from command line if specified
+  if (options.session) {
+    const session = loadSession(options.session);
+    if (session) {
+      agent.loadSession(session.messages, session.conversationSummary);
+      setCurrentSessionName(session.name);
+      console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
+      if (session.conversationSummary) {
+        console.log(chalk.dim('Session has conversation summary from previous compaction.'));
+      }
+    } else {
+      console.log(chalk.yellow(`Session not found: ${options.session}`));
+    }
+  }
 
   /**
    * Prompts for user input and handles a single interaction turn.
@@ -460,6 +622,12 @@ async function main() {
             try {
               const result = await command.execute(parsed.args, commandContext);
               if (result) {
+                // Handle session command outputs (special format)
+                if (result.startsWith('__SESSION_')) {
+                  handleSessionOutput(result);
+                  prompt();
+                  return;
+                }
                 // Clear history for slash commands - they should start fresh
                 agent.clearHistory();
                 // Command returned a prompt - send to agent

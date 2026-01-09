@@ -130,18 +130,28 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - Safe undo operations with appropriate warnings
 - PR description generation with structured template
 
-#### 2. Session Persistence
-**What**: Save and load conversation sessions to files.
+#### 2. Session Persistence - IMPLEMENTED
 
-**Implementation**:
-- Add `/save [name]` and `/load [name]` commands
-- Store sessions in `~/.codi/sessions/` as JSON
-- Include conversation history, project context, timestamp
+**Status**: Complete
 
-**Files to modify**:
-- Create: `src/session.ts` (session management)
-- Modify: `src/commands/index.ts` (add save/load commands)
-- Modify: `src/index.ts` (load session on startup if specified)
+**Implemented Commands** (in `src/commands/session-commands.ts`):
+
+| Command | Description |
+|---------|-------------|
+| `/save [name]` | Save current conversation to a session file |
+| `/load <name>` | Load a previously saved session |
+| `/sessions` | List all saved sessions |
+| `/sessions info [name]` | Show details about a session |
+| `/sessions delete <name>` | Delete a saved session |
+| `/sessions clear` | Delete all saved sessions |
+
+**Key Features**:
+- Sessions stored in `~/.codi/sessions/` as JSON
+- Includes full message history, compaction summaries, project context
+- Metadata: provider, model, timestamps, project name/path
+- Fuzzy search for session names
+- Load session on startup with `-s/--session <name>` CLI option
+- Auto-saves to current session name if one is loaded
 
 #### 3. Workspace Configuration
 **What**: Per-project `.codi.json` configuration file.
@@ -323,7 +333,7 @@ interface CodiPlugin {
 For maximum impact with reasonable effort:
 
 1. ~~**Git Integration** - Most requested workflow improvement~~ DONE
-2. **Session Persistence** - Essential for longer projects
+2. ~~**Session Persistence** - Essential for longer projects~~ DONE
 3. **Workspace Config** - Professional/team use
 4. **Diff Preview** - Safety improvement
 5. **Undo System** - Safety net for file changes

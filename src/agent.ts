@@ -721,6 +721,35 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
+   * Get the conversation summary.
+   */
+  getSummary(): string | null {
+    return this.conversationSummary;
+  }
+
+  /**
+   * Set the conversation history (for loading sessions).
+   */
+  setHistory(messages: Message[]): void {
+    this.messages = [...messages];
+  }
+
+  /**
+   * Set the conversation summary (for loading sessions).
+   */
+  setSummary(summary: string | null): void {
+    this.conversationSummary = summary;
+  }
+
+  /**
+   * Load a full session state.
+   */
+  loadSession(messages: Message[], summary: string | null): void {
+    this.messages = [...messages];
+    this.conversationSummary = summary;
+  }
+
+  /**
    * Get current context size information.
    */
   getContextInfo(): { tokens: number; messages: number; hasSummary: boolean } {
