@@ -234,3 +234,29 @@ export function createOllamaProvider(model: string = 'llama3.2'): OpenAICompatib
     providerName: 'Ollama',
   });
 }
+
+/**
+ * Create a provider for RunPod Serverless (vLLM with OpenAI-compatible API)
+ * @param endpointId - Your RunPod serverless endpoint ID
+ * @param model - The model name (must match MODEL_NAME env var on your endpoint)
+ * @param apiKey - RunPod API key (defaults to RUNPOD_API_KEY env var)
+ */
+export function createRunPodProvider(
+  endpointId: string,
+  model: string,
+  apiKey?: string
+): OpenAICompatibleProvider {
+  const key = apiKey || process.env.RUNPOD_API_KEY;
+  if (!key) {
+    throw new Error('RunPod API key required. Set RUNPOD_API_KEY or pass --api-key');
+  }
+  if (!endpointId) {
+    throw new Error('RunPod endpoint ID required. Pass --endpoint-id');
+  }
+  return new OpenAICompatibleProvider({
+    baseUrl: `https://api.runpod.ai/v2/${endpointId}/openai/v1`,
+    apiKey: key,
+    model,
+    providerName: 'RunPod',
+  });
+}

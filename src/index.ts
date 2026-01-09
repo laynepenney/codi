@@ -24,9 +24,10 @@ program
   .name('codi')
   .description('Your AI coding wingman')
   .version('0.1.0')
-  .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama)', 'auto')
+  .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama, runpod)', 'auto')
   .option('-m, --model <name>', 'Model to use')
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
+  .option('--endpoint-id <id>', 'Endpoint ID (for RunPod serverless)')
   .option('--no-tools', 'Disable tool use (for models that don\'t support it)')
   .option('--debug', 'Show messages sent to the model')
   .parse();
@@ -169,6 +170,7 @@ async function main() {
       type: options.provider as ProviderType,
       model: options.model,
       baseUrl: options.baseUrl,
+      endpointId: options.endpointId,
     });
   }
 
