@@ -165,8 +165,10 @@ export class OpenAICompatibleProvider extends BaseProvider {
       }
 
       // Handle content blocks - OpenAI requires all tool_calls in a single assistant message
+      // and tool results must immediately follow the assistant message
       const parts: OpenAI.ChatCompletionMessageParam[] = [];
       const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [];
+      const toolResults: OpenAI.ChatCompletionMessageParam[] = [];
       let textContent = '';
 
       for (const block of msg.content) {
@@ -182,7 +184,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
             },
           });
         } else if (block.type === 'tool_result') {
-          parts.push({
+          toolResults.push({
             role: 'tool',
             tool_call_id: block.tool_use_id || '',
             content: block.content || '',
@@ -190,15 +192,26 @@ export class OpenAICompatibleProvider extends BaseProvider {
         }
       }
 
-      // If there were tool calls, create a single assistant message with all of them
+      // Build parts in correct order for OpenAI:
+      // 1. Assistant message with tool_calls (if any)
+      // 2. Tool result messages (must follow assistant with tool_calls)
+      // 3. Text content as user/assistant message (if any, after tool results)
       if (toolCalls.length > 0) {
-        parts.unshift({
+        parts.push({
           role: 'assistant',
           content: textContent || null,
           tool_calls: toolCalls,
         } as OpenAI.ChatCompletionMessageParam);
-      } else if (textContent) {
-        parts.unshift({
+        // Don't include textContent separately when it's part of assistant tool call message
+        textContent = '';
+      }
+
+      // Add tool results
+      parts.push(...toolResults);
+
+      // Add text content after tool results (if any remaining)
+      if (textContent) {
+        parts.push({
           role: msg.role,
           content: textContent,
         } as OpenAI.ChatCompletionMessageParam);
