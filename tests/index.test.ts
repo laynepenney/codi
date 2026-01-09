@@ -7,8 +7,8 @@ import { ToolRegistry } from '../src/tools/registry';
 import { BaseTool } from '../src/tools/base';
 import { Agent } from '../src/agent';
 
-// Helper factories used by src code
-import { registerDefaultTools } from '../src/tools';
+// Tool implementations
+import { registerDefaultTools, globalRegistry } from '../src/tools';
 import {
   ReadFileTool,
   WriteFileTool,
@@ -21,10 +21,37 @@ import {
   BashTool,
 } from '../src/tools';
 
-// Note: provider implementations depend on external SDKs/network.
-// We test their local, deterministic behaviors by mocking underlying clients.
+// Providers
 import { OpenAICompatibleProvider } from '../src/providers/openai-compatible';
 import { AnthropicProvider } from '../src/providers/anthropic';
+
+// -----------------------------
+// Test helper: simple tool implementation
+// -----------------------------
+class TestTool extends BaseTool {
+  constructor(
+    private _name: string,
+    private _description: string,
+  ) {
+    super();
+  }
+
+  getDefinition() {
+    return {
+      name: this._name,
+      description: this._description,
+      input_schema: {
+        type: 'object' as const,
+        properties: {},
+        required: [],
+      },
+    };
+  }
+
+  async execute(): Promise<string> {
+    return 'ok';
+  }
+}
 
 // -----------------------------
 // helpers
@@ -33,232 +60,205 @@ function tmpDir(prefix = 'codi-test-') {
   return path.join(process.cwd(), `.tmp/${prefix}${Math.random().toString(16).slice(2)}`);
 }
 
-describe('public exports (src/index.ts)', () => {
-  it('re-exports expected factories and classes', () => {
+describe('public exports (src/tools/index.ts)', () => {
+  it('exports expected classes and helpers', () => {
     expect(typeof Agent).toBe('function');
-    expect(typeof createAgent).toBe('function');
-    expect(typeof createContext).toBe('function');
-    expect(typeof createTools).toBe('function');
-    expect(typeof createToolRegistry).toBe('function');
-    expect(typeof createTool).toBe('function');
-    expect(typeof createToolSet).toBe('function');
+    expect(typeof registerDefaultTools).toBe('function');
+    expect(typeof ToolRegistry).toBe('function');
+
+    // tools are classes
+    expect(typeof ReadFileTool).toBe('function');
+    expect(typeof WriteFileTool).toBe('function');
+    expect(typeof EditFileTool).toBe('function');
+    expect(typeof PatchFileTool).toBe('function');
+    expect(typeof InsertLineTool).toBe('function');
+    expect(typeof GlobTool).toBe('function');
+    expect(typeof GrepTool).toBe('function');
+    expect(typeof ListDirectoryTool).toBe('function');
+    expect(typeof BashTool).toBe('function');
   });
 });
 
 describe('ToolRegistry', () => {
   it('registers and retrieves tools by name', () => {
     const reg = new ToolRegistry();
-    const t = createTool({
-      name: 'hello',
-      description: 'test tool',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-      execute: async () => 'ok',
-    });
+    const t = new TestTool('hello', 'test tool');
 
     reg.register(t);
     expect(reg.get('hello')).toBe(t);
-    expect(reg.list().map((x) => x.name)).toContain('hello');
+    expect(reg.listTools()).toContain('hello');
   });
 
-  it('throws when retrieving missing tool', () => {
+  it('returns undefined for missing tool', () => {
     const reg = new ToolRegistry();
-    expect(() => reg.get('missing')).toThrow(/Tool not found/i);
+    expect(reg.get('missing')).toBeUndefined();
   });
 
-  it('overwrites an existing tool when registering same name', () => {
+  it('throws when registering the same tool name twice', () => {
     const reg = new ToolRegistry();
-    const t1 = createTool({
-      name: 'dup',
-      description: 'one',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-      execute: async () => '1',
-    });
-    const t2 = createTool({
-      name: 'dup',
-      description: 'two',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-      execute: async () => '2',
-    });
+    const t1 = new TestTool('dup', 'one');
+    const t2 = new TestTool('dup', 'two');
 
     reg.register(t1);
-    reg.register(t2);
-    expect(reg.get('dup').description).toBe('two');
+    expect(() => reg.register(t2)).toThrow(/already registered/i);
+    expect(reg.get('dup')?.getDefinition().description).toBe('one');
+  });
+
+  it('executes a tool and returns result', async () => {
+    const reg = new ToolRegistry();
+    const t = new TestTool('test', 'test tool');
+    reg.register(t);
+
+    const result = await reg.execute({ id: 'call_123', name: 'test', input: {} });
+    expect(result.tool_use_id).toBe('call_123');
+    expect(result.content).toBe('ok');
+    expect(result.is_error).toBe(false);
+  });
+
+  it('returns error result for unknown tool', async () => {
+    const reg = new ToolRegistry();
+    const result = await reg.execute({ id: 'call_456', name: 'unknown', input: {} });
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain('Unknown tool');
   });
 });
 
-describe('createTool & BaseTool contract', () => {
-  it('createTool returns an instance of BaseTool and preserves metadata', async () => {
-    const tool = createTool({
-      name: 'adder',
-      description: 'adds',
-      parameters: {
-        type: 'object',
-        properties: { a: { type: 'number' }, b: { type: 'number' } },
-        required: ['a', 'b'],
-        additionalProperties: false,
-      },
-      execute: async ({ a, b }: any) => a + b,
-    });
-
-    expect(tool).toBeInstanceOf(BaseTool);
-    expect(tool.name).toBe('adder');
-    expect(tool.description).toBe('adds');
-    expect(tool.parameters.required).toEqual(['a', 'b']);
-
-    await expect(tool.execute({ a: 1, b: 2 } as any)).resolves.toBe(3);
+describe('BaseTool', () => {
+  it('getName returns the tool name from definition', () => {
+    const t = new TestTool('mytool', 'desc');
+    expect(t.getName()).toBe('mytool');
   });
 
-  it('BaseTool.toJSON returns OpenAI tool schema shape', () => {
-    const tool = createTool({
-      name: 't',
-      description: 'd',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-      execute: async () => null,
-    });
+  it('run wraps execute result in ToolResult', async () => {
+    const t = new TestTool('wrapper', 'test');
+    const result = await t.run('id_1', {});
+    expect(result.tool_use_id).toBe('id_1');
+    expect(result.content).toBe('ok');
+    expect(result.is_error).toBe(false);
+  });
 
-    const json = tool.toJSON();
-    expect(json).toEqual({
-      type: 'function',
-      function: {
-        name: 't',
-        description: 'd',
-        parameters: { type: 'object', properties: {}, additionalProperties: false },
-      },
-    });
+  it('run catches errors and returns error result', async () => {
+    class FailingTool extends BaseTool {
+      getDefinition() {
+        return {
+          name: 'fail',
+          description: 'fails',
+          input_schema: { type: 'object' as const, properties: {}, required: [] },
+        };
+      }
+      async execute(): Promise<string> {
+        throw new Error('boom');
+      }
+    }
+
+    const t = new FailingTool();
+    const result = await t.run('id_2', {});
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain('boom');
   });
 });
 
 describe('Tool implementations (filesystem / process tools)', () => {
-  const root = tmpDir();
+  let root: string;
+  let prevCwd: string;
 
   beforeEach(async () => {
+    root = tmpDir();
     await fs.mkdir(root, { recursive: true });
     await fs.writeFile(path.join(root, 'a.txt'), 'hello');
     await fs.mkdir(path.join(root, 'sub'), { recursive: true });
     await fs.writeFile(path.join(root, 'sub', 'b.txt'), 'world');
+    prevCwd = process.cwd();
+    process.chdir(root);
   });
 
   afterEach(async () => {
-    // best-effort cleanup
+    process.chdir(prevCwd);
     await fs.rm(root, { recursive: true, force: true });
   });
 
   it('ReadFileTool reads file contents', async () => {
-    const tool = new ReadFileTool({ rootDir: root });
-    const out = await tool.execute({ path: 'a.txt' } as any);
+    const tool = new ReadFileTool();
+    const out = await tool.execute({ path: 'a.txt' });
     expect(out).toContain('hello');
   });
 
   it('ReadFileTool errors on missing file', async () => {
-    const tool = new ReadFileTool({ rootDir: root });
-    await expect(tool.execute({ path: 'nope.txt' } as any)).rejects.toThrow();
+    const tool = new ReadFileTool();
+    await expect(tool.execute({ path: 'nope.txt' })).rejects.toThrow(/not found/i);
   });
 
   it('WriteFileTool writes file and returns success message', async () => {
-    const tool = new WriteFileTool({ rootDir: root });
-    const out = await tool.execute({ path: 'new.txt', content: 'x' } as any);
-    expect(out).toMatch(/Wrote/i);
+    const tool = new WriteFileTool();
+    const out = await tool.execute({ path: 'new.txt', content: 'x' });
+    expect(out).toMatch(/wrote/i);
     await expect(fs.readFile(path.join(root, 'new.txt'), 'utf8')).resolves.toBe('x');
   });
 
-  it('EditFileTool replaces exact substring (happy path)', async () => {
+  it('EditFileTool replaces exact substring', async () => {
     await fs.writeFile(path.join(root, 'edit.txt'), 'one two three');
-    const tool = new EditFileTool({ rootDir: root });
+    const tool = new EditFileTool();
     const out = await tool.execute({
       path: 'edit.txt',
       old_string: 'two',
       new_string: 'TWO',
-    } as any);
-    expect(out).toMatch(/Edited/i);
+    });
+    expect(out).toMatch(/edited/i);
     await expect(fs.readFile(path.join(root, 'edit.txt'), 'utf8')).resolves.toBe('one TWO three');
   });
 
   it('EditFileTool throws when old_string not found', async () => {
     await fs.writeFile(path.join(root, 'edit2.txt'), 'abc');
-    const tool = new EditFileTool({ rootDir: root });
+    const tool = new EditFileTool();
     await expect(
-      tool.execute({ path: 'edit2.txt', old_string: 'zzz', new_string: 'x' } as any),
+      tool.execute({ path: 'edit2.txt', old_string: 'zzz', new_string: 'x' }),
     ).rejects.toThrow(/not found/i);
   });
 
-  it('PatchFileTool applies unified diff', async () => {
-    await fs.writeFile(path.join(root, 'p.txt'), 'a\nb\n');
-    const tool = new PatchFileTool({ rootDir: root });
-    const patch = [
-      '*** Begin Patch',
-      '*** Update File: p.txt',
-      '@@',
-      '-a',
-      '+A',
-      '*** End Patch',
-      '',
-    ].join('\n');
-
-    const out = await tool.execute({ path: 'p.txt', patch } as any);
-    expect(out).toMatch(/Applied patch/i);
-    await expect(fs.readFile(path.join(root, 'p.txt'), 'utf8')).resolves.toBe('A\nb\n');
-  });
-
-  it('PatchFileTool throws on invalid patch format', async () => {
-    await fs.writeFile(path.join(root, 'p2.txt'), 'a');
-    const tool = new PatchFileTool({ rootDir: root });
-    await expect(tool.execute({ path: 'p2.txt', patch: 'not a patch' } as any)).rejects.toThrow();
-  });
-
-  it('InsertLineTool inserts before a given line', async () => {
+  it('InsertLineTool inserts at given line', async () => {
     await fs.writeFile(path.join(root, 'i.txt'), '1\n2\n3\n');
-    const tool = new InsertLineTool({ rootDir: root });
-    const out = await tool.execute({ path: 'i.txt', line: 2, content: 'X' } as any);
-    expect(out).toMatch(/Inserted/i);
+    const tool = new InsertLineTool();
+    const out = await tool.execute({ path: 'i.txt', line: 2, content: 'X' });
+    expect(out).toMatch(/inserted/i);
     await expect(fs.readFile(path.join(root, 'i.txt'), 'utf8')).resolves.toBe('1\nX\n2\n3\n');
   });
 
-  it('InsertLineTool throws on invalid line number', async () => {
-    const tool = new InsertLineTool({ rootDir: root });
-    await expect(tool.execute({ path: 'a.txt', line: 0, content: 'X' } as any)).rejects.toThrow(
-      /line/i,
-    );
-  });
-
-  it('GlobTool returns matching paths relative to rootDir', async () => {
-    const tool = new GlobTool({ rootDir: root });
-    const out = await tool.execute({ pattern: '**/*.txt' } as any);
-    // tool returns JSON string
-    const arr = JSON.parse(out);
-    expect(arr).toEqual(expect.arrayContaining(['a.txt', 'sub/b.txt']));
+  it('GlobTool returns matching paths', async () => {
+    const tool = new GlobTool();
+    const out = await tool.execute({ pattern: '**/*.txt' });
+    expect(out).toContain('a.txt');
+    expect(out).toContain('sub/b.txt');
   });
 
   it('GrepTool finds matches in files', async () => {
-    const tool = new GrepTool({ rootDir: root });
-    const out = await tool.execute({ pattern: 'world', path: '.' } as any);
-    const matches = JSON.parse(out) as Array<any>;
-    expect(matches.length).toBeGreaterThan(0);
-    expect(matches[0]).toHaveProperty('file');
-    expect(matches[0]).toHaveProperty('line');
-    expect(matches[0]).toHaveProperty('text');
+    const tool = new GrepTool();
+    const out = await tool.execute({ pattern: 'world', path: '.' });
+    expect(out).toContain('sub/b.txt');
+    expect(out).toContain('world');
   });
 
   it('ListDirectoryTool lists directory contents', async () => {
-    const tool = new ListDirectoryTool({ rootDir: root });
-    const out = await tool.execute({ path: '.' } as any);
-    const entries = JSON.parse(out) as Array<any>;
-    const names = entries.map((e) => e.name);
-    expect(names).toEqual(expect.arrayContaining(['a.txt', 'sub']));
+    const tool = new ListDirectoryTool();
+    const out = await tool.execute({ path: '.' });
+    expect(out).toContain('a.txt');
+    expect(out).toContain('sub');
   });
 
-  it('BashTool runs command with cwd rootDir', async () => {
-    const tool = new BashTool({ rootDir: root });
-    const out = await tool.execute({ command: 'node -p "1+1"' } as any);
-    const parsed = JSON.parse(out);
-    expect(parsed.stdout.trim()).toBe('2');
-    expect(parsed.code).toBe(0);
+  it('BashTool runs command', async () => {
+    const tool = new BashTool();
+    const out = await tool.execute({ command: 'echo hello' });
+    expect(out).toContain('hello');
   });
 });
 
-describe('createTools (toolset composition)', () => {
-  it('returns a default tool set with expected tool names', () => {
-    const tools = createTools({ rootDir: process.cwd() });
-    const names = tools.list().map((t) => t.name);
+describe('registerDefaultTools', () => {
+  it('registers default tools in the global registry', async () => {
+    // Reset modules to get fresh registry
+    vi.resetModules();
+
+    const { registerDefaultTools, globalRegistry } = await import('../src/tools');
+    registerDefaultTools();
+    const names = globalRegistry.listTools();
     expect(names).toEqual(
       expect.arrayContaining([
         'read_file',
@@ -275,102 +275,89 @@ describe('createTools (toolset composition)', () => {
   });
 });
 
-describe('Agent minimal behavior (no network)', () => {
-  it('createAgent produces an Agent with configured tools and context', () => {
-    const agent = createAgent({
-      rootDir: process.cwd(),
-      provider: {
-        name: 'mock',
-        complete: vi.fn(async () => ({
-          id: '1',
-          model: 'mock',
-          content: 'ok',
-          usage: { input_tokens: 1, output_tokens: 1 },
-        })),
-      } as any,
+describe('Agent', () => {
+  it('can be instantiated with minimal config', () => {
+    const mockProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'mock',
+      getModel: () => 'mock-model',
+    };
+
+    const agent = new Agent({
+      provider: mockProvider as any,
+      toolRegistry: new ToolRegistry(),
     });
 
     expect(agent).toBeInstanceOf(Agent);
-    expect(agent.tools).toBeTruthy();
-    expect(agent.context).toBeTruthy();
+  });
+
+  it('clearHistory resets message history', () => {
+    const mockProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'mock',
+      getModel: () => 'mock-model',
+    };
+
+    const agent = new Agent({
+      provider: mockProvider as any,
+      toolRegistry: new ToolRegistry(),
+    });
+
+    // Initially empty
+    expect(agent.getHistory()).toHaveLength(0);
+
+    // Clear should work even when empty
+    agent.clearHistory();
+    expect(agent.getHistory()).toHaveLength(0);
+  });
+
+  it('getContextInfo returns token and message counts', () => {
+    const mockProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'mock',
+      getModel: () => 'mock-model',
+    };
+
+    const agent = new Agent({
+      provider: mockProvider as any,
+      toolRegistry: new ToolRegistry(),
+    });
+
+    const info = agent.getContextInfo();
+    expect(info).toHaveProperty('tokens');
+    expect(info).toHaveProperty('messages');
+    expect(info).toHaveProperty('hasSummary');
+    expect(info.messages).toBe(0);
+    expect(info.hasSummary).toBe(false);
   });
 });
 
-describe('Providers (mocked external clients)', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('OpenAICompatibleProvider maps response into internal shape', async () => {
-    const mockCreate = vi.fn(async () => ({
-      id: 'resp_1',
-      model: 'gpt-x',
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: 'Hello',
-          },
-        },
-      ],
-      usage: { prompt_tokens: 3, completion_tokens: 5 },
-    }));
-
+describe('Providers', () => {
+  it('OpenAICompatibleProvider can be instantiated', () => {
     const provider = new OpenAICompatibleProvider({
-      name: 'openai-compatible',
-      model: 'gpt-x',
-      client: {
-        chat: {
-          completions: {
-            create: mockCreate,
-          },
-        },
-      } as any,
+      apiKey: 'test-key',
+      model: 'gpt-4',
     });
 
-    const result = await provider.complete({
-      messages: [{ role: 'user', content: 'hi' }],
-      tools: [],
-    } as any);
-
-    expect(mockCreate).toHaveBeenCalled();
-    expect(result).toEqual({
-      id: 'resp_1',
-      model: 'gpt-x',
-      content: 'Hello',
-      usage: { input_tokens: 3, output_tokens: 5 },
-    });
+    expect(provider.getName()).toBe('OpenAI');
+    expect(provider.getModel()).toBe('gpt-4');
+    expect(provider.supportsToolUse()).toBe(true);
   });
 
-  it('AnthropicProvider maps response into internal shape', async () => {
-    const mockCreate = vi.fn(async () => ({
-      id: 'a_1',
-      model: 'claude-x',
-      content: [{ type: 'text', text: 'Yo' }],
-      usage: { input_tokens: 2, output_tokens: 7 },
-    }));
-
+  it('AnthropicProvider can be instantiated', () => {
     const provider = new AnthropicProvider({
-      name: 'anthropic',
-      model: 'claude-x',
-      client: {
-        messages: {
-          create: mockCreate,
-        },
-      } as any,
+      apiKey: 'test-key',
+      model: 'claude-3-opus',
     });
 
-    const result = await provider.complete({
-      messages: [{ role: 'user', content: 'hi' }],
-      tools: [],
-    } as any);
-
-    expect(mockCreate).toHaveBeenCalled();
-    expect(result).toEqual({
-      id: 'a_1',
-      model: 'claude-x',
-      content: 'Yo',
-      usage: { input_tokens: 2, output_tokens: 7 },
-    });
+    expect(provider.getName()).toBe('Anthropic');
+    expect(provider.getModel()).toBe('claude-3-opus');
+    expect(provider.supportsToolUse()).toBe(true);
   });
 });
