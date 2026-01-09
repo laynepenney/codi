@@ -39,7 +39,7 @@ function saveToHistory(command: string): void {
   }
 }
 
-import { Agent } from './agent.js';
+import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, type ProviderType } from './providers/index.js';
 import { globalRegistry, registerDefaultTools } from './tools/index.js';
 import { detectProject, formatProjectContext } from './context.js';
@@ -64,6 +64,7 @@ program
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
   .option('--endpoint-id <id>', 'Endpoint ID (for RunPod serverless)')
   .option('--no-tools', "Disable tool use (for models that don't support it)")
+  .option('-y, --yes', 'Auto-approve all tool operations (skip confirmation prompts)')
   .option('--debug', 'Show messages sent to the model')
   .parse();
 
@@ -197,6 +198,58 @@ function showHelp(projectInfo: ProjectInfo | null): void {
 }
 
 /**
+ * Format a tool confirmation for display.
+ */
+function formatConfirmation(confirmation: ToolConfirmation): string {
+  const { toolName, input, isDangerous, dangerReason } = confirmation;
+
+  let display = '';
+
+  if (isDangerous) {
+    display += chalk.red.bold('⚠️  DANGEROUS OPERATION\n');
+    display += chalk.red(`   Reason: ${dangerReason}\n\n`);
+  }
+
+  display += chalk.yellow(`Tool: ${toolName}\n`);
+
+  // Format input based on tool type
+  if (toolName === 'bash') {
+    display += chalk.dim(`Command: ${input.command}\n`);
+  } else if (toolName === 'write_file') {
+    const content = input.content as string;
+    const lines = content.split('\n').length;
+    display += chalk.dim(`Path: ${input.path}\n`);
+    display += chalk.dim(`Content: ${lines} lines, ${content.length} chars\n`);
+  } else if (toolName === 'edit_file') {
+    display += chalk.dim(`Path: ${input.path}\n`);
+    display += chalk.dim(`Replace: "${(input.old_string as string).slice(0, 50)}${(input.old_string as string).length > 50 ? '...' : ''}"\n`);
+    display += chalk.dim(`With: "${(input.new_string as string).slice(0, 50)}${(input.new_string as string).length > 50 ? '...' : ''}"\n`);
+  } else {
+    display += chalk.dim(JSON.stringify(input, null, 2).slice(0, 200) + '\n');
+  }
+
+  return display;
+}
+
+/**
+ * Prompt user for confirmation using readline.
+ */
+function promptConfirmation(rl: ReturnType<typeof createInterface>, message: string): Promise<ConfirmationResult> {
+  return new Promise((resolve) => {
+    rl.question(message, (answer) => {
+      const lower = answer.toLowerCase().trim();
+      if (lower === 'y' || lower === 'yes') {
+        resolve('approve');
+      } else if (lower === 'a' || lower === 'abort') {
+        resolve('abort');
+      } else {
+        resolve('deny');
+      }
+    });
+  });
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -248,6 +301,15 @@ async function main() {
 
   console.log(chalk.dim(`Model: ${provider.getName()} (${provider.getModel()})\n`));
 
+  // Create readline interface with history (needed for confirmation prompts)
+  const history = loadHistory();
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    history,
+    historySize: MAX_HISTORY_SIZE,
+  });
+
   // Command context for slash commands
   const commandContext: CommandContext = {
     projectInfo,
@@ -259,6 +321,7 @@ async function main() {
     toolRegistry: globalRegistry,
     systemPrompt: generateSystemPrompt(projectInfo, useTools),
     useTools,
+    autoApprove: options.yes,
     debug: options.debug,
     onText: (text) => process.stdout.write(text),
     onReasoning: (reasoning) => {
@@ -280,15 +343,13 @@ async function main() {
       }
       console.log();
     },
-  });
-
-  // Create readline interface with history
-  const history = loadHistory();
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    history,
-    historySize: MAX_HISTORY_SIZE,
+    onConfirm: async (confirmation) => {
+      console.log('\n' + formatConfirmation(confirmation));
+      const promptText = confirmation.isDangerous
+        ? chalk.red.bold('Approve? [y/N/abort] ')
+        : chalk.yellow('Approve? [y/N/abort] ');
+      return promptConfirmation(rl, promptText);
+    },
   });
 
   /**

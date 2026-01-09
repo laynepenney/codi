@@ -9,6 +9,51 @@ const RECENT_MESSAGES_TO_KEEP = 6; // Keep recent messages verbatim during compa
 const TOOL_RESULT_TRUNCATE_THRESHOLD = 500; // Truncate old tool results longer than this
 const RECENT_TOOL_RESULTS_TO_KEEP = 2; // Keep this many recent tool result messages untruncated
 
+// Tool safety categories
+const SAFE_TOOLS = new Set(['read_file', 'glob', 'grep', 'list_directory']);
+const DESTRUCTIVE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file', 'bash']);
+
+// Dangerous bash patterns that warrant extra warning
+const DANGEROUS_BASH_PATTERNS = [
+  { pattern: /\brm\s+(-[rf]+\s+)*[\/~]/, description: 'removes files/directories' },
+  { pattern: /\brm\s+-[rf]*\s/, description: 'force/recursive delete' },
+  { pattern: /\bsudo\b/, description: 'runs as superuser' },
+  { pattern: /\bchmod\s+777\b/, description: 'sets insecure permissions' },
+  { pattern: /\b(mkfs|dd\s+if=)/, description: 'disk/filesystem operation' },
+  { pattern: />\s*\/dev\//, description: 'writes to device' },
+  { pattern: /\bcurl\b.*\|\s*(ba)?sh/, description: 'pipes remote script to shell' },
+  { pattern: /\bwget\b.*\|\s*(ba)?sh/, description: 'pipes remote script to shell' },
+  { pattern: /\bgit\s+push\s+.*--force/, description: 'force pushes to remote' },
+  { pattern: /\bgit\s+reset\s+--hard/, description: 'hard reset (loses changes)' },
+];
+
+/**
+ * Information about a tool call for confirmation.
+ */
+export interface ToolConfirmation {
+  toolName: string;
+  input: Record<string, unknown>;
+  isDangerous: boolean;
+  dangerReason?: string;
+}
+
+/**
+ * Result of a confirmation request.
+ */
+export type ConfirmationResult = 'approve' | 'deny' | 'abort';
+
+/**
+ * Check if a bash command matches any dangerous patterns.
+ */
+function checkDangerousBash(command: string): { isDangerous: boolean; reason?: string } {
+  for (const { pattern, description } of DANGEROUS_BASH_PATTERNS) {
+    if (pattern.test(command)) {
+      return { isDangerous: true, reason: description };
+    }
+  }
+  return { isDangerous: false };
+}
+
 /**
  * Attempt to fix common JSON issues from LLM output:
  * - Single quotes instead of double quotes
@@ -262,11 +307,13 @@ export interface AgentOptions {
   toolRegistry: ToolRegistry;
   systemPrompt?: string;
   useTools?: boolean; // Set to false for models that don't support tool use
+  autoApprove?: boolean; // Skip confirmation prompts for destructive tools
   debug?: boolean; // Log messages sent to the model
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
+  onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
 }
 
 /**
@@ -278,6 +325,7 @@ export class Agent {
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
   private useTools: boolean;
+  private autoApprove: boolean;
   private debug: boolean;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -286,12 +334,14 @@ export class Agent {
     onReasoning?: (reasoning: string) => void;
     onToolCall?: (name: string, input: Record<string, unknown>) => void;
     onToolResult?: (name: string, result: string, isError: boolean) => void;
+    onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>;
   };
 
   constructor(options: AgentOptions) {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
     this.useTools = options.useTools ?? true;
+    this.autoApprove = options.autoApprove ?? false;
     this.debug = options.debug ?? false;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
@@ -299,6 +349,7 @@ export class Agent {
       onReasoning: options.onReasoning,
       onToolCall: options.onToolCall,
       onToolResult: options.onToolResult,
+      onConfirm: options.onConfirm,
     };
   }
 
@@ -522,8 +573,56 @@ Always use tools to interact with the filesystem rather than asking the user to 
       // Execute tool calls
       const toolResults: ToolResult[] = [];
       let hasError = false;
+      let aborted = false;
 
       for (const toolCall of response.toolCalls) {
+        // Check if this tool requires confirmation
+        const needsConfirmation = !this.autoApprove &&
+          DESTRUCTIVE_TOOLS.has(toolCall.name) &&
+          this.callbacks.onConfirm;
+
+        if (needsConfirmation) {
+          // Check for dangerous bash commands
+          let isDangerous = false;
+          let dangerReason: string | undefined;
+
+          if (toolCall.name === 'bash') {
+            const command = toolCall.input.command as string;
+            const danger = checkDangerousBash(command);
+            isDangerous = danger.isDangerous;
+            dangerReason = danger.reason;
+          }
+
+          const confirmation: ToolConfirmation = {
+            toolName: toolCall.name,
+            input: toolCall.input,
+            isDangerous,
+            dangerReason,
+          };
+
+          const result = await this.callbacks.onConfirm!(confirmation);
+
+          if (result === 'abort') {
+            aborted = true;
+            toolResults.push({
+              tool_use_id: toolCall.id,
+              content: 'User aborted the operation.',
+              is_error: true,
+            });
+            break;
+          }
+
+          if (result === 'deny') {
+            toolResults.push({
+              tool_use_id: toolCall.id,
+              content: 'User denied this operation. Please try a different approach or ask for clarification.',
+              is_error: true,
+            });
+            hasError = true;
+            continue;
+          }
+        }
+
         this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
 
         const result = await this.toolRegistry.execute(toolCall);
@@ -534,6 +633,12 @@ Always use tools to interact with the filesystem rather than asking the user to 
         }
 
         this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
+      }
+
+      // If user aborted, stop the loop
+      if (aborted) {
+        finalResponse += '\n\n(Operation aborted by user)';
+        break;
       }
 
       // Track consecutive errors
