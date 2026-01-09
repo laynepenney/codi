@@ -4,23 +4,35 @@ Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local
 
 ## Features
 
-- **Multiple Providers**: Switch between Claude API, OpenAI API, or local models via Ollama
-- **Tool Use**: AI can read/write files, search code, and execute commands
-- **Code Assistance**: Built-in commands for explaining, refactoring, testing, and reviewing code
-- **Project Context**: Auto-detects project type, language, and framework
-- **Streaming**: Real-time response streaming
-- **Extensible**: Easy to add new tools, commands, and providers
+- **Multi-Provider Support**: Switch between Claude API, OpenAI API, local models via Ollama, or RunPod serverless endpoints
+- **Powerful Tool System**: AI can read/write files, search code, execute commands, and apply patches
+- **Code Assistance Commands**: Built-in slash commands for explaining, refactoring, testing, reviewing, and documenting code
+- **Smart Project Context**: Auto-detects project type, language, framework, and adapts responses accordingly
+- **Real-time Streaming**: Live response streaming with reasoning support for compatible models
+- **Safety Confirmations**: Dangerous operations require user approval before execution
+- **Context Management**: Automatic conversation compaction to stay within token limits
+- **Extensible Architecture**: Easy to add new tools, commands, and providers
 
 ## Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/codi.git
+cd codi
+
+# Install dependencies
 npm install
+
+# Build the project
 npm run build
+
+# Optional: Link globally
+npm link
 ```
 
-## Usage
+## Quick Start
 
-### With Claude API
+### With Claude API (Recommended)
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
 npm run dev
@@ -32,20 +44,30 @@ export OPENAI_API_KEY="your-key-here"
 npm run dev -- --provider openai
 ```
 
-### With Ollama (Local)
+### With Ollama (Local/Free)
 ```bash
 # Install Ollama from https://ollama.ai
 ollama pull llama3.2
 npm run dev -- --provider ollama --model llama3.2
 ```
 
-### CLI Options
+### With RunPod Serverless
+```bash
+export RUNPOD_API_KEY="your-key-here"
+npm run dev -- --provider runpod --endpoint-id your-endpoint-id
+```
 
-| Option | Description |
-|--------|-------------|
-| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, or `auto` (default) |
-| `-m, --model <name>` | Model name to use |
-| `--base-url <url>` | Custom API base URL |
+## CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `runpod`, or `auto` | `auto` |
+| `-m, --model <name>` | Model name to use | Provider default |
+| `--base-url <url>` | Custom API base URL | Provider default |
+| `--endpoint-id <id>` | Endpoint ID for RunPod serverless | - |
+| `--no-tools` | Disable tool use (chat-only mode) | Tools enabled |
+| `-y, --yes` | Auto-approve all tool operations | Prompt for approval |
+| `--debug` | Show messages sent to the model | Disabled |
 
 ## Commands
 
@@ -56,19 +78,21 @@ npm run dev -- --provider ollama --model llama3.2
 | `/help` | Show all available commands |
 | `/clear` | Clear conversation history |
 | `/context` | Show detected project context |
-| `/exit` | Exit the assistant |
+| `/compact` | Manually compact conversation to save tokens |
+| `/status` | Show current token usage statistics |
+| `/exit`, `/quit` | Exit the assistant |
 
-### Code Assistance
+### Code Assistance Commands
 
 | Command | Description |
 |---------|-------------|
-| `/explain <file> [function]` | Explain code in a file |
+| `/explain <file> [function]` | Explain code in a file or specific function |
 | `/refactor <file> [focus]` | Suggest refactoring improvements |
-| `/fix <file> <issue>` | Fix a bug or issue |
-| `/test <file> [function]` | Generate tests |
-| `/review <file>` | Perform a code review |
+| `/fix <file> <issue>` | Fix a specific bug or issue |
+| `/test <file> [function]` | Generate tests for code |
+| `/review <file>` | Perform a comprehensive code review |
 | `/doc <file>` | Generate documentation |
-| `/optimize <file>` | Optimize for performance |
+| `/optimize <file>` | Optimize code for performance |
 
 ### Workflow Commands
 
@@ -76,7 +100,7 @@ npm run dev -- --provider ollama --model llama3.2
 |---------|-------------|
 | `/new <type> <name>` | Create new component, hook, service, etc. |
 | `/scaffold <feature>` | Scaffold a complete feature with multiple files |
-| `/debug <issue>` | Help debug an issue |
+| `/debug <issue>` | Help debug an issue with guided investigation |
 | `/setup <tool>` | Set up tooling (typescript, eslint, prettier, testing, ci, docker) |
 | `/migrate <from> <to> [path]` | Migrate code patterns (e.g., callbacks to promises) |
 
@@ -86,77 +110,108 @@ The AI has access to these tools for interacting with your codebase:
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read file contents |
+| `read_file` | Read file contents with optional line range |
 | `write_file` | Create or overwrite files |
 | `edit_file` | Make targeted search/replace edits |
 | `patch_file` | Apply unified diff patches |
-| `glob` | Find files by pattern |
-| `grep` | Search file contents with regex |
-| `list_directory` | List directory contents |
-| `bash` | Execute shell commands |
+| `insert_line` | Insert content at specific line numbers |
+| `glob` | Find files by pattern (e.g., `src/**/*.ts`) |
+| `grep` | Search file contents with regex patterns |
+| `list_directory` | List directory contents with details |
+| `bash` | Execute shell commands (with safety checks) |
+
+### Safety Features
+
+Dangerous operations trigger confirmation prompts:
+- Destructive bash commands (`rm -rf`, `sudo`, etc.)
+- Force git operations (`--force`, `-f`)
+- System modifications (`chmod 777`, disk operations)
+- Remote script execution (piped curl/wget)
+
+Use `--yes` flag to auto-approve (use with caution).
 
 ## Project Detection
 
 The assistant automatically detects your project type and adapts its responses:
 
-| Project Type | Detection | Frameworks |
-|--------------|-----------|------------|
-| Node.js | `package.json` | React, Next.js, Vue, Angular, Express, Fastify, NestJS |
-| Python | `pyproject.toml`, `requirements.txt`, `setup.py` | Django, Flask, FastAPI |
-| Rust | `Cargo.toml` | - |
-| Go | `go.mod` | - |
+| Project Type | Detection | Frameworks Detected |
+|--------------|-----------|---------------------|
+| **Node.js** | `package.json` | React, Next.js, Vue, Angular, Express, Fastify, NestJS |
+| **Python** | `pyproject.toml`, `requirements.txt`, `setup.py` | Django, Flask, FastAPI |
+| **Rust** | `Cargo.toml` | - |
+| **Go** | `go.mod` | - |
 
 ## Architecture
 
 ```
-src/
-├── index.ts              # CLI entry point
-├── agent.ts              # Agent loop orchestration
-├── context.ts            # Project detection
-├── types.ts              # TypeScript types
-├── commands/
-│   ├── index.ts          # Command registry
-│   ├── code-commands.ts  # /explain, /refactor, /fix, etc.
-│   └── workflow-commands.ts  # /new, /scaffold, /setup, etc.
-├── providers/
-│   ├── base.ts           # Abstract provider interface
-│   ├── anthropic.ts      # Claude API provider
-│   ├── openai-compatible.ts  # OpenAI/Ollama provider
-│   └── index.ts          # Provider factory
-└── tools/
-    ├── base.ts           # Abstract tool interface
-    ├── registry.ts       # Tool registry
-    ├── read-file.ts      # Read file tool
-    ├── write-file.ts     # Write file tool
-    ├── edit-file.ts      # Edit file tool
-    ├── patch-file.ts     # Patch file tool
-    ├── glob.ts           # Glob tool
-    ├── grep.ts           # Grep tool
-    ├── list-directory.ts # List directory tool
-    ├── bash.ts           # Bash command tool
-    └── index.ts          # Tool exports
+codi/
+├── src/
+│   ├── index.ts              # CLI entry point & REPL
+│   ├── agent.ts              # Agent loop orchestration
+│   ├── context.ts            # Project detection & context
+│   ├── types.ts              # TypeScript type definitions
+│   ├── commands/
+│   │   ├── index.ts          # Command registry & interfaces
+│   │   ├── code-commands.ts  # Code assistance commands
+│   │   └── workflow-commands.ts  # Workflow commands
+│   ├── providers/
+│   │   ├── base.ts           # Abstract provider interface
+│   │   ├── anthropic.ts      # Claude API provider
+│   │   ├── openai-compatible.ts  # OpenAI/Ollama provider
+│   │   └── index.ts          # Provider factory & auto-detection
+│   └── tools/
+│       ├── base.ts           # Abstract tool interface
+│       ├── registry.ts       # Tool registry & execution
+│       ├── read-file.ts      # File reading
+│       ├── write-file.ts     # File creation/writing
+│       ├── edit-file.ts      # Search/replace editing
+│       ├── patch-file.ts     # Unified diff patching
+│       ├── insert-line.ts    # Line insertion
+│       ├── glob.ts           # File pattern matching
+│       ├── grep.ts           # Content searching
+│       ├── list-directory.ts # Directory listing
+│       ├── bash.ts           # Shell command execution
+│       └── index.ts          # Tool exports & registration
+├── tests/                    # Vitest test suite
+├── docs/                     # Additional documentation
+├── dist/                     # Compiled JavaScript
+└── package.json
 ```
 
 ## How It Works
 
-1. **Provider Abstraction**: All model backends implement a common interface (`BaseProvider`) with `chat()` and `streamChat()` methods
+### Provider Abstraction
+All model backends implement a common interface (`BaseProvider`) with:
+- `chat()` - Non-streaming completions
+- `streamChat()` - Streaming with callbacks for text, reasoning, and tool calls
+- `supportsToolUse()` - Capability detection
 
-2. **Tool System**: Tools are defined with JSON schemas and registered with the `ToolRegistry`. The AI model can call these tools to interact with the filesystem
+### Tool System
+1. Tools extend `BaseTool` with `getDefinition()` (JSON schema) and `execute()` methods
+2. `ToolRegistry` manages registration and execution
+3. AI receives tool definitions and can make structured tool calls
+4. Results are fed back for continued conversation
 
-3. **Command System**: Slash commands transform user input into specialized prompts that guide the AI for specific tasks
+### Agent Loop
+1. Send user message + tool definitions to model
+2. Receive response (text, reasoning, and/or tool calls)
+3. Run safety checks on dangerous operations
+4. Prompt for confirmation if needed
+5. Execute approved tool calls
+6. Send results back to model
+7. Repeat until model stops calling tools (max 20 iterations)
 
-4. **Agent Loop**: The `Agent` class orchestrates the conversation:
-   - Send user message + tool definitions to the model
-   - Receive response (text and/or tool calls)
-   - Execute any tool calls
-   - Send results back to model
-   - Repeat until model stops calling tools
+### Command System
+Slash commands transform user input into specialized prompts that guide the AI for specific tasks, providing context and structure for better results.
 
-## Adding a New Tool
+## Extending Codi
+
+### Adding a New Tool
 
 ```typescript
-import { BaseTool } from './tools/base.js';
-import type { ToolDefinition } from './types.js';
+// src/tools/my-tool.ts
+import { BaseTool } from './base.js';
+import type { ToolDefinition } from '../types.js';
 
 export class MyTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -175,41 +230,94 @@ export class MyTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<string> {
     const param = input.param as string;
-    // Do something
+    // Implementation
     return 'Result';
   }
 }
 ```
 
-Then register it in `src/tools/index.ts`.
+Then register in `src/tools/index.ts`:
+```typescript
+import { MyTool } from './my-tool.js';
+registry.register(new MyTool());
+```
 
-## Adding a New Command
+### Adding a New Command
 
 ```typescript
-import { registerCommand, type Command } from './commands/index.js';
+// In src/commands/my-commands.ts
+import { registerCommand, type Command } from './index.js';
 
 export const myCommand: Command = {
   name: 'mycommand',
   aliases: ['mc'],
-  description: 'Description of the command',
+  description: 'Description shown in /help',
   usage: '/mycommand <arg>',
   execute: async (args, context) => {
     // Return a prompt string to send to the AI
-    return `Do something with: ${args}`;
+    return `Perform task with: ${args}`;
   },
 };
 
 registerCommand(myCommand);
 ```
 
+### Adding a New Provider
+
+1. Create a new class extending `BaseProvider` in `src/providers/`
+2. Implement required methods: `chat()`, `streamChat()`, `getName()`, `getModel()`, `supportsToolUse()`
+3. Add to provider factory in `src/providers/index.ts`
+
 ## Recommended Local Models
 
-| Model | Size | Notes |
-|-------|------|-------|
-| `llama3.2` | 3B | Fast, good for testing |
-| `llama3.1:8b` | 8B | Better quality |
-| `qwen2.5-coder:7b` | 7B | Optimized for coding |
-| `deepseek-coder-v2` | 16B | Excellent coding performance |
+| Model | Size | Best For |
+|-------|------|----------|
+| `llama3.2` | 3B | Quick testing, simple tasks |
+| `llama3.1:8b` | 8B | Balanced quality and speed |
+| `qwen2.5-coder:7b` | 7B | Code-focused tasks |
+| `deepseek-coder-v2` | 16B | Complex coding, best quality |
+| `codellama:13b` | 13B | Code generation and completion |
+
+## Development
+
+```bash
+# Run in development mode (with TypeScript)
+npm run dev
+
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Build for production
+npm run build
+
+# Start production build
+npm start
+```
+
+## Roadmap / Planned Features
+
+See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guidelines.
+
+Key areas for expansion:
+- **Git Integration**: `/commit`, `/branch`, `/pr` commands
+- **Session Persistence**: Save/load conversations
+- **Workspace Config**: Per-project `.codi.json` configuration
+- **Plugin System**: Third-party extensions
+- **Vision Support**: Screenshot/image analysis for compatible models
+- **Memory System**: Cross-session context with embeddings
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Run tests (`npm test`)
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
 ## License
 
