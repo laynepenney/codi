@@ -139,6 +139,7 @@ export interface AgentOptions {
   useTools?: boolean; // Set to false for models that don't support tool use
   debug?: boolean; // Log messages sent to the model
   onText?: (text: string) => void;
+  onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
 }
@@ -157,6 +158,7 @@ export class Agent {
   private conversationSummary: string | null = null;
   private callbacks: {
     onText?: (text: string) => void;
+    onReasoning?: (reasoning: string) => void;
     onToolCall?: (name: string, input: Record<string, unknown>) => void;
     onToolResult?: (name: string, result: string, isError: boolean) => void;
   };
@@ -169,6 +171,7 @@ export class Agent {
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
       onText: options.onText,
+      onReasoning: options.onReasoning,
       onToolCall: options.onToolCall,
       onToolResult: options.onToolResult,
     };
@@ -321,6 +324,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
         this.callbacks.onText,
         systemContext
       );
+
+      // Call reasoning callback if reasoning content is present (e.g., from DeepSeek-R1)
+      if (response.reasoningContent && this.callbacks.onReasoning) {
+        this.callbacks.onReasoning(response.reasoningContent);
+      }
 
       // If no tool calls were detected via API but tools are enabled,
       // try to extract tool calls from the text (for models that output JSON as text)

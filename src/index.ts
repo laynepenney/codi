@@ -189,6 +189,11 @@ async function main() {
     useTools,
     debug: options.debug,
     onText: (text) => process.stdout.write(text),
+    onReasoning: (reasoning) => {
+      console.log(chalk.dim.italic('\n💭 Thinking...'));
+      console.log(chalk.dim(reasoning));
+      console.log(chalk.dim.italic('---\n'));
+    },
     onToolCall: (name, input) => {
       console.log(chalk.yellow(`\n\n📎 ${name}`));
       const preview = JSON.stringify(input);

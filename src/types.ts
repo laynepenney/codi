@@ -78,11 +78,13 @@ export interface ToolResult {
  * @property {string} content - The main content of the response.
  * @property {ToolCall[]} toolCalls - List of tool calls made within this response.
  * @property {{'end_turn' | 'tool_use' | 'max_tokens'}} stopReason - Reason for stopping the response generation.
+ * @property {string} [reasoningContent] - Optional reasoning/thinking content from reasoning models.
  */
 export interface ProviderResponse {
   content: string;
   toolCalls: ToolCall[];
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
+  reasoningContent?: string;
 }
 
 // Provider configuration

@@ -64,10 +64,17 @@ export class OpenAICompatibleProvider extends BaseProvider {
     });
 
     let fullContent = '';
+    let reasoningContent = '';
     const toolCalls: Map<number, ToolCall> = new Map();
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta;
+
+      // Handle reasoning content from reasoning models (e.g., DeepSeek-R1)
+      const reasoningDelta = (delta as any)?.reasoning_content;
+      if (reasoningDelta) {
+        reasoningContent += reasoningDelta;
+      }
 
       if (delta?.content) {
         fullContent += delta.content;
@@ -130,6 +137,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       content: fullContent,
       toolCalls: Array.from(toolCalls.values()),
       stopReason: hasToolCalls ? 'tool_use' : 'end_turn',
+      reasoningContent: reasoningContent || undefined,
     };
   }
 
