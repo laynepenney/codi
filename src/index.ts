@@ -62,6 +62,8 @@ import {
 } from './commands/session-commands.js';
 import { registerConfigCommands } from './commands/config-commands.js';
 import { registerHistoryCommands } from './commands/history-commands.js';
+import { registerUsageCommands } from './commands/usage-commands.js';
+import { formatCost, formatTokens } from './usage.js';
 import { loadSession } from './session.js';
 import {
   loadWorkspaceConfig,
@@ -601,6 +603,110 @@ function handleHistoryOutput(output: string): void {
 }
 
 /**
+ * Handle usage command output messages.
+ */
+function handleUsageOutput(output: string): void {
+  const lines = output.split('\n');
+  const firstLine = lines[0];
+  const parts = firstLine.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__USAGE_RESET__': {
+      console.log(chalk.green('\nSession usage reset.'));
+      break;
+    }
+
+    case '__USAGE_CLEARED__': {
+      const count = parts[1];
+      console.log(chalk.green(`\nCleared ${count} usage records.`));
+      break;
+    }
+
+    case '__USAGE_PATH__': {
+      const path = parts.slice(1).join(':');
+      console.log(chalk.dim(`\nUsage file: ${path}`));
+      break;
+    }
+
+    case '__USAGE_SESSION__': {
+      const inputTokens = parseInt(parts[1], 10);
+      const outputTokens = parseInt(parts[2], 10);
+      const cost = parseFloat(parts[3]);
+      const requests = parseInt(parts[4], 10);
+      const startTime = parts[5];
+
+      console.log(chalk.bold('\nCurrent Session Usage:'));
+      console.log(`  Requests:       ${chalk.cyan(requests.toString())}`);
+      console.log(`  Input tokens:   ${chalk.cyan(formatTokens(inputTokens))}`);
+      console.log(`  Output tokens:  ${chalk.cyan(formatTokens(outputTokens))}`);
+      console.log(`  Total tokens:   ${chalk.cyan(formatTokens(inputTokens + outputTokens))}`);
+      console.log(`  Estimated cost: ${chalk.yellow(formatCost(cost))}`);
+      console.log(chalk.dim(`  Started: ${new Date(startTime).toLocaleString()}`));
+      break;
+    }
+
+    case '__USAGE_STATS__': {
+      const period = parts[1];
+      console.log(chalk.bold(`\n${period} Usage:`));
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        const lineParts = line.split(':');
+        const lineType = lineParts[0];
+
+        if (lineType === 'total') {
+          const inputTokens = parseInt(lineParts[1], 10);
+          const outputTokens = parseInt(lineParts[2], 10);
+          const cost = parseFloat(lineParts[3]);
+          const requests = parseInt(lineParts[4], 10);
+
+          console.log(`  ${chalk.bold('Total:')}`);
+          console.log(`    Requests:       ${chalk.cyan(requests.toString())}`);
+          console.log(`    Input tokens:   ${chalk.cyan(formatTokens(inputTokens))}`);
+          console.log(`    Output tokens:  ${chalk.cyan(formatTokens(outputTokens))}`);
+          console.log(`    Estimated cost: ${chalk.yellow(formatCost(cost))}`);
+        } else if (lineType === 'provider') {
+          const provider = lineParts[1];
+          const inputTokens = parseInt(lineParts[2], 10);
+          const outputTokens = parseInt(lineParts[3], 10);
+          const cost = parseFloat(lineParts[4]);
+          const requests = parseInt(lineParts[5], 10);
+
+          console.log(`  ${chalk.bold(provider + ':')}`);
+          console.log(`    ${requests} requests, ${formatTokens(inputTokens + outputTokens)} tokens, ${formatCost(cost)}`);
+        } else if (lineType === 'model') {
+          const model = lineParts[1];
+          const inputTokens = parseInt(lineParts[2], 10);
+          const outputTokens = parseInt(lineParts[3], 10);
+          const cost = parseFloat(lineParts[4]);
+          const requests = parseInt(lineParts[5], 10);
+
+          console.log(chalk.dim(`    ${model}: ${requests} req, ${formatTokens(inputTokens + outputTokens)} tok, ${formatCost(cost)}`));
+        }
+      }
+      break;
+    }
+
+    case '__USAGE_RECENT__': {
+      console.log(chalk.bold('\nRecent Usage:'));
+      for (let i = 1; i < lines.length; i++) {
+        console.log(`  ${lines[i]}`);
+      }
+      break;
+    }
+
+    case '__USAGE_RECENT_EMPTY__': {
+      console.log(chalk.dim('\nNo usage records found.'));
+      break;
+    }
+
+    default:
+      console.log(chalk.dim(output));
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -655,6 +761,7 @@ async function main() {
   registerSessionCommands();
   registerConfigCommands();
   registerHistoryCommands();
+  registerUsageCommands();
 
   const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
 
@@ -880,6 +987,12 @@ async function main() {
                 // Handle history command outputs
                 if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
                   handleHistoryOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle usage command outputs
+                if (result.startsWith('__USAGE_')) {
+                  handleUsageOutput(result);
                   prompt();
                   return;
                 }

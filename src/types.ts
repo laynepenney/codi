@@ -72,6 +72,16 @@ export interface ToolResult {
   is_error?: boolean;
 }
 
+/**
+ * Token usage information from a provider response.
+ */
+export interface TokenUsage {
+  /** Number of tokens in the input/prompt */
+  inputTokens: number;
+  /** Number of tokens in the output/completion */
+  outputTokens: number;
+}
+
 // Provider response
 /**
  * Represents a response from a provider, likely containing messages and tool calls.
@@ -79,12 +89,14 @@ export interface ToolResult {
  * @property {ToolCall[]} toolCalls - List of tool calls made within this response.
  * @property {{'end_turn' | 'tool_use' | 'max_tokens'}} stopReason - Reason for stopping the response generation.
  * @property {string} [reasoningContent] - Optional reasoning/thinking content from reasoning models.
+ * @property {TokenUsage} [usage] - Token usage information if available.
  */
 export interface ProviderResponse {
   content: string;
   toolCalls: ToolCall[];
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
   reasoningContent?: string;
+  usage?: TokenUsage;
 }
 
 // Provider configuration

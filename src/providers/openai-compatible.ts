@@ -134,11 +134,18 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
     const hasToolCalls = toolCalls.size > 0;
 
+    // Estimate tokens for streaming (rough approximation: ~4 chars per token)
+    const estimatedOutputTokens = Math.ceil((fullContent.length + reasoningContent.length) / 4);
+
     return {
       content: fullContent,
       toolCalls: Array.from(toolCalls.values()),
       stopReason: hasToolCalls ? 'tool_use' : 'end_turn',
       reasoningContent: reasoningContent || undefined,
+      usage: {
+        inputTokens: 0, // Cannot estimate input tokens in streaming mode
+        outputTokens: estimatedOutputTokens,
+      },
     };
   }
 
@@ -251,6 +258,10 @@ export class OpenAICompatibleProvider extends BaseProvider {
       content,
       toolCalls,
       stopReason: toolCalls.length > 0 ? 'tool_use' : 'end_turn',
+      usage: response.usage ? {
+        inputTokens: response.usage.prompt_tokens,
+        outputTokens: response.usage.completion_tokens,
+      } : undefined,
     };
   }
 }

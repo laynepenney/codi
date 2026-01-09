@@ -290,19 +290,37 @@ interface CodiPlugin {
 - Create: `src/plugins.ts`
 - Modify: `src/index.ts` (load plugins on startup)
 
-#### 7. Cost Tracking
-**What**: Track API usage and estimated costs.
+#### 7. Cost Tracking - IMPLEMENTED
 
-**Implementation**:
-- Count tokens for each request/response
-- Store usage in `~/.codi/usage.json`
-- Add `/usage` command to display stats
-- Show cost estimates based on provider pricing
+**Status**: Complete
 
-**Files to modify**:
-- Create: `src/usage.ts`
-- Modify: `src/agent.ts` (track tokens)
-- Add: `/usage` command
+**Key Features** (in `src/usage.ts`):
+- Automatic token counting for each API request/response
+- Cost estimation based on model pricing (Claude, GPT models)
+- Session-level tracking (current session stats)
+- Historical tracking stored in `~/.codi/usage.json`
+- Aggregated statistics by provider and model
+
+**Implemented Commands** (in `src/commands/usage-commands.ts`):
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/usage` | `/cost`, `/tokens` | Show current session usage |
+| `/usage session` | - | Show current session usage (default) |
+| `/usage today` | - | Show today's usage |
+| `/usage week` | - | Show last 7 days usage |
+| `/usage month` | - | Show last 30 days usage |
+| `/usage all` | - | Show all-time usage |
+| `/usage recent` | - | Show recent usage records |
+| `/usage reset` | - | Reset session usage |
+| `/usage clear` | - | Clear all usage history |
+
+**Files**:
+- `src/usage.ts` - Core usage tracking and cost calculation
+- `src/commands/usage-commands.ts` - User-facing commands
+- `src/agent.ts` - Records usage after each API call
+- `src/providers/anthropic.ts` - Returns usage info
+- `src/providers/openai-compatible.ts` - Returns usage info
 
 ### Lower Priority / Nice to Have
 
@@ -400,6 +418,7 @@ For maximum impact with reasonable effort:
 3. ~~**Workspace Config** - Professional/team use~~ DONE
 4. ~~**Diff Preview** - Safety improvement~~ DONE
 5. ~~**Undo System** - Safety net for file changes~~ DONE
+6. ~~**Cost Tracking** - API usage and cost monitoring~~ DONE
 
 ## Notes for Contributors
 

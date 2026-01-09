@@ -69,6 +69,10 @@ export class AnthropicProvider extends BaseProvider {
       content: fullContent,
       toolCalls,
       stopReason: finalMessage.stop_reason === 'tool_use' ? 'tool_use' : 'end_turn',
+      usage: {
+        inputTokens: finalMessage.usage.input_tokens,
+        outputTokens: finalMessage.usage.output_tokens,
+      },
     };
   }
 
@@ -145,6 +149,10 @@ export class AnthropicProvider extends BaseProvider {
       content,
       toolCalls,
       stopReason: response.stop_reason === 'tool_use' ? 'tool_use' : 'end_turn',
+      usage: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      },
     };
   }
 }

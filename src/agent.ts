@@ -2,6 +2,7 @@ import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
+import { recordUsage } from './usage.js';
 
 const MAX_ITERATIONS = 20; // Prevent infinite loops
 const MAX_CONSECUTIVE_ERRORS = 3; // Stop after repeated failures
@@ -534,6 +535,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
         this.callbacks.onText,
         systemContext
       );
+
+      // Record usage for cost tracking
+      if (response.usage) {
+        recordUsage(this.provider.getName(), this.provider.getModel(), response.usage);
+      }
 
       // Call reasoning callback if reasoning content is present (e.g., from DeepSeek-R1)
       if (response.reasoningContent && this.callbacks.onReasoning) {
