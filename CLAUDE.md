@@ -104,30 +104,31 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 
 ### High Priority / High Impact
 
-#### 1. Git Integration Commands
-**What**: Add `/commit`, `/branch`, `/diff`, `/pr` slash commands for git workflows.
+#### 1. Git Integration Commands - IMPLEMENTED
 
-**Implementation**:
-- Create `src/commands/git-commands.ts`
-- Commands generate prompts that use the `bash` tool for git operations
-- Example `/commit`: Reads staged changes, generates commit message, asks for approval
-- Example `/pr`: Creates PR description from branch diff
+**Status**: Complete
 
-**Files to modify**:
-- Create: `src/commands/git-commands.ts`
-- Modify: `src/commands/index.ts` (import new commands)
+**Implemented Commands** (in `src/commands/git-commands.ts`):
 
-```typescript
-// Example structure
-export const commitCommand: Command = {
-  name: 'commit',
-  description: 'Generate and create a git commit',
-  execute: async (args, context) => {
-    return `Analyze the staged changes using \`git diff --cached\` and create a commit.
-            Generate a concise, conventional commit message. Ask for my approval before committing.`;
-  },
-};
-```
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/commit [type]` | `/ci` | Generate commit message with conventional commits format |
+| `/branch [action] [name]` | `/br` | Create, switch, list, delete, rename branches |
+| `/diff [target]` | - | Show and explain git differences |
+| `/pr [base]` | `/pull-request` | Generate PR description with title, summary, changes |
+| `/stash [action]` | - | Manage stash (save, list, pop, apply, drop, clear) |
+| `/log [target]` | `/history` | Show and explain git history |
+| `/gitstatus` | `/gs` | Detailed git status with explanations |
+| `/undo [what]` | `/revert` | Safely undo commits, staged changes, file changes |
+| `/merge <branch>` | - | Merge branches with conflict guidance |
+| `/rebase <branch>` | - | Rebase with safety warnings |
+
+**Key Features**:
+- Conventional commits support for `/commit` (feat, fix, docs, etc.)
+- Branch actions: list, create, switch, delete, rename
+- Stash management with all common operations
+- Safe undo operations with appropriate warnings
+- PR description generation with structured template
 
 #### 2. Session Persistence
 **What**: Save and load conversation sessions to files.
@@ -321,7 +322,7 @@ interface CodiPlugin {
 
 For maximum impact with reasonable effort:
 
-1. **Git Integration** - Most requested workflow improvement
+1. ~~**Git Integration** - Most requested workflow improvement~~ DONE
 2. **Session Persistence** - Essential for longer projects
 3. **Workspace Config** - Professional/team use
 4. **Diff Preview** - Safety improvement

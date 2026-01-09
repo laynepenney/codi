@@ -104,6 +104,21 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 | `/setup <tool>` | Set up tooling (typescript, eslint, prettier, testing, ci, docker) |
 | `/migrate <from> <to> [path]` | Migrate code patterns (e.g., callbacks to promises) |
 
+### Git Commands
+
+| Command | Description |
+|---------|-------------|
+| `/commit [type]` | Generate a commit message and create a commit |
+| `/branch [action] [name]` | Create, switch, list, or delete branches |
+| `/diff [target]` | Show and explain git differences |
+| `/pr [base]` | Generate a pull request description |
+| `/stash [action]` | Manage git stash (save, list, pop, apply, drop) |
+| `/log [target]` | Show and explain git history |
+| `/gitstatus` | Show detailed git status with explanations |
+| `/undo [what]` | Safely undo git changes (commits, staged, etc.) |
+| `/merge <branch>` | Help merge branches with conflict guidance |
+| `/rebase <branch>` | Help rebase with safety warnings |
+
 ## Tools
 
 The AI has access to these tools for interacting with your codebase:
@@ -302,7 +317,7 @@ npm start
 See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guidelines.
 
 Key areas for expansion:
-- **Git Integration**: `/commit`, `/branch`, `/pr` commands
+- ~~**Git Integration**: `/commit`, `/branch`, `/pr` commands~~ (Implemented!)
 - **Session Persistence**: Save/load conversations
 - **Workspace Config**: Per-project `.codi.json` configuration
 - **Plugin System**: Third-party extensions

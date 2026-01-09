@@ -53,6 +53,7 @@ import {
 } from './commands/index.js';
 import { registerCodeCommands } from './commands/code-commands.js';
 import { registerWorkflowCommands } from './commands/workflow-commands.js';
+import { registerGitCommands } from './commands/git-commands.js';
 
 // CLI setup
 program
@@ -187,6 +188,18 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /setup <tool>      - Set up project tooling'));
   console.log(chalk.dim('  /migrate <from> <to> - Migrate code patterns'));
 
+  console.log(chalk.bold('\nGit:'));
+  console.log(chalk.dim('  /commit [type]     - Generate commit message and commit'));
+  console.log(chalk.dim('  /branch [action]   - Create, switch, list, delete branches'));
+  console.log(chalk.dim('  /diff [target]     - Show and explain git differences'));
+  console.log(chalk.dim('  /pr [base]         - Generate pull request description'));
+  console.log(chalk.dim('  /stash [action]    - Manage git stash'));
+  console.log(chalk.dim('  /log [target]      - Show and explain git history'));
+  console.log(chalk.dim('  /gitstatus         - Detailed git status'));
+  console.log(chalk.dim('  /undo [what]       - Safely undo git changes'));
+  console.log(chalk.dim('  /merge <branch>    - Merge branches'));
+  console.log(chalk.dim('  /rebase <branch>   - Rebase onto branch'));
+
   if (projectInfo) {
     console.log(chalk.bold('\nProject:'));
     console.log(
@@ -276,6 +289,7 @@ async function main() {
   registerDefaultTools();
   registerCodeCommands();
   registerWorkflowCommands();
+  registerGitCommands();
 
   const useTools = options.tools !== false; // --no-tools sets this to false
 
