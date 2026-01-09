@@ -60,7 +60,15 @@ import {
   getCurrentSessionName,
   setCurrentSessionName,
 } from './commands/session-commands.js';
+import { registerConfigCommands } from './commands/config-commands.js';
 import { loadSession } from './session.js';
+import {
+  loadWorkspaceConfig,
+  validateConfig,
+  mergeConfig,
+  getCustomDangerousPatterns,
+  type ResolvedConfig,
+} from './config.js';
 
 // CLI setup
 program
@@ -214,6 +222,11 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /sessions          - List saved sessions'));
   console.log(chalk.dim('  /sessions info     - Show current session info'));
   console.log(chalk.dim('  /sessions delete   - Delete a session'));
+
+  console.log(chalk.bold('\nConfiguration:'));
+  console.log(chalk.dim('  /config            - Show current workspace config'));
+  console.log(chalk.dim('  /config init       - Create a .codi.json file'));
+  console.log(chalk.dim('  /config example    - Show example configuration'));
 
   if (projectInfo) {
     console.log(chalk.bold('\nProject:'));
@@ -401,6 +414,65 @@ function handleSessionOutput(output: string): void {
 }
 
 /**
+ * Handle config command output messages.
+ */
+function handleConfigOutput(output: string): void {
+  const parts = output.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__CONFIG_INIT__': {
+      const path = parts.slice(1).join(':');
+      console.log(chalk.green(`\nCreated config file: ${path}`));
+      console.log(chalk.dim('Edit this file to customize Codi for your project.'));
+      break;
+    }
+
+    case '__CONFIG_INIT_FAILED__': {
+      const error = parts.slice(1).join(':');
+      console.log(chalk.red(`\nFailed to create config: ${error}`));
+      break;
+    }
+
+    case '__CONFIG_NOT_FOUND__': {
+      console.log(chalk.yellow('\nNo workspace configuration found.'));
+      console.log(chalk.dim('Run /config init to create a .codi.json file.'));
+      break;
+    }
+
+    case '__CONFIG_EXAMPLE__': {
+      const example = parts.slice(1).join(':');
+      console.log(chalk.bold('\nExample configuration (.codi.json):'));
+      console.log(chalk.dim(example));
+      break;
+    }
+
+    case '__CONFIG_SHOW__': {
+      const configPath = parts[1];
+      const warnings = JSON.parse(parts[2]) as string[];
+      const configJson = parts.slice(3).join(':');
+
+      console.log(chalk.bold('\nWorkspace Configuration:'));
+      console.log(chalk.dim(`File: ${configPath}`));
+
+      if (warnings.length > 0) {
+        console.log(chalk.yellow('\nWarnings:'));
+        for (const w of warnings) {
+          console.log(chalk.yellow(`  - ${w}`));
+        }
+      }
+
+      console.log(chalk.dim('\nCurrent settings:'));
+      console.log(chalk.dim(configJson));
+      break;
+    }
+
+    default:
+      console.log(chalk.dim(output));
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -423,32 +495,60 @@ async function main() {
     );
   }
 
+  // Load workspace configuration
+  const { config: workspaceConfig, configPath } = loadWorkspaceConfig();
+  if (workspaceConfig && configPath) {
+    const warnings = validateConfig(workspaceConfig);
+    if (warnings.length > 0) {
+      console.log(chalk.yellow('Config warnings:'));
+      for (const w of warnings) {
+        console.log(chalk.yellow(`  - ${w}`));
+      }
+    }
+    console.log(chalk.dim(`Config: ${configPath}`));
+  }
+
+  // Merge workspace config with CLI options
+  const resolvedConfig = mergeConfig(workspaceConfig, {
+    provider: options.provider,
+    model: options.model,
+    baseUrl: options.baseUrl,
+    endpointId: options.endpointId,
+    yes: options.yes,
+    tools: options.tools,
+    session: options.session,
+  });
+
   // Register tools and commands
   registerDefaultTools();
   registerCodeCommands();
   registerWorkflowCommands();
   registerGitCommands();
   registerSessionCommands();
+  registerConfigCommands();
 
-  const useTools = options.tools !== false; // --no-tools sets this to false
+  const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
 
   if (useTools) {
     console.log(chalk.dim(`Tools: ${globalRegistry.listTools().length} registered`));
+    if (resolvedConfig.autoApprove.length > 0) {
+      console.log(chalk.dim(`Auto-approve: ${resolvedConfig.autoApprove.join(', ')}`));
+    }
   } else {
     console.log(chalk.yellow('Tools: disabled (--no-tools mode)'));
   }
   console.log(chalk.dim(`Commands: ${getAllCommands().length} available`));
 
-  // Create provider
+  // Create provider using resolved config
   let provider;
-  if (options.provider === 'auto') {
+  if (resolvedConfig.provider === 'auto') {
     provider = detectProvider();
   } else {
     provider = createProvider({
-      type: options.provider as ProviderType,
-      model: options.model,
-      baseUrl: options.baseUrl,
-      endpointId: options.endpointId,
+      type: resolvedConfig.provider as ProviderType,
+      model: resolvedConfig.model,
+      baseUrl: resolvedConfig.baseUrl,
+      endpointId: resolvedConfig.endpointId,
     });
   }
 
@@ -468,13 +568,26 @@ async function main() {
     projectInfo,
   };
 
+  // Build system prompt with config additions
+  let systemPrompt = generateSystemPrompt(projectInfo, useTools);
+  if (resolvedConfig.projectContext) {
+    systemPrompt += `\n\n## Project-Specific Guidelines\n${resolvedConfig.projectContext}`;
+  }
+  if (resolvedConfig.systemPromptAdditions) {
+    systemPrompt += `\n\n${resolvedConfig.systemPromptAdditions}`;
+  }
+
+  // Get custom dangerous patterns from config
+  const customDangerousPatterns = getCustomDangerousPatterns(resolvedConfig);
+
   // Create agent with enhanced system prompt
   const agent = new Agent({
     provider,
     toolRegistry: globalRegistry,
-    systemPrompt: generateSystemPrompt(projectInfo, useTools),
+    systemPrompt,
     useTools,
-    autoApprove: options.yes,
+    autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,
+    customDangerousPatterns,
     debug: options.debug,
     onText: (text) => process.stdout.write(text),
     onReasoning: (reasoning) => {
@@ -513,9 +626,10 @@ async function main() {
     projectInfo?.name
   );
 
-  // Load session from command line if specified
-  if (options.session) {
-    const session = loadSession(options.session);
+  // Load session from command line or config default
+  const sessionToLoad = options.session || resolvedConfig.defaultSession;
+  if (sessionToLoad) {
+    const session = loadSession(sessionToLoad);
     if (session) {
       agent.loadSession(session.messages, session.conversationSummary);
       setCurrentSessionName(session.name);
@@ -524,7 +638,7 @@ async function main() {
         console.log(chalk.dim('Session has conversation summary from previous compaction.'));
       }
     } else {
-      console.log(chalk.yellow(`Session not found: ${options.session}`));
+      console.log(chalk.yellow(`Session not found: ${sessionToLoad}`));
     }
   }
 
@@ -625,6 +739,12 @@ async function main() {
                 // Handle session command outputs (special format)
                 if (result.startsWith('__SESSION_')) {
                   handleSessionOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle config command outputs
+                if (result.startsWith('__CONFIG_')) {
+                  handleConfigOutput(result);
                   prompt();
                   return;
                 }

@@ -1,0 +1,275 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Workspace configuration for Codi.
+ * Can be defined in .codi.json or .codi/config.json in the project root.
+ */
+export interface WorkspaceConfig {
+  /** Provider to use (anthropic, openai, ollama, runpod) */
+  provider?: string;
+
+  /** Model name to use */
+  model?: string;
+
+  /** Custom base URL for API */
+  baseUrl?: string;
+
+  /** Endpoint ID for RunPod serverless */
+  endpointId?: string;
+
+  /** Tools that don't require confirmation (e.g., ["read_file", "glob", "grep"]) */
+  autoApprove?: string[];
+
+  /** Additional dangerous patterns for bash commands */
+  dangerousPatterns?: string[];
+
+  /** Additional text to append to the system prompt */
+  systemPromptAdditions?: string;
+
+  /** Whether to disable tools entirely */
+  noTools?: boolean;
+
+  /** Default session to load on startup */
+  defaultSession?: string;
+
+  /** Custom command aliases (e.g., { "t": "/test src/" }) */
+  commandAliases?: Record<string, string>;
+
+  /** Project-specific context to include in system prompt */
+  projectContext?: string;
+}
+
+/**
+ * Resolved configuration with all values set.
+ */
+export interface ResolvedConfig {
+  provider: string;
+  model?: string;
+  baseUrl?: string;
+  endpointId?: string;
+  autoApprove: string[];
+  dangerousPatterns: string[];
+  systemPromptAdditions?: string;
+  noTools: boolean;
+  defaultSession?: string;
+  commandAliases: Record<string, string>;
+  projectContext?: string;
+}
+
+/** Default configuration values */
+const DEFAULT_CONFIG: ResolvedConfig = {
+  provider: 'auto',
+  autoApprove: [],
+  dangerousPatterns: [],
+  noTools: false,
+  commandAliases: {},
+};
+
+/** Config file names to search for, in order of priority */
+const CONFIG_FILES = [
+  '.codi.json',
+  '.codi/config.json',
+  'codi.config.json',
+];
+
+/**
+ * Find and load workspace configuration from the current directory.
+ * Searches for .codi.json, .codi/config.json, or codi.config.json
+ */
+export function loadWorkspaceConfig(cwd: string = process.cwd()): {
+  config: WorkspaceConfig | null;
+  configPath: string | null;
+} {
+  for (const fileName of CONFIG_FILES) {
+    const configPath = path.join(cwd, fileName);
+    if (fs.existsSync(configPath)) {
+      try {
+        const content = fs.readFileSync(configPath, 'utf-8');
+        const config = JSON.parse(content) as WorkspaceConfig;
+        return { config, configPath };
+      } catch (error) {
+        console.warn(`Warning: Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
+        return { config: null, configPath };
+      }
+    }
+  }
+  return { config: null, configPath: null };
+}
+
+/**
+ * Validate workspace configuration.
+ * Returns an array of warning messages for invalid options.
+ */
+export function validateConfig(config: WorkspaceConfig): string[] {
+  const warnings: string[] = [];
+
+  // Validate provider
+  const validProviders = ['anthropic', 'openai', 'ollama', 'runpod', 'auto'];
+  if (config.provider && !validProviders.includes(config.provider)) {
+    warnings.push(`Unknown provider "${config.provider}". Valid: ${validProviders.join(', ')}`);
+  }
+
+  // Validate autoApprove tools
+  const validTools = [
+    'read_file', 'write_file', 'edit_file', 'patch_file', 'insert_line',
+    'glob', 'grep', 'list_directory', 'bash',
+  ];
+  if (config.autoApprove) {
+    for (const tool of config.autoApprove) {
+      if (!validTools.includes(tool)) {
+        warnings.push(`Unknown tool in autoApprove: "${tool}". Valid: ${validTools.join(', ')}`);
+      }
+    }
+  }
+
+  // Validate dangerousPatterns are valid regex
+  if (config.dangerousPatterns) {
+    for (const pattern of config.dangerousPatterns) {
+      try {
+        new RegExp(pattern);
+      } catch {
+        warnings.push(`Invalid regex in dangerousPatterns: "${pattern}"`);
+      }
+    }
+  }
+
+  // Validate commandAliases
+  if (config.commandAliases) {
+    for (const [alias, command] of Object.entries(config.commandAliases)) {
+      if (!command.startsWith('/')) {
+        warnings.push(`Command alias "${alias}" should start with "/": "${command}"`);
+      }
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Merge workspace config with CLI options.
+ * CLI options take precedence over workspace config.
+ */
+export function mergeConfig(
+  workspaceConfig: WorkspaceConfig | null,
+  cliOptions: {
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    endpointId?: string;
+    yes?: boolean;
+    tools?: boolean;
+    session?: string;
+  }
+): ResolvedConfig {
+  const config: ResolvedConfig = { ...DEFAULT_CONFIG };
+
+  // Apply workspace config
+  if (workspaceConfig) {
+    if (workspaceConfig.provider) config.provider = workspaceConfig.provider;
+    if (workspaceConfig.model) config.model = workspaceConfig.model;
+    if (workspaceConfig.baseUrl) config.baseUrl = workspaceConfig.baseUrl;
+    if (workspaceConfig.endpointId) config.endpointId = workspaceConfig.endpointId;
+    if (workspaceConfig.autoApprove) config.autoApprove = workspaceConfig.autoApprove;
+    if (workspaceConfig.dangerousPatterns) config.dangerousPatterns = workspaceConfig.dangerousPatterns;
+    if (workspaceConfig.systemPromptAdditions) config.systemPromptAdditions = workspaceConfig.systemPromptAdditions;
+    if (workspaceConfig.noTools) config.noTools = workspaceConfig.noTools;
+    if (workspaceConfig.defaultSession) config.defaultSession = workspaceConfig.defaultSession;
+    if (workspaceConfig.commandAliases) config.commandAliases = workspaceConfig.commandAliases;
+    if (workspaceConfig.projectContext) config.projectContext = workspaceConfig.projectContext;
+  }
+
+  // CLI options override workspace config
+  if (cliOptions.provider && cliOptions.provider !== 'auto') {
+    config.provider = cliOptions.provider;
+  }
+  if (cliOptions.model) config.model = cliOptions.model;
+  if (cliOptions.baseUrl) config.baseUrl = cliOptions.baseUrl;
+  if (cliOptions.endpointId) config.endpointId = cliOptions.endpointId;
+  if (cliOptions.session) config.defaultSession = cliOptions.session;
+
+  // CLI --yes flag adds all tools to autoApprove
+  if (cliOptions.yes) {
+    config.autoApprove = [
+      'read_file', 'write_file', 'edit_file', 'patch_file', 'insert_line',
+      'glob', 'grep', 'list_directory', 'bash',
+    ];
+  }
+
+  // CLI --no-tools disables tools
+  if (cliOptions.tools === false) {
+    config.noTools = true;
+  }
+
+  return config;
+}
+
+/**
+ * Check if a tool should be auto-approved based on config.
+ */
+export function shouldAutoApprove(toolName: string, config: ResolvedConfig): boolean {
+  return config.autoApprove.includes(toolName);
+}
+
+/**
+ * Get additional dangerous patterns from config as RegExp objects.
+ */
+export function getCustomDangerousPatterns(config: ResolvedConfig): Array<{
+  pattern: RegExp;
+  description: string;
+}> {
+  return config.dangerousPatterns.map((pattern) => ({
+    pattern: new RegExp(pattern),
+    description: `matches custom pattern: ${pattern}`,
+  }));
+}
+
+/**
+ * Create an example configuration file content.
+ */
+export function getExampleConfig(): string {
+  const example: WorkspaceConfig = {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    autoApprove: ['read_file', 'glob', 'grep', 'list_directory'],
+    dangerousPatterns: [],
+    systemPromptAdditions: '',
+    commandAliases: {
+      t: '/test src/',
+      b: '/build',
+    },
+    projectContext: '',
+  };
+
+  return JSON.stringify(example, null, 2);
+}
+
+/**
+ * Initialize a new .codi.json file in the current directory.
+ */
+export function initConfig(cwd: string = process.cwd()): {
+  success: boolean;
+  path: string;
+  error?: string;
+} {
+  const configPath = path.join(cwd, '.codi.json');
+
+  if (fs.existsSync(configPath)) {
+    return {
+      success: false,
+      path: configPath,
+      error: 'Config file already exists',
+    };
+  }
+
+  try {
+    fs.writeFileSync(configPath, getExampleConfig());
+    return { success: true, path: configPath };
+  } catch (error) {
+    return {
+      success: false,
+      path: configPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

@@ -307,7 +307,8 @@ export interface AgentOptions {
   toolRegistry: ToolRegistry;
   systemPrompt?: string;
   useTools?: boolean; // Set to false for models that don't support tool use
-  autoApprove?: boolean; // Skip confirmation prompts for destructive tools
+  autoApprove?: boolean | string[]; // Skip confirmation: true = all tools, string[] = specific tools
+  customDangerousPatterns?: Array<{ pattern: RegExp; description: string }>; // Additional patterns
   debug?: boolean; // Log messages sent to the model
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
@@ -325,7 +326,9 @@ export class Agent {
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
   private useTools: boolean;
-  private autoApprove: boolean;
+  private autoApproveAll: boolean;
+  private autoApproveTools: Set<string>;
+  private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
   private debug: boolean;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -341,7 +344,20 @@ export class Agent {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
     this.useTools = options.useTools ?? true;
-    this.autoApprove = options.autoApprove ?? false;
+
+    // Handle autoApprove as boolean or string[]
+    if (options.autoApprove === true) {
+      this.autoApproveAll = true;
+      this.autoApproveTools = new Set();
+    } else if (Array.isArray(options.autoApprove)) {
+      this.autoApproveAll = false;
+      this.autoApproveTools = new Set(options.autoApprove);
+    } else {
+      this.autoApproveAll = false;
+      this.autoApproveTools = new Set();
+    }
+
+    this.customDangerousPatterns = options.customDangerousPatterns ?? [];
     this.debug = options.debug ?? false;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
@@ -351,6 +367,13 @@ export class Agent {
       onToolResult: options.onToolResult,
       onConfirm: options.onConfirm,
     };
+  }
+
+  /**
+   * Check if a tool should be auto-approved.
+   */
+  private shouldAutoApprove(toolName: string): boolean {
+    return this.autoApproveAll || this.autoApproveTools.has(toolName);
   }
 
   private getDefaultSystemPrompt(): string {
@@ -577,20 +600,32 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       for (const toolCall of response.toolCalls) {
         // Check if this tool requires confirmation
-        const needsConfirmation = !this.autoApprove &&
+        const needsConfirmation = !this.shouldAutoApprove(toolCall.name) &&
           DESTRUCTIVE_TOOLS.has(toolCall.name) &&
           this.callbacks.onConfirm;
 
         if (needsConfirmation) {
-          // Check for dangerous bash commands
+          // Check for dangerous bash commands (including custom patterns)
           let isDangerous = false;
           let dangerReason: string | undefined;
 
           if (toolCall.name === 'bash') {
             const command = toolCall.input.command as string;
+            // Check built-in dangerous patterns
             const danger = checkDangerousBash(command);
             isDangerous = danger.isDangerous;
             dangerReason = danger.reason;
+
+            // Check custom dangerous patterns if not already flagged
+            if (!isDangerous && this.customDangerousPatterns.length > 0) {
+              for (const { pattern, description } of this.customDangerousPatterns) {
+                if (pattern.test(command)) {
+                  isDangerous = true;
+                  dangerReason = description;
+                  break;
+                }
+              }
+            }
           }
 
           const confirmation: ToolConfirmation = {

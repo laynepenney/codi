@@ -27,9 +27,17 @@ npm run dev -- --provider ollama --model llama3.2
 src/
 ├── index.ts          # CLI entry, REPL loop, readline interface
 ├── agent.ts          # Core agent loop - orchestrates model + tools
+├── config.ts         # Workspace configuration loading and merging
 ├── context.ts        # Project detection (Node, Python, Rust, Go)
+├── session.ts        # Session persistence management
 ├── types.ts          # TypeScript interfaces
 ├── commands/         # Slash command system
+│   ├── index.ts      # Command registry
+│   ├── code-commands.ts
+│   ├── workflow-commands.ts
+│   ├── git-commands.ts
+│   ├── session-commands.ts
+│   └── config-commands.ts
 ├── providers/        # AI model backends
 └── tools/            # Filesystem interaction tools
 ```
@@ -40,6 +48,8 @@ src/
 |------|---------|
 | `src/agent.ts` | The agentic loop - sends messages, handles tool calls, manages conversation |
 | `src/index.ts` | CLI setup, REPL, command parsing, user interaction |
+| `src/config.ts` | Workspace configuration loading, validation, and merging |
+| `src/session.ts` | Session persistence - save/load conversation history |
 | `src/providers/base.ts` | Abstract provider interface all backends implement |
 | `src/tools/registry.ts` | Tool registration and execution |
 | `src/types.ts` | All TypeScript interfaces |
@@ -153,27 +163,51 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - Load session on startup with `-s/--session <name>` CLI option
 - Auto-saves to current session name if one is loaded
 
-#### 3. Workspace Configuration
-**What**: Per-project `.codi.json` configuration file.
+#### 3. Workspace Configuration - IMPLEMENTED
 
-**Configuration options**:
+**Status**: Complete
+
+**Config File Locations** (searched in order):
+- `.codi.json`
+- `.codi/config.json`
+- `codi.config.json`
+
+**Configuration Options** (in `src/config.ts`):
 ```json
 {
   "provider": "anthropic",
   "model": "claude-sonnet-4-20250514",
-  "autoApprove": ["read_file", "glob", "grep"],
-  "dangerousPatterns": ["custom-dangerous-pattern"],
+  "baseUrl": "https://api.example.com",
+  "endpointId": "runpod-endpoint-id",
+  "autoApprove": ["read_file", "glob", "grep", "list_directory"],
+  "dangerousPatterns": ["custom-pattern-.*"],
   "systemPromptAdditions": "Always use TypeScript strict mode.",
-  "defaultCommands": {
-    "test": "/test src/ --framework vitest"
-  }
+  "noTools": false,
+  "defaultSession": "my-project-session",
+  "commandAliases": {
+    "t": "/test src/",
+    "b": "/build"
+  },
+  "projectContext": "This is a React app using Next.js 14."
 }
 ```
 
-**Implementation**:
-- Create: `src/config.ts` (config loading and merging)
-- Modify: `src/index.ts` (load config on startup)
-- Modify: `src/agent.ts` (apply config to behavior)
+**Implemented Commands** (in `src/commands/config-commands.ts`):
+
+| Command | Description |
+|---------|-------------|
+| `/config` | Show current workspace configuration |
+| `/config init` | Create a new .codi.json file |
+| `/config example` | Show example configuration |
+
+**Key Features**:
+- Per-tool auto-approval (e.g., auto-approve `read_file` but confirm `bash`)
+- Custom dangerous patterns (regex) for bash command warnings
+- System prompt additions for project-specific instructions
+- Project context for AI awareness
+- Command aliases for shortcuts
+- Default session to load on startup
+- CLI options override config settings
 
 ### Medium Priority
 
@@ -334,7 +368,7 @@ For maximum impact with reasonable effort:
 
 1. ~~**Git Integration** - Most requested workflow improvement~~ DONE
 2. ~~**Session Persistence** - Essential for longer projects~~ DONE
-3. **Workspace Config** - Professional/team use
+3. ~~**Workspace Config** - Professional/team use~~ DONE
 4. **Diff Preview** - Safety improvement
 5. **Undo System** - Safety net for file changes
 
