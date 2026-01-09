@@ -211,18 +211,28 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 
 ### Medium Priority
 
-#### 4. Diff Preview Mode
-**What**: Preview file changes before applying them.
+#### 4. Diff Preview Mode - IMPLEMENTED
 
-**Implementation**:
-- Add `--preview` flag to `edit_file` and `write_file` tools
-- Display unified diff and ask for confirmation
-- Use `diff` library for generating diffs
+**Status**: Complete
 
-**Files to modify**:
-- Modify: `src/tools/edit-file.ts`
-- Modify: `src/tools/write-file.ts`
-- Add dependency: `diff` package
+**Key Features** (in `src/diff.ts`):
+- Unified diff preview for `write_file` and `edit_file` operations
+- Color-coded diff display in terminal (green for additions, red for removals)
+- Automatic truncation for large diffs (shows first/last portions)
+- Statistics: lines added, lines removed, new file detection
+- Integrated into confirmation flow - shows diff before user approves
+
+**How it works**:
+- When you use `write_file` or `edit_file`, the confirmation prompt now shows a unified diff
+- Green lines (`+`) show what will be added
+- Red lines (`-`) show what will be removed
+- The diff is automatically truncated if it's too long
+
+**Files**:
+- `src/diff.ts` - Diff generation and formatting utilities
+- `src/agent.ts` - Generates diffs during confirmation
+- `src/index.ts` - Displays formatted diffs in confirmation prompt
+- Dependency: `diff` package
 
 #### 5. Undo/Redo System
 **What**: Track file changes with ability to undo.
@@ -369,7 +379,7 @@ For maximum impact with reasonable effort:
 1. ~~**Git Integration** - Most requested workflow improvement~~ DONE
 2. ~~**Session Persistence** - Essential for longer projects~~ DONE
 3. ~~**Workspace Config** - Professional/team use~~ DONE
-4. **Diff Preview** - Safety improvement
+4. ~~**Diff Preview** - Safety improvement~~ DONE
 5. **Undo System** - Safety net for file changes
 
 ## Notes for Contributors

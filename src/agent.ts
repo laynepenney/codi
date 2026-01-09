@@ -1,6 +1,7 @@
 import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
+import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 
 const MAX_ITERATIONS = 20; // Prevent infinite loops
 const MAX_CONSECUTIVE_ERRORS = 3; // Stop after repeated failures
@@ -35,6 +36,8 @@ export interface ToolConfirmation {
   input: Record<string, unknown>;
   isDangerous: boolean;
   dangerReason?: string;
+  /** Diff preview for file operations */
+  diffPreview?: DiffResult;
 }
 
 /**
@@ -628,11 +631,30 @@ Always use tools to interact with the filesystem rather than asking the user to 
             }
           }
 
+          // Generate diff preview for file operations
+          let diffPreview: DiffResult | undefined;
+          try {
+            if (toolCall.name === 'write_file') {
+              const path = toolCall.input.path as string;
+              const content = toolCall.input.content as string;
+              diffPreview = await generateWriteDiff(path, content);
+            } else if (toolCall.name === 'edit_file') {
+              const path = toolCall.input.path as string;
+              const oldString = toolCall.input.old_string as string;
+              const newString = toolCall.input.new_string as string;
+              const replaceAll = (toolCall.input.replace_all as boolean) || false;
+              diffPreview = await generateEditDiff(path, oldString, newString, replaceAll);
+            }
+          } catch {
+            // If diff generation fails, continue without preview
+          }
+
           const confirmation: ToolConfirmation = {
             toolName: toolCall.name,
             input: toolCall.input,
             isDangerous,
             dangerReason,
+            diffPreview,
           };
 
           const result = await this.callbacks.onConfirm!(confirmation);

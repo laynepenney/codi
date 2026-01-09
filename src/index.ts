@@ -69,6 +69,7 @@ import {
   getCustomDangerousPatterns,
   type ResolvedConfig,
 } from './config.js';
+import { formatDiffForTerminal, truncateDiff } from './diff.js';
 
 // CLI setup
 program
@@ -242,7 +243,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
  * Format a tool confirmation for display.
  */
 function formatConfirmation(confirmation: ToolConfirmation): string {
-  const { toolName, input, isDangerous, dangerReason } = confirmation;
+  const { toolName, input, isDangerous, dangerReason, diffPreview } = confirmation;
 
   let display = '';
 
@@ -256,15 +257,32 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
   // Format input based on tool type
   if (toolName === 'bash') {
     display += chalk.dim(`Command: ${input.command}\n`);
-  } else if (toolName === 'write_file') {
-    const content = input.content as string;
-    const lines = content.split('\n').length;
+  } else if (toolName === 'write_file' || toolName === 'edit_file') {
     display += chalk.dim(`Path: ${input.path}\n`);
-    display += chalk.dim(`Content: ${lines} lines, ${content.length} chars\n`);
-  } else if (toolName === 'edit_file') {
-    display += chalk.dim(`Path: ${input.path}\n`);
-    display += chalk.dim(`Replace: "${(input.old_string as string).slice(0, 50)}${(input.old_string as string).length > 50 ? '...' : ''}"\n`);
-    display += chalk.dim(`With: "${(input.new_string as string).slice(0, 50)}${(input.new_string as string).length > 50 ? '...' : ''}"\n`);
+
+    // Show diff preview if available
+    if (diffPreview) {
+      display += chalk.dim(`Changes: ${diffPreview.summary}\n`);
+      if (diffPreview.isNewFile) {
+        display += chalk.green('(New file)\n');
+      }
+      display += '\n';
+
+      // Format and display the diff
+      const truncatedDiff = truncateDiff(diffPreview.unifiedDiff, 40);
+      const formattedDiff = formatDiffForTerminal(truncatedDiff);
+      display += formattedDiff + '\n';
+    } else {
+      // Fallback to old behavior if no diff preview
+      if (toolName === 'write_file') {
+        const content = input.content as string;
+        const lines = content.split('\n').length;
+        display += chalk.dim(`Content: ${lines} lines, ${content.length} chars\n`);
+      } else {
+        display += chalk.dim(`Replace: "${(input.old_string as string).slice(0, 50)}${(input.old_string as string).length > 50 ? '...' : ''}"\n`);
+        display += chalk.dim(`With: "${(input.new_string as string).slice(0, 50)}${(input.new_string as string).length > 50 ? '...' : ''}"\n`);
+      }
+    }
   } else {
     display += chalk.dim(JSON.stringify(input, null, 2).slice(0, 200) + '\n');
   }
