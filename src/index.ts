@@ -799,6 +799,14 @@ async function main() {
     historySize: MAX_HISTORY_SIZE,
   });
 
+  // Track if readline is closed (for piped input)
+  let rlClosed = false;
+  rl.on('close', () => {
+    rlClosed = true;
+    console.log(chalk.dim('\nGoodbye!'));
+    process.exit(0);
+  });
+
   // Command context for slash commands
   const commandContext: CommandContext = {
     projectInfo,
@@ -885,6 +893,9 @@ async function main() {
    * the CLI session running.
    */
   const prompt = () => {
+    // Don't prompt if readline was closed (e.g., piped input ended)
+    if (rlClosed) return;
+
     rl.question(chalk.bold.cyan('\nYou: '), async (input) => {
       const trimmed = input.trim();
 
