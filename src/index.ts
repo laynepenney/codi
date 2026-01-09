@@ -292,8 +292,10 @@ async function main() {
               if (result) {
                 // Command returned a prompt - send to agent
                 console.log(chalk.bold.magenta('\nAssistant: '));
+                const startTime = Date.now();
                 await agent.chat(result);
-                console.log();
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(chalk.dim(`\n(${elapsed}s)`));
               }
             } catch (error) {
               console.error(chalk.red(`Command error: ${error instanceof Error ? error.message : error}`));
@@ -312,8 +314,10 @@ async function main() {
       console.log(chalk.bold.magenta('\nAssistant: '));
 
       try {
+        const startTime = Date.now();
         await agent.chat(trimmed);
-        console.log();
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(chalk.dim(`\n(${elapsed}s)`));
       } catch (error) {
         console.error(chalk.red(`\nError: ${error instanceof Error ? error.message : error}`));
       }
