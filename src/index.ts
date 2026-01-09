@@ -297,6 +297,8 @@ async function main() {
             try {
               const result = await command.execute(parsed.args, commandContext);
               if (result) {
+                // Clear history for slash commands - they should start fresh
+                agent.clearHistory();
                 // Command returned a prompt - send to agent
                 console.log(chalk.bold.magenta('\nAssistant: '));
                 const startTime = Date.now();
