@@ -110,6 +110,8 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
   console.log(chalk.dim('  /clear             - Clear conversation history'));
+  console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
+  console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
   console.log(chalk.dim('  /exit, /quit       - Exit the assistant'));
 
@@ -243,6 +245,38 @@ async function main() {
         } else {
           console.log(chalk.dim('\nNo project detected in current directory.'));
         }
+        prompt();
+        return;
+      }
+
+      if (trimmed === '/compact') {
+        const info = agent.getContextInfo();
+        console.log(chalk.dim(`\nCurrent context: ${info.tokens} tokens, ${info.messages} messages`));
+        if (info.messages <= 6) {
+          console.log(chalk.yellow('Not enough messages to compact (need >6).'));
+          prompt();
+          return;
+        }
+        console.log(chalk.dim('Compacting...'));
+        try {
+          const result = await agent.forceCompact();
+          console.log(chalk.green(`Compacted: ${result.before} → ${result.after} tokens`));
+          if (result.summary) {
+            console.log(chalk.dim(`Summary: ${result.summary.slice(0, 200)}${result.summary.length > 200 ? '...' : ''}`));
+          }
+        } catch (error) {
+          console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
+        }
+        prompt();
+        return;
+      }
+
+      if (trimmed === '/status') {
+        const info = agent.getContextInfo();
+        console.log(chalk.bold('\nContext Status:'));
+        console.log(chalk.dim(`  Tokens: ${info.tokens} / 8000`));
+        console.log(chalk.dim(`  Messages: ${info.messages}`));
+        console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
         prompt();
         return;
       }

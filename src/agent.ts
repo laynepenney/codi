@@ -4,6 +4,8 @@ import { ToolRegistry } from './tools/registry.js';
 
 const MAX_ITERATIONS = 20; // Prevent infinite loops
 const MAX_CONSECUTIVE_ERRORS = 3; // Stop after repeated failures
+const MAX_CONTEXT_TOKENS = 8000; // Trigger compaction when exceeded
+const RECENT_MESSAGES_TO_KEEP = 6; // Keep recent messages verbatim during compaction
 
 /**
  * Attempt to fix common JSON issues from LLM output:
@@ -99,6 +101,37 @@ function extractToolCallsFromText(text: string, availableTools: string[]): ToolC
   return toolCalls;
 }
 
+/**
+ * Estimate token count for a string (rough approximation: ~4 chars per token).
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Get the text content of a message for token counting.
+ */
+function getMessageText(message: Message): string {
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+  return message.content
+    .map((block) => {
+      if (block.type === 'text') return block.text || '';
+      if (block.type === 'tool_use') return JSON.stringify(block.input || {});
+      if (block.type === 'tool_result') return block.content || '';
+      return '';
+    })
+    .join('\n');
+}
+
+/**
+ * Count total tokens in a message array.
+ */
+function countMessageTokens(messages: Message[]): number {
+  return messages.reduce((total, msg) => total + estimateTokens(getMessageText(msg)), 0);
+}
+
 export interface AgentOptions {
   provider: BaseProvider;
   toolRegistry: ToolRegistry;
@@ -121,6 +154,7 @@ export class Agent {
   private useTools: boolean;
   private debug: boolean;
   private messages: Message[] = [];
+  private conversationSummary: string | null = null;
   private callbacks: {
     onText?: (text: string) => void;
     onToolCall?: (name: string, input: Record<string, unknown>) => void;
@@ -157,6 +191,70 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
+   * Compact the conversation history by summarizing older messages.
+   * Keeps recent messages verbatim and replaces older ones with a summary.
+   */
+  private async compactContext(): Promise<void> {
+    const totalTokens = countMessageTokens(this.messages);
+
+    if (totalTokens <= MAX_CONTEXT_TOKENS) {
+      return; // No compaction needed
+    }
+
+    if (this.debug) {
+      console.log(`\n[Context] Compacting: ${totalTokens} tokens exceeds ${MAX_CONTEXT_TOKENS} limit`);
+    }
+
+    // Split messages: older ones to summarize, recent ones to keep
+    const messagesToSummarize = this.messages.slice(0, -RECENT_MESSAGES_TO_KEEP);
+    const recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+
+    if (messagesToSummarize.length === 0) {
+      // All messages are "recent", just truncate the oldest
+      this.messages = recentMessages;
+      return;
+    }
+
+    // Format older messages for summarization
+    const oldContent = messagesToSummarize
+      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+      .join('\n\n');
+
+    // Include existing summary if present
+    const contextToSummarize = this.conversationSummary
+      ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
+      : oldContent;
+
+    try {
+      // Ask the model to create a summary
+      const summaryResponse = await this.provider.streamChat(
+        [
+          {
+            role: 'user',
+            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+          },
+        ],
+        undefined, // No tools for summary
+        undefined  // No streaming callback
+      );
+
+      this.conversationSummary = summaryResponse.content;
+      this.messages = recentMessages;
+
+      if (this.debug) {
+        const newTokens = countMessageTokens(this.messages);
+        console.log(`[Context] Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
+      }
+    } catch (error) {
+      // If summarization fails, fall back to simple truncation
+      if (this.debug) {
+        console.log(`[Context] Summarization failed, using simple truncation: ${error}`);
+      }
+      this.messages = recentMessages;
+    }
+  }
+
+  /**
    * Process a user message and return the final assistant response.
    * This runs the full agentic loop until the model stops calling tools.
    */
@@ -166,6 +264,9 @@ Always use tools to interact with the filesystem rather than asking the user to 
       role: 'user',
       content: userMessage,
     });
+
+    // Check if context needs compaction
+    await this.compactContext();
 
     let iterations = 0;
     let consecutiveErrors = 0;
@@ -179,9 +280,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
         ? this.toolRegistry.getDefinitions()
         : undefined;
 
+      // Build system context including any conversation summary
+      let systemContext = this.systemPrompt;
+      if (this.conversationSummary) {
+        systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
+      }
+
       // Prepare messages with system prompt
       const messagesWithSystem: Message[] = [
-        { role: 'user', content: this.systemPrompt },
+        { role: 'user', content: systemContext },
         { role: 'assistant', content: 'I understand. I will help you with coding tasks using the available tools.' },
         ...this.messages,
       ];
@@ -350,10 +457,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
-   * Clear conversation history.
+   * Clear conversation history and summary.
    */
   clearHistory(): void {
     this.messages = [];
+    this.conversationSummary = null;
   }
 
   /**
@@ -361,5 +469,64 @@ Always use tools to interact with the filesystem rather than asking the user to 
    */
   getHistory(): Message[] {
     return [...this.messages];
+  }
+
+  /**
+   * Get current context size information.
+   */
+  getContextInfo(): { tokens: number; messages: number; hasSummary: boolean } {
+    return {
+      tokens: countMessageTokens(this.messages),
+      messages: this.messages.length,
+      hasSummary: this.conversationSummary !== null,
+    };
+  }
+
+  /**
+   * Force context compaction regardless of current size.
+   * Returns info about what was compacted.
+   */
+  async forceCompact(): Promise<{ before: number; after: number; summary: string | null }> {
+    const before = countMessageTokens(this.messages);
+
+    if (this.messages.length <= RECENT_MESSAGES_TO_KEEP) {
+      return { before, after: before, summary: this.conversationSummary };
+    }
+
+    // Temporarily lower threshold to force compaction
+    const originalMessages = [...this.messages];
+    await this.compactContext();
+
+    // If compactContext didn't run (tokens were under limit), force it
+    if (this.messages.length === originalMessages.length) {
+      const messagesToSummarize = this.messages.slice(0, -RECENT_MESSAGES_TO_KEEP);
+      const recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+
+      const oldContent = messagesToSummarize
+        .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+        .join('\n\n');
+
+      const contextToSummarize = this.conversationSummary
+        ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
+        : oldContent;
+
+      try {
+        const summaryResponse = await this.provider.streamChat(
+          [{
+            role: 'user',
+            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+          }],
+          undefined,
+          undefined
+        );
+        this.conversationSummary = summaryResponse.content;
+        this.messages = recentMessages;
+      } catch {
+        this.messages = recentMessages;
+      }
+    }
+
+    const after = countMessageTokens(this.messages);
+    return { before, after, summary: this.conversationSummary };
   }
 }
