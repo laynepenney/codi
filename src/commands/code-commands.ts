@@ -172,45 +172,48 @@ export const docCommand: Command = {
     const filePath = args.trim();
     const isGlobPattern = filePath.includes('*');
 
-    const editInstructions = `
-## How to add documentation using insert_line
-
-Use insert_line to add JSDoc comments. Just specify the line number and content.
-
-Example - if a function is on line 25:
-\`\`\`
-25: export function calculateTotal(items: Item[]): number {
-\`\`\`
-
-Insert a JSDoc comment BEFORE line 25:
-\`\`\`json
-{"name": "insert_line", "arguments": {"path": "file.ts", "line": 25, "content": "/**\\n * Calculates the total price.\\n * @param items - Items to sum\\n * @returns Total price\\n */"}}
-\`\`\`
-
-RULES:
-1. Note the LINE NUMBER from read_file output (shown as "N: code")
-2. Use insert_line with that line number to insert the JSDoc BEFORE it
-3. **CRITICAL: Insert in REVERSE ORDER (largest line numbers first!)**
-   - This prevents line numbers from shifting incorrectly
-   - Example: If documenting lines 25, 50, 75 → insert at 75 first, then 50, then 25`;
-
     if (isGlobPattern) {
-      return `Add documentation to files matching "${filePath}".
+      return `Add JSDoc documentation to files matching "${filePath}".
 
 Steps:
 1. Use glob: {"pattern": "${filePath}"}
-2. For EACH file, use read_file to see the code (note line numbers!)
-3. For EACH undocumented function/class, use insert_line to add JSDoc
-${editInstructions}`;
+2. For EACH file found, use read_file then write_file to add documentation
+
+For each file:
+1. Read it with read_file
+2. Add JSDoc comments BEFORE each function, class, and interface
+3. Use write_file to save the complete documented file
+
+IMPORTANT: Use write_file with the COMPLETE file content including all original code plus your JSDoc comments.`;
     }
 
-    return `Add documentation to "${filePath}".
+    return `Add JSDoc documentation to "${filePath}".
 
 Steps:
-1. Use read_file: {"path": "${filePath}"} - note the line numbers!
-2. Find functions, classes, interfaces that need JSDoc (note their line numbers)
-3. Use insert_line for EACH one to add documentation before it
-${editInstructions}`;
+1. Use read_file: {"path": "${filePath}"} to see the current code
+2. Add JSDoc comments BEFORE each function, class, interface, and type
+3. Use write_file to save the complete file with documentation
+
+## Example JSDoc format:
+\`\`\`typescript
+/**
+ * Brief description of what this does.
+ * @param paramName - Description of parameter
+ * @returns Description of return value
+ */
+export function example(paramName: string): boolean {
+\`\`\`
+
+For interfaces/types:
+\`\`\`typescript
+/**
+ * Description of the interface.
+ * @property propName - Description of property
+ */
+export interface Example {
+\`\`\`
+
+CRITICAL: Use write_file with path "${filePath}" and the COMPLETE file content (all original code with JSDoc comments added before each definition).`;
   },
 };
 
