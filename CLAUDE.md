@@ -234,19 +234,38 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/index.ts` - Displays formatted diffs in confirmation prompt
 - Dependency: `diff` package
 
-#### 5. Undo/Redo System
-**What**: Track file changes with ability to undo.
+#### 5. Undo/Redo System - IMPLEMENTED
 
-**Implementation**:
-- Create backup before each file modification
-- Store in `~/.codi/history/` with timestamps
-- Add `/undo` and `/history` commands
-- Limit history size (e.g., last 50 operations)
+**Status**: Complete
 
-**Files to modify**:
-- Create: `src/history.ts`
-- Modify: All file-modifying tools to call history.record()
-- Add: `/undo`, `/redo`, `/history` commands
+**Key Features** (in `src/history.ts`):
+- Automatic tracking of all file modifications (write, edit, insert, patch)
+- Original file content backed up before each change
+- History stored in `~/.codi/history/` with timestamps
+- Maximum 50 entries kept (oldest pruned automatically)
+- Full undo/redo support
+
+**Implemented Commands** (in `src/commands/history-commands.ts`):
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/fileundo` | `/fu` | Undo the last file change |
+| `/redo` | - | Redo an undone change |
+| `/filehistory` | `/fh` | Show file change history |
+| `/filehistory clear` | - | Clear all history |
+| `/filehistory <file>` | - | Show history for specific file |
+
+**How it works**:
+- Every `write_file`, `edit_file`, `insert_line`, and `patch_file` operation is recorded
+- Original content is saved as backup before modification
+- Undo restores the original content (or deletes file if it was created)
+- Redo reapplies the change
+- History is persistent across sessions
+
+**Files**:
+- `src/history.ts` - History tracking and undo/redo logic
+- `src/commands/history-commands.ts` - User-facing commands
+- All file tools modified: `write-file.ts`, `edit-file.ts`, `insert-line.ts`, `patch-file.ts`
 
 #### 6. Plugin System
 **What**: Allow third-party extensions.
@@ -380,7 +399,7 @@ For maximum impact with reasonable effort:
 2. ~~**Session Persistence** - Essential for longer projects~~ DONE
 3. ~~**Workspace Config** - Professional/team use~~ DONE
 4. ~~**Diff Preview** - Safety improvement~~ DONE
-5. **Undo System** - Safety net for file changes
+5. ~~**Undo System** - Safety net for file changes~~ DONE
 
 ## Notes for Contributors
 

@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import { recordChange } from '../history.js';
 
 export class InsertLineTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -66,8 +67,18 @@ export class InsertLineTool extends BaseTool {
     const contentLines = insertContent.split('\n');
     lines.splice(insertIndex, 0, ...contentLines);
 
+    const newContent = lines.join('\n');
+
+    // Record change for undo
+    recordChange({
+      operation: 'edit',
+      filePath: path,
+      newContent,
+      description: `Inserted ${contentLines.length} line(s) at line ${lineNum} in ${path}`,
+    });
+
     // Write back
-    await writeFile(resolvedPath, lines.join('\n'), 'utf-8');
+    await writeFile(resolvedPath, newContent, 'utf-8');
 
     return `Inserted ${contentLines.length} line(s) at line ${lineNum} in ${path}`;
   }

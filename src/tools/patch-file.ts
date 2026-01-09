@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import { recordChange } from '../history.js';
 
 interface Hunk {
   oldStart: number;
@@ -75,8 +76,18 @@ export class PatchFileTool extends BaseTool {
       linesRemoved += result.removed;
     }
 
+    const newContent = lines.join('\n');
+
+    // Record change for undo
+    recordChange({
+      operation: 'edit',
+      filePath: path,
+      newContent,
+      description: `Patched ${path}: ${hunks.length} hunk(s), +${linesAdded}/-${linesRemoved} lines`,
+    });
+
     // Write the patched file
-    await writeFile(resolvedPath, lines.join('\n'), 'utf-8');
+    await writeFile(resolvedPath, newContent, 'utf-8');
 
     return `Patched ${path}: ${hunks.length} hunk(s) applied, +${linesAdded}/-${linesRemoved} lines`;
   }

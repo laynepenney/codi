@@ -1,7 +1,9 @@
 import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import { recordChange } from '../history.js';
 
 export class WriteFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -38,6 +40,18 @@ export class WriteFileTool extends BaseTool {
     }
 
     const resolvedPath = resolve(process.cwd(), path);
+    const isNewFile = !existsSync(resolvedPath);
+
+    // Record change for undo
+    const operation = isNewFile ? 'create' : 'write';
+    recordChange({
+      operation,
+      filePath: path,
+      newContent: content,
+      description: isNewFile
+        ? `Created ${path}`
+        : `Wrote ${content.length} chars to ${path}`,
+    });
 
     // Create parent directories if needed
     await mkdir(dirname(resolvedPath), { recursive: true });

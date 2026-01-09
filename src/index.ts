@@ -61,6 +61,7 @@ import {
   setCurrentSessionName,
 } from './commands/session-commands.js';
 import { registerConfigCommands } from './commands/config-commands.js';
+import { registerHistoryCommands } from './commands/history-commands.js';
 import { loadSession } from './session.js';
 import {
   loadWorkspaceConfig,
@@ -228,6 +229,12 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /config            - Show current workspace config'));
   console.log(chalk.dim('  /config init       - Create a .codi.json file'));
   console.log(chalk.dim('  /config example    - Show example configuration'));
+
+  console.log(chalk.bold('\nUndo/History:'));
+  console.log(chalk.dim('  /fileundo          - Undo the last file change'));
+  console.log(chalk.dim('  /redo              - Redo an undone change'));
+  console.log(chalk.dim('  /filehistory       - Show file change history'));
+  console.log(chalk.dim('  /filehistory clear - Clear all history'));
 
   if (projectInfo) {
     console.log(chalk.bold('\nProject:'));
@@ -491,6 +498,109 @@ function handleConfigOutput(output: string): void {
 }
 
 /**
+ * Handle history command output messages.
+ */
+function handleHistoryOutput(output: string): void {
+  const parts = output.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__UNDO_NOTHING__': {
+      console.log(chalk.yellow('\nNothing to undo.'));
+      console.log(chalk.dim('No file changes recorded in history.'));
+      break;
+    }
+
+    case '__UNDO_SUCCESS__': {
+      const fileName = parts[1];
+      const operation = parts[2];
+      const description = parts.slice(3).join(':');
+      console.log(chalk.green(`\nUndone: ${operation} ${fileName}`));
+      console.log(chalk.dim(description));
+      break;
+    }
+
+    case '__REDO_NOTHING__': {
+      console.log(chalk.yellow('\nNothing to redo.'));
+      console.log(chalk.dim('No undone changes to restore.'));
+      break;
+    }
+
+    case '__REDO_SUCCESS__': {
+      const fileName = parts[1];
+      const operation = parts[2];
+      const description = parts.slice(3).join(':');
+      console.log(chalk.green(`\nRedone: ${operation} ${fileName}`));
+      console.log(chalk.dim(description));
+      break;
+    }
+
+    case '__HISTORY_EMPTY__': {
+      console.log(chalk.dim('\nNo file changes recorded.'));
+      console.log(chalk.dim('Changes will be tracked when you use write, edit, or patch operations.'));
+      break;
+    }
+
+    case '__HISTORY_LIST__': {
+      const undoCount = parts[1];
+      const redoCount = parts[2];
+      const lines = output.split('\n').slice(1);
+      console.log(chalk.bold('\nFile Change History:'));
+      console.log(chalk.dim(`  ${undoCount} undo, ${redoCount} redo available`));
+      console.log();
+      for (const line of lines) {
+        if (line.includes('(undone)')) {
+          console.log(chalk.dim(`  ${line}`));
+        } else {
+          console.log(`  ${line}`);
+        }
+      }
+      break;
+    }
+
+    case '__HISTORY_FILE__': {
+      const fileName = parts[1];
+      const lines = output.split('\n').slice(1);
+      console.log(chalk.bold(`\nHistory for ${fileName}:`));
+      for (const line of lines) {
+        console.log(chalk.dim(`  ${line}`));
+      }
+      break;
+    }
+
+    case '__HISTORY_FILE_EMPTY__': {
+      const fileName = parts[1];
+      console.log(chalk.dim(`\nNo history for ${fileName}`));
+      break;
+    }
+
+    case '__HISTORY_CLEARED__': {
+      const count = parts[1];
+      console.log(chalk.green(`\nCleared ${count} history entries.`));
+      break;
+    }
+
+    case '__HISTORY_DIR__': {
+      const dir = parts.slice(1).join(':');
+      console.log(chalk.dim(`\nHistory directory: ${dir}`));
+      break;
+    }
+
+    case '__HISTORY_STATUS__': {
+      const undoCount = parts[1];
+      const redoCount = parts[2];
+      console.log(chalk.bold('\nHistory Status:'));
+      console.log(chalk.dim(`  Undo available: ${undoCount}`));
+      console.log(chalk.dim(`  Redo available: ${redoCount}`));
+      break;
+    }
+
+    default:
+      console.log(chalk.dim(output));
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -544,6 +654,7 @@ async function main() {
   registerGitCommands();
   registerSessionCommands();
   registerConfigCommands();
+  registerHistoryCommands();
 
   const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
 
@@ -763,6 +874,12 @@ async function main() {
                 // Handle config command outputs
                 if (result.startsWith('__CONFIG_')) {
                   handleConfigOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle history command outputs
+                if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
+                  handleHistoryOutput(result);
                   prompt();
                   return;
                 }

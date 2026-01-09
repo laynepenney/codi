@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import { recordChange } from '../history.js';
 
 export class EditFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -79,6 +80,14 @@ export class EditFileTool extends BaseTool {
       newContent = content.replace(oldString, newString);
       replacedCount = 1;
     }
+
+    // Record change for undo
+    recordChange({
+      operation: 'edit',
+      filePath: path,
+      newContent,
+      description: `Replaced ${replacedCount} occurrence(s) in ${path}`,
+    });
 
     // Write the file
     await writeFile(resolvedPath, newContent, 'utf-8');
