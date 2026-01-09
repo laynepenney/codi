@@ -1,8 +1,43 @@
 #!/usr/bin/env node
 
-import { createInterface } from 'readline';
+import { createInterface, type Interface } from 'readline';
 import { program } from 'commander';
 import chalk from 'chalk';
+import { readFileSync, appendFileSync, existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
+// History configuration
+const HISTORY_FILE = join(homedir(), '.codi_history');
+const MAX_HISTORY_SIZE = 1000;
+
+/**
+ * Load command history from file.
+ */
+function loadHistory(): string[] {
+  try {
+    if (existsSync(HISTORY_FILE)) {
+      const content = readFileSync(HISTORY_FILE, 'utf-8');
+      const lines = content.split('\n').filter((line) => line.trim());
+      // Return most recent entries up to MAX_HISTORY_SIZE
+      return lines.slice(-MAX_HISTORY_SIZE);
+    }
+  } catch {
+    // Ignore errors reading history
+  }
+  return [];
+}
+
+/**
+ * Append a command to history file.
+ */
+function saveToHistory(command: string): void {
+  try {
+    appendFileSync(HISTORY_FILE, command + '\n');
+  } catch {
+    // Ignore errors writing history
+  }
+}
 
 import { Agent } from './agent.js';
 import { detectProvider, createProvider, type ProviderType } from './providers/index.js';
@@ -28,12 +63,22 @@ program
   .option('-m, --model <name>', 'Model to use')
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
   .option('--endpoint-id <id>', 'Endpoint ID (for RunPod serverless)')
-  .option('--no-tools', 'Disable tool use (for models that don\'t support it)')
+  .option('--no-tools', "Disable tool use (for models that don't support it)")
   .option('--debug', 'Show messages sent to the model')
   .parse();
 
 const options = program.opts();
 
+/**
+ * Builds the system prompt given to the agent.
+ *
+ * The prompt varies depending on whether tool-use is enabled, and optionally
+ * includes detected project context to help the model tailor responses.
+ *
+ * @param projectInfo - Detected information about the current project, if any.
+ * @param useTools - Whether the agent should be instructed to use tools.
+ * @returns The complete system prompt.
+ */
 function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean): string {
   let prompt: string;
 
@@ -109,6 +154,13 @@ When suggesting changes, format them clearly so the user can apply them manually
   return prompt;
 }
 
+/**
+ * Prints the interactive CLI help text, including built-in commands, code
+ * assistance commands, workflow commands, and (if available) detected project
+ * info.
+ *
+ * @param projectInfo - Detected information about the current project, if any.
+ */
 function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
@@ -136,17 +188,35 @@ function showHelp(projectInfo: ProjectInfo | null): void {
 
   if (projectInfo) {
     console.log(chalk.bold('\nProject:'));
-    console.log(chalk.dim(`  ${projectInfo.name} (${projectInfo.language}${projectInfo.framework ? ` / ${projectInfo.framework}` : ''})`));
+    console.log(
+      chalk.dim(
+        `  ${projectInfo.name} (${projectInfo.language}${projectInfo.framework ? ` / ${projectInfo.framework}` : ''})`,
+      ),
+    );
   }
 }
 
+/**
+ * CLI entrypoint.
+ *
+ * Initializes project context, registers tools and slash-commands, creates the
+ * selected LLM provider and the agent, then starts an interactive readline loop
+ * that routes either built-in commands, slash commands, or free-form chat to the
+ * agent.
+ *
+ * @returns A promise that resolves when the interactive loop exits.
+ */
 async function main() {
   console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
   const projectInfo = await detectProject();
   if (projectInfo) {
-    console.log(chalk.dim(`Project: ${projectInfo.name} (${projectInfo.language}${projectInfo.framework ? ` / ${projectInfo.framework}` : ''})`));
+    console.log(
+      chalk.dim(
+        `Project: ${projectInfo.name} (${projectInfo.language}${projectInfo.framework ? ` / ${projectInfo.framework}` : ''})`,
+      ),
+    );
   }
 
   // Register tools and commands
@@ -212,12 +282,21 @@ async function main() {
     },
   });
 
-  // Create readline interface
+  // Create readline interface with history
+  const history = loadHistory();
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
+    history,
+    historySize: MAX_HISTORY_SIZE,
   });
 
+  /**
+   * Prompts for user input and handles a single interaction turn.
+   *
+   * This function re-invokes itself after each handled command/message to keep
+   * the CLI session running.
+   */
   const prompt = () => {
     rl.question(chalk.bold.cyan('\nYou: '), async (input) => {
       const trimmed = input.trim();
@@ -226,6 +305,9 @@ async function main() {
         prompt();
         return;
       }
+
+      // Save to history file
+      saveToHistory(trimmed);
 
       // Handle built-in commands
       if (trimmed === '/exit' || trimmed === '/quit') {
@@ -271,7 +353,11 @@ async function main() {
           const result = await agent.forceCompact();
           console.log(chalk.green(`Compacted: ${result.before} → ${result.after} tokens`));
           if (result.summary) {
-            console.log(chalk.dim(`Summary: ${result.summary.slice(0, 200)}${result.summary.length > 200 ? '...' : ''}`));
+            console.log(
+              chalk.dim(
+                `Summary: ${result.summary.slice(0, 200)}${result.summary.length > 200 ? '...' : ''}`,
+              ),
+            );
           }
         } catch (error) {
           console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
