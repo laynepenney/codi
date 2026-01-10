@@ -311,6 +311,7 @@ export interface AgentOptions {
   toolRegistry: ToolRegistry;
   systemPrompt?: string;
   useTools?: boolean; // Set to false for models that don't support tool use
+  extractToolsFromText?: boolean; // Extract tool calls from JSON in text (for models without native tool support)
   autoApprove?: boolean | string[]; // Skip confirmation: true = all tools, string[] = specific tools
   customDangerousPatterns?: Array<{ pattern: RegExp; description: string }>; // Additional patterns
   debug?: boolean; // Log messages sent to the model
@@ -330,6 +331,7 @@ export class Agent {
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
   private useTools: boolean;
+  private extractToolsFromText: boolean;
   private autoApproveAll: boolean;
   private autoApproveTools: Set<string>;
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
@@ -348,6 +350,7 @@ export class Agent {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
     this.useTools = options.useTools ?? true;
+    this.extractToolsFromText = options.extractToolsFromText ?? true;
 
     // Handle autoApprove as boolean or string[]
     if (options.autoApprove === true) {
@@ -548,7 +551,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // If no tool calls were detected via API but tools are enabled,
       // try to extract tool calls from the text (for models that output JSON as text)
-      if (response.toolCalls.length === 0 && this.useTools && response.content) {
+      if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText && response.content) {
         const availableTools = this.toolRegistry.listTools();
         const extractedCalls = extractToolCallsFromText(response.content, availableTools);
         if (extractedCalls.length > 0) {

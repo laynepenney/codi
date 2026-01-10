@@ -30,6 +30,9 @@ export interface WorkspaceConfig {
   /** Whether to disable tools entirely */
   noTools?: boolean;
 
+  /** Whether to extract tool calls from text (for models without native tool support) */
+  extractToolsFromText?: boolean;
+
   /** Default session to load on startup */
   defaultSession?: string;
 
@@ -52,6 +55,7 @@ export interface ResolvedConfig {
   dangerousPatterns: string[];
   systemPromptAdditions?: string;
   noTools: boolean;
+  extractToolsFromText: boolean;
   defaultSession?: string;
   commandAliases: Record<string, string>;
   projectContext?: string;
@@ -63,6 +67,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   autoApprove: [],
   dangerousPatterns: [],
   noTools: false,
+  extractToolsFromText: true,
   commandAliases: {},
 };
 
@@ -174,6 +179,7 @@ export function mergeConfig(
     if (workspaceConfig.dangerousPatterns) config.dangerousPatterns = workspaceConfig.dangerousPatterns;
     if (workspaceConfig.systemPromptAdditions) config.systemPromptAdditions = workspaceConfig.systemPromptAdditions;
     if (workspaceConfig.noTools) config.noTools = workspaceConfig.noTools;
+    if (workspaceConfig.extractToolsFromText !== undefined) config.extractToolsFromText = workspaceConfig.extractToolsFromText;
     if (workspaceConfig.defaultSession) config.defaultSession = workspaceConfig.defaultSession;
     if (workspaceConfig.commandAliases) config.commandAliases = workspaceConfig.commandAliases;
     if (workspaceConfig.projectContext) config.projectContext = workspaceConfig.projectContext;

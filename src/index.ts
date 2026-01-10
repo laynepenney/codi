@@ -830,6 +830,7 @@ async function main() {
     toolRegistry: globalRegistry,
     systemPrompt,
     useTools,
+    extractToolsFromText: resolvedConfig.extractToolsFromText,
     autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,
     customDangerousPatterns,
     debug: options.debug,
