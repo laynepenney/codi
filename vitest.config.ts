@@ -6,7 +6,20 @@ export default defineConfig({
     globals: true,
     include: ['tests/**/*.test.ts'],
     coverage: {
-      reporter: ['text', 'html'],
+      provider: 'v8',
+      reporter: ['text', 'text-summary', 'html', 'lcov'],
+      include: ['src/**/*.ts'],
+      exclude: [
+        'src/index.ts', // CLI entry point - tested via integration
+        'src/**/*.d.ts',
+      ],
+      thresholds: {
+        // Current baseline - increase as coverage improves
+        statements: 45,
+        branches: 75,
+        functions: 65,
+        lines: 45,
+      },
     },
   },
 });
