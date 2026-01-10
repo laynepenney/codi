@@ -197,10 +197,39 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
+   * Build a continuation prompt that reminds the model of the original task.
+   * Helps smaller models stay on track during multi-turn tool use.
+   */
+  private buildContinuationPrompt(originalTask: string): string {
+    const taskPreview = originalTask.length > 150
+      ? originalTask.slice(0, 150) + '...'
+      : originalTask;
+    return `\n\nContinue working on your task. Remember, the user asked: "${taskPreview}"\n\nUse more tools if needed, or provide your final response when done.`;
+  }
+
+  /**
+   * Truncate a tool result if it exceeds the maximum size.
+   * Helps smaller models process large outputs.
+   */
+  private truncateToolResult(content: string): string {
+    if (content.length <= AGENT_CONFIG.MAX_IMMEDIATE_TOOL_RESULT) {
+      return content;
+    }
+    const halfLimit = Math.floor(AGENT_CONFIG.MAX_IMMEDIATE_TOOL_RESULT / 2);
+    const truncated = content.slice(0, halfLimit) +
+      `\n\n... [${content.length - AGENT_CONFIG.MAX_IMMEDIATE_TOOL_RESULT} characters truncated] ...\n\n` +
+      content.slice(-halfLimit);
+    return truncated;
+  }
+
+  /**
    * Process a user message and return the final assistant response.
    * This runs the full agentic loop until the model stops calling tools.
    */
   async chat(userMessage: string): Promise<string> {
+    // Store original task for continuation prompts
+    const originalTask = userMessage;
+
     // Add user message to history
     this.messages.push({
       role: 'user',
@@ -450,13 +479,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
         for (let i = 0; i < toolResults.length; i++) {
           const result = toolResults[i];
           const toolName = response.toolCalls[i].name;
+          // Truncate large results to help smaller models
+          const content = this.truncateToolResult(result.content);
           if (result.is_error) {
-            resultText += `ERROR from ${toolName}: ${result.content}\n\n`;
+            resultText += `ERROR from ${toolName}: ${content}\n\n`;
           } else {
-            resultText += `Result from ${toolName}:\n${result.content}\n\n`;
+            resultText += `Result from ${toolName}:\n${content}\n\n`;
           }
         }
-        resultText += 'Continue with your task - use more tools if needed, or provide your final response if done.';
+        resultText += this.buildContinuationPrompt(originalTask);
 
         this.messages.push({
           role: 'user',
@@ -506,14 +537,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
               },
             });
           } else {
-            // Normal tool result
+            // Normal tool result - truncate large results to help smaller models
+            const truncatedContent = this.truncateToolResult(result.content);
             resultBlocks.push({
               type: 'tool_result' as const,
               tool_use_id: result.tool_use_id,
               name: toolName,
               content: result.is_error
-                ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
-                : result.content,
+                ? `ERROR: ${truncatedContent}\n\nPlease read the error message carefully and adjust your approach.`
+                : truncatedContent,
               is_error: result.is_error,
             });
           }
@@ -521,7 +553,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
         resultBlocks.push({
           type: 'text' as const,
-          text: '\n\nContinue with your task - use more tools if needed, or provide your final response if done.',
+          text: this.buildContinuationPrompt(originalTask),
         });
 
         this.messages.push({

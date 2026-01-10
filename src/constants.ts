@@ -19,6 +19,8 @@ export const AGENT_CONFIG = {
   TOOL_RESULT_TRUNCATE_THRESHOLD: 500,
   /** Keep this many recent tool result messages untruncated */
   RECENT_TOOL_RESULTS_TO_KEEP: 2,
+  /** Truncate immediate tool results longer than this (characters) - helps smaller models */
+  MAX_IMMEDIATE_TOOL_RESULT: 20000,
 } as const;
 
 /**
