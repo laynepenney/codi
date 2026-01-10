@@ -363,21 +363,38 @@ export default {
 - `src/providers/anthropic.ts` - Returns usage info
 - `src/providers/openai-compatible.ts` - Returns usage info
 
+#### 8. Vision Support - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features** (in `src/tools/analyze-image.ts`):
+- `analyze_image` tool for analyzing images using vision-capable models
+- Supports JPEG, PNG, GIF, and WebP formats
+- Base64 encoding of image data
+- Size warnings for large images (>5MB)
+- Works with Claude 3+ and GPT-4V/4O models
+
+**How It Works**:
+1. User asks to analyze an image
+2. AI calls `analyze_image` tool with the image path
+3. Tool reads image, converts to base64, returns special format
+4. Agent parses the image data and adds it as an image content block
+5. Model receives the image and provides analysis
+
+**Provider Support**:
+- **Anthropic**: Claude 3 family (Haiku, Sonnet, Opus), Claude 4 (Sonnet, Opus)
+- **OpenAI**: GPT-4V, GPT-4O, GPT-5, and models with "vision" in name
+- **Ollama**: Most models don't support vision (graceful error)
+
+**Files**:
+- `src/tools/analyze-image.ts` - Image analysis tool
+- `src/types.ts` - ImageMediaType, ImageSource, ContentBlock with image support
+- `src/providers/base.ts` - `supportsVision()` method
+- `src/providers/anthropic.ts` - Image block handling
+- `src/providers/openai-compatible.ts` - Image URL format handling
+- `src/agent.ts` - Image result parsing and message formatting
+
 ### Lower Priority / Nice to Have
-
-#### 8. Vision Support
-**What**: Allow image/screenshot analysis for providers that support it.
-
-**Implementation**:
-- Add `analyze_image` tool
-- Convert images to base64
-- Only enable for providers with vision capability
-- Use for UI debugging, diagram understanding
-
-**Files to modify**:
-- Create: `src/tools/analyze-image.ts`
-- Modify: `src/providers/anthropic.ts` (vision message format)
-- Modify: `src/providers/openai-compatible.ts` (vision support)
 
 #### 9. Interactive File Selection
 **What**: Fuzzy file finder for commands.

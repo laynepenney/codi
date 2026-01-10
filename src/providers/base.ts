@@ -45,6 +45,14 @@ export abstract class BaseProvider {
   abstract supportsToolUse(): boolean;
 
   /**
+   * Check if this provider supports vision / image analysis.
+   * Override in providers that support multimodal input.
+   */
+  supportsVision(): boolean {
+    return false;
+  }
+
+  /**
    * Get the name of this provider for display purposes.
    */
   abstract getName(): string;

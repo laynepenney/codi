@@ -173,6 +173,11 @@ export class OpenAICompatibleProvider extends BaseProvider {
     return true;
   }
 
+  supportsVision(): boolean {
+    // GPT-4V, GPT-4O, and similar models support vision
+    return this.model.includes('gpt-4') || this.model.includes('gpt-5') || this.model.includes('vision');
+  }
+
   getName(): string {
     return this.providerName;
   }
@@ -196,6 +201,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [];
       const toolResults: OpenAI.ChatCompletionMessageParam[] = [];
       let textContent = '';
+      const imageBlocks: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
 
       for (const block of msg.content) {
         if (block.type === 'text') {
@@ -215,6 +221,14 @@ export class OpenAICompatibleProvider extends BaseProvider {
             tool_call_id: block.tool_use_id || '',
             content: block.content || '',
           } as OpenAI.ChatCompletionMessageParam);
+        } else if (block.type === 'image' && block.image) {
+          // Convert to OpenAI's image_url format with data URL
+          imageBlocks.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${block.image.media_type};base64,${block.image.data}`,
+            },
+          });
         }
       }
 
@@ -236,11 +250,25 @@ export class OpenAICompatibleProvider extends BaseProvider {
       parts.push(...toolResults);
 
       // Add text content after tool results (if any remaining)
-      if (textContent) {
-        parts.push({
-          role: msg.role,
-          content: textContent,
-        } as OpenAI.ChatCompletionMessageParam);
+      // If there are images, use the multimodal content format
+      if (textContent || imageBlocks.length > 0) {
+        if (imageBlocks.length > 0) {
+          // Use array format for multimodal content
+          const contentParts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [];
+          if (textContent) {
+            contentParts.push({ type: 'text', text: textContent });
+          }
+          contentParts.push(...imageBlocks);
+          parts.push({
+            role: msg.role,
+            content: contentParts,
+          } as OpenAI.ChatCompletionMessageParam);
+        } else {
+          parts.push({
+            role: msg.role,
+            content: textContent,
+          } as OpenAI.ChatCompletionMessageParam);
+        }
       }
 
       return parts;

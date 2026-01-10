@@ -1,4 +1,4 @@
-import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
+import type { Message, ContentBlock, ToolResult, ToolCall, ImageMediaType } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
@@ -304,6 +304,34 @@ function truncateOldToolResults(messages: Message[]): void {
       };
     });
   }
+}
+
+/**
+ * Parse an image result from the analyze_image tool.
+ * Format: __IMAGE__:media_type:question:base64data
+ */
+interface ParsedImageResult {
+  mediaType: ImageMediaType;
+  question: string;
+  data: string;
+}
+
+function parseImageResult(content: string): ParsedImageResult | null {
+  if (!content.startsWith('__IMAGE__:')) {
+    return null;
+  }
+
+  const parts = content.split(':');
+  if (parts.length < 4) {
+    return null;
+  }
+
+  const mediaType = parts[1] as ImageMediaType;
+  const question = decodeURIComponent(parts[2]);
+  // Join remaining parts in case base64 contains colons (unlikely but safe)
+  const data = parts.slice(3).join(':');
+
+  return { mediaType, question, data };
 }
 
 export interface AgentOptions {
@@ -739,15 +767,60 @@ Always use tools to interact with the filesystem rather than asking the user to 
         });
       } else {
         // For native tool calls, use content blocks
-        const resultBlocks: ContentBlock[] = toolResults.map((result, i) => ({
-          type: 'tool_result' as const,
-          tool_use_id: result.tool_use_id,
-          name: response.toolCalls[i].name, // Store tool name for truncation summaries
-          content: result.is_error
-            ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
-            : result.content,
-          is_error: result.is_error,
-        }));
+        const resultBlocks: ContentBlock[] = [];
+
+        for (let i = 0; i < toolResults.length; i++) {
+          const result = toolResults[i];
+          const toolName = response.toolCalls[i].name;
+
+          // Check if this is an image result from analyze_image
+          const imageResult = !result.is_error ? parseImageResult(result.content) : null;
+
+          if (imageResult) {
+            // Add a tool_result indicating the image was loaded
+            resultBlocks.push({
+              type: 'tool_result' as const,
+              tool_use_id: result.tool_use_id,
+              name: toolName,
+              content: 'Image loaded successfully. Analyzing...',
+              is_error: false,
+            });
+
+            // Add the question as text if provided
+            if (imageResult.question) {
+              resultBlocks.push({
+                type: 'text' as const,
+                text: `Please analyze this image: ${imageResult.question}`,
+              });
+            } else {
+              resultBlocks.push({
+                type: 'text' as const,
+                text: 'Please analyze this image and describe what you see.',
+              });
+            }
+
+            // Add the image block
+            resultBlocks.push({
+              type: 'image' as const,
+              image: {
+                type: 'base64',
+                media_type: imageResult.mediaType,
+                data: imageResult.data,
+              },
+            });
+          } else {
+            // Normal tool result
+            resultBlocks.push({
+              type: 'tool_result' as const,
+              tool_use_id: result.tool_use_id,
+              name: toolName,
+              content: result.is_error
+                ? `ERROR: ${result.content}\n\nPlease read the error message carefully and adjust your approach.`
+                : result.content,
+              is_error: result.is_error,
+            });
+          }
+        }
 
         resultBlocks.push({
           type: 'text' as const,

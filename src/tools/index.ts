@@ -9,6 +9,7 @@ export { ListDirectoryTool } from './list-directory.js';
 export { EditFileTool } from './edit-file.js';
 export { PatchFileTool } from './patch-file.js';
 export { InsertLineTool } from './insert-line.js';
+export { AnalyzeImageTool } from './analyze-image.js';
 
 import { globalRegistry } from './registry.js';
 import { ReadFileTool } from './read-file.js';
@@ -20,6 +21,7 @@ import { ListDirectoryTool } from './list-directory.js';
 import { EditFileTool } from './edit-file.js';
 import { PatchFileTool } from './patch-file.js';
 import { InsertLineTool } from './insert-line.js';
+import { AnalyzeImageTool } from './analyze-image.js';
 
 /**
  * Register all default tools with the global registry.
@@ -39,4 +41,7 @@ export function registerDefaultTools(): void {
 
   // Shell
   globalRegistry.register(new BashTool());
+
+  // Vision
+  globalRegistry.register(new AnalyzeImageTool());
 }

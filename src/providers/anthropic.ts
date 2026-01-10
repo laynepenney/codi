@@ -80,6 +80,11 @@ export class AnthropicProvider extends BaseProvider {
     return true;
   }
 
+  supportsVision(): boolean {
+    // All Claude 3+ models support vision
+    return this.model.includes('claude-3') || this.model.includes('claude-sonnet-4') || this.model.includes('claude-opus-4');
+  }
+
   getName(): string {
     return 'Anthropic';
   }
@@ -102,6 +107,7 @@ export class AnthropicProvider extends BaseProvider {
         | Anthropic.TextBlockParam
         | Anthropic.ToolUseBlockParam
         | Anthropic.ToolResultBlockParam
+        | Anthropic.ImageBlockParam
       > = msg.content.map((block) => {
         if (block.type === 'text') {
           return { type: 'text' as const, text: block.text || '' };
@@ -120,6 +126,16 @@ export class AnthropicProvider extends BaseProvider {
             tool_use_id: block.tool_use_id || '',
             content: block.content || '',
             is_error: block.is_error || false,
+          };
+        }
+        if (block.type === 'image' && block.image) {
+          return {
+            type: 'image' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: block.image.media_type,
+              data: block.image.data,
+            },
           };
         }
         return { type: 'text' as const, text: '' };
