@@ -1,6 +1,6 @@
 {
   "provider": "ollama",
-  "model": "llama3.2",
+  "model": "qwen3-coder:480b-cloud",
   "extractToolsFromText": false,
   "autoApprove": ["read_file", "glob", "grep", "list_directory"],
   "systemPromptAdditions": "This is the Codi codebase - an AI coding assistant CLI tool. Follow the patterns established in CLAUDE.md. Use ES modules with .js extensions in imports. Prefer async/await. Run tests with 'npm test' and build with 'npm run build'.",
