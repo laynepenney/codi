@@ -1,33 +1,18 @@
-import type { Message, ContentBlock, ToolResult, ToolCall, ImageMediaType } from './types.js';
+import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 import { recordUsage } from './usage.js';
-
-const MAX_ITERATIONS = 20; // Prevent infinite loops
-const MAX_CONSECUTIVE_ERRORS = 3; // Stop after repeated failures
-const MAX_CONTEXT_TOKENS = 8000; // Trigger compaction when exceeded
-const RECENT_MESSAGES_TO_KEEP = 6; // Keep recent messages verbatim during compaction
-const TOOL_RESULT_TRUNCATE_THRESHOLD = 500; // Truncate old tool results longer than this
-const RECENT_TOOL_RESULTS_TO_KEEP = 2; // Keep this many recent tool result messages untruncated
-
-// Tool safety categories
-const SAFE_TOOLS = new Set(['read_file', 'glob', 'grep', 'list_directory']);
-const DESTRUCTIVE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file', 'bash']);
-
-// Dangerous bash patterns that warrant extra warning
-const DANGEROUS_BASH_PATTERNS = [
-  { pattern: /\brm\s+(-[rf]+\s+)*[\/~]/, description: 'removes files/directories' },
-  { pattern: /\brm\s+-[rf]*\s/, description: 'force/recursive delete' },
-  { pattern: /\bsudo\b/, description: 'runs as superuser' },
-  { pattern: /\bchmod\s+777\b/, description: 'sets insecure permissions' },
-  { pattern: /\b(mkfs|dd\s+if=)/, description: 'disk/filesystem operation' },
-  { pattern: />\s*\/dev\//, description: 'writes to device' },
-  { pattern: /\bcurl\b.*\|\s*(ba)?sh/, description: 'pipes remote script to shell' },
-  { pattern: /\bwget\b.*\|\s*(ba)?sh/, description: 'pipes remote script to shell' },
-  { pattern: /\bgit\s+push\s+.*--force/, description: 'force pushes to remote' },
-  { pattern: /\bgit\s+reset\s+--hard/, description: 'hard reset (loses changes)' },
-];
+import { AGENT_CONFIG, TOOL_CATEGORIES, type DangerousPattern } from './constants.js';
+import {
+  extractToolCallsFromText,
+  countMessageTokens,
+  getMessageText,
+  findSafeStartIndex,
+  truncateOldToolResults,
+  parseImageResult,
+  checkDangerousBash,
+} from './utils/index.js';
 
 /**
  * Information about a tool call for confirmation.
@@ -45,294 +30,6 @@ export interface ToolConfirmation {
  * Result of a confirmation request.
  */
 export type ConfirmationResult = 'approve' | 'deny' | 'abort';
-
-/**
- * Check if a bash command matches any dangerous patterns.
- */
-function checkDangerousBash(command: string): { isDangerous: boolean; reason?: string } {
-  for (const { pattern, description } of DANGEROUS_BASH_PATTERNS) {
-    if (pattern.test(command)) {
-      return { isDangerous: true, reason: description };
-    }
-  }
-  return { isDangerous: false };
-}
-
-/**
- * Attempt to fix common JSON issues from LLM output:
- * - Single quotes instead of double quotes
- */
-function tryFixJson(jsonStr: string): string {
-  let fixed = jsonStr;
-
-  // Replace single-quoted strings after colons (handles multi-line)
-  // Match: : 'content' and replace with : "content"
-  fixed = fixed.replace(/:(\s*)'((?:[^'\\]|\\.)*)'/gs, ':$1"$2"');
-
-  return fixed;
-}
-
-/**
- * Try to parse JSON, attempting to fix common issues if standard parse fails.
- */
-function tryParseJson(jsonStr: string): unknown | null {
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    // Try to fix common issues
-    try {
-      return JSON.parse(tryFixJson(jsonStr));
-    } catch {
-      return null;
-    }
-  }
-}
-
-/**
- * Try to extract tool calls from text when models output JSON instead of using
- * proper function calling (common with Ollama models).
- */
-function extractToolCallsFromText(text: string, availableTools: string[]): ToolCall[] {
-  const toolCalls: ToolCall[] = [];
-
-  // Pattern 1: {"name": "tool_name", "arguments": {...}} or {"name": "tool_name", "parameters": {...}}
-  const jsonPattern = /\{[\s\S]*?"name"\s*:\s*"(\w+)"[\s\S]*?(?:"arguments"|"parameters"|"input")\s*:\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})[\s\S]*?\}/g;
-
-  let match;
-  while ((match = jsonPattern.exec(text)) !== null) {
-    const toolName = match[1];
-    if (availableTools.includes(toolName)) {
-      const args = tryParseJson(match[2]);
-      if (args && typeof args === 'object') {
-        toolCalls.push({
-          id: `extracted_${Date.now()}_${toolCalls.length}`,
-          name: toolName,
-          input: args as Record<string, unknown>,
-        });
-      }
-    }
-  }
-
-  // Pattern 2: Look for JSON in code blocks (objects or arrays)
-  if (toolCalls.length === 0) {
-    const codeBlockPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
-    while ((match = codeBlockPattern.exec(text)) !== null) {
-      const content = match[1].trim();
-      if (!content.startsWith('{') && !content.startsWith('[')) continue;
-
-      const parsed = tryParseJson(content);
-      if (!parsed) continue;
-
-      // Handle array of tool calls
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item?.name && availableTools.includes(item.name as string)) {
-            toolCalls.push({
-              id: `extracted_${Date.now()}_${toolCalls.length}`,
-              name: item.name as string,
-              input: (item.arguments || item.parameters || item.input || {}) as Record<string, unknown>,
-            });
-          }
-        }
-      }
-      // Handle single object
-      else {
-        const obj = parsed as Record<string, unknown>;
-        if (obj.name && availableTools.includes(obj.name as string)) {
-          toolCalls.push({
-            id: `extracted_${Date.now()}_${toolCalls.length}`,
-            name: obj.name as string,
-            input: (obj.arguments || obj.parameters || obj.input || {}) as Record<string, unknown>,
-          });
-        }
-      }
-    }
-  }
-
-  return toolCalls;
-}
-
-/**
- * Estimate token count for a string (rough approximation: ~4 chars per token).
- */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-/**
- * Get the text content of a message for token counting.
- */
-function getMessageText(message: Message): string {
-  if (typeof message.content === 'string') {
-    return message.content;
-  }
-  return message.content
-    .map((block) => {
-      if (block.type === 'text') return block.text || '';
-      if (block.type === 'tool_use') return JSON.stringify(block.input || {});
-      if (block.type === 'tool_result') return block.content || '';
-      return '';
-    })
-    .join('\n');
-}
-
-/**
- * Count total tokens in a message array.
- */
-function countMessageTokens(messages: Message[]): number {
-  return messages.reduce((total, msg) => total + estimateTokens(getMessageText(msg)), 0);
-}
-
-/**
- * Create a short summary of a tool result for truncation.
- */
-function summarizeToolResult(toolName: string, content: string, isError: boolean): string {
-  const lines = content.split('\n').length;
-  const chars = content.length;
-
-  if (isError) {
-    // Keep first line of error for context
-    const firstLine = content.split('\n')[0].slice(0, 100);
-    return `[${toolName} ERROR: ${firstLine}...]`;
-  }
-
-  // Create summary based on tool type
-  switch (toolName) {
-    case 'read_file':
-    case 'list_directory':
-      return `[${toolName}: ${lines} lines, ${chars} chars]`;
-    case 'glob':
-    case 'grep': {
-      const matchCount = content.split('\n').filter(l => l.trim()).length;
-      return `[${toolName}: ${matchCount} matches]`;
-    }
-    case 'bash': {
-      const preview = content.slice(0, 100).replace(/\n/g, ' ');
-      return `[${toolName}: ${preview}${chars > 100 ? '...' : ''} (${lines} lines)]`;
-    }
-    case 'write_file':
-    case 'edit_file':
-    case 'insert_line':
-    case 'patch_file':
-      return `[${toolName}: success]`;
-    default:
-      return `[${toolName}: ${lines} lines, ${chars} chars]`;
-  }
-}
-
-/**
- * Check if a message contains tool_result blocks (orphaned without preceding tool_calls).
- */
-function hasToolResultBlocks(msg: Message): boolean {
-  if (typeof msg.content === 'string') return false;
-  return msg.content.some(block => block.type === 'tool_result');
-}
-
-/**
- * Check if a message contains tool_use blocks.
- */
-function hasToolUseBlocks(msg: Message): boolean {
-  if (typeof msg.content === 'string') return false;
-  return msg.content.some(block => block.type === 'tool_use');
-}
-
-/**
- * Find the first safe starting index for recent messages.
- * Messages can't start with orphaned tool_result (needs preceding tool_calls).
- * Returns the index of the first message that's safe to start with.
- */
-function findSafeStartIndex(messages: Message[]): number {
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    // Safe starts: user with plain text, or assistant (even with tool_use, we keep the pair)
-    if (msg.role === 'user' && !hasToolResultBlocks(msg)) {
-      return i;
-    }
-    if (msg.role === 'assistant') {
-      // If assistant has tool_use, make sure next message exists and has results
-      if (hasToolUseBlocks(msg)) {
-        if (i + 1 < messages.length && hasToolResultBlocks(messages[i + 1])) {
-          return i; // Safe: assistant with tool_use followed by tool_result
-        }
-        // Otherwise skip this incomplete pair
-        continue;
-      }
-      return i; // Plain assistant message is safe
-    }
-  }
-  return messages.length; // No safe start found, will clear all
-}
-
-/**
- * Truncate old tool results in message history to save context.
- * Keeps recent tool results intact, truncates older ones to summaries.
- */
-function truncateOldToolResults(messages: Message[]): void {
-  // Find indices of messages containing tool_result blocks
-  const toolResultIndices: number[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (typeof msg.content !== 'string') {
-      const hasToolResult = msg.content.some(block => block.type === 'tool_result');
-      if (hasToolResult) {
-        toolResultIndices.push(i);
-      }
-    }
-  }
-
-  // Keep recent tool results, truncate older ones
-  const indicesToTruncate = toolResultIndices.slice(0, -RECENT_TOOL_RESULTS_TO_KEEP);
-
-  for (const idx of indicesToTruncate) {
-    const msg = messages[idx];
-    if (typeof msg.content === 'string') continue;
-
-    msg.content = msg.content.map(block => {
-      if (block.type !== 'tool_result') return block;
-      if (!block.content || block.content.length <= TOOL_RESULT_TRUNCATE_THRESHOLD) return block;
-
-      // Truncate to summary
-      const summary = summarizeToolResult(
-        block.name || 'tool',
-        block.content,
-        !!block.is_error
-      );
-
-      return {
-        ...block,
-        content: summary,
-      };
-    });
-  }
-}
-
-/**
- * Parse an image result from the analyze_image tool.
- * Format: __IMAGE__:media_type:question:base64data
- */
-interface ParsedImageResult {
-  mediaType: ImageMediaType;
-  question: string;
-  data: string;
-}
-
-function parseImageResult(content: string): ParsedImageResult | null {
-  if (!content.startsWith('__IMAGE__:')) {
-    return null;
-  }
-
-  const parts = content.split(':');
-  if (parts.length < 4) {
-    return null;
-  }
-
-  const mediaType = parts[1] as ImageMediaType;
-  const question = decodeURIComponent(parts[2]);
-  // Join remaining parts in case base64 contains colons (unlikely but safe)
-  const data = parts.slice(3).join(':');
-
-  return { mediaType, question, data };
-}
 
 export interface AgentOptions {
   provider: BaseProvider;
@@ -434,16 +131,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
   private async compactContext(): Promise<void> {
     const totalTokens = countMessageTokens(this.messages);
 
-    if (totalTokens <= MAX_CONTEXT_TOKENS) {
+    if (totalTokens <= AGENT_CONFIG.MAX_CONTEXT_TOKENS) {
       return; // No compaction needed
     }
 
     if (this.debug) {
-      console.log(`\n[Context] Compacting: ${totalTokens} tokens exceeds ${MAX_CONTEXT_TOKENS} limit`);
+      console.log(`\n[Context] Compacting: ${totalTokens} tokens exceeds ${AGENT_CONFIG.MAX_CONTEXT_TOKENS} limit`);
     }
 
     // Split messages: older ones to summarize, recent ones to keep
-    let recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+    let recentMessages = this.messages.slice(-AGENT_CONFIG.RECENT_MESSAGES_TO_KEEP);
 
     // Ensure recent messages don't start with orphaned tool_result
     // (OpenAI requires tool_result to follow assistant with tool_calls)
@@ -517,7 +214,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     let consecutiveErrors = 0;
     let finalResponse = '';
 
-    while (iterations < MAX_ITERATIONS) {
+    while (iterations < AGENT_CONFIG.MAX_ITERATIONS) {
       iterations++;
 
       // Get tool definitions if provider supports them and tools are enabled
@@ -641,7 +338,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       for (const toolCall of response.toolCalls) {
         // Check if this tool requires confirmation
         const needsConfirmation = !this.shouldAutoApprove(toolCall.name) &&
-          DESTRUCTIVE_TOOLS.has(toolCall.name) &&
+          TOOL_CATEGORIES.DESTRUCTIVE.has(toolCall.name) &&
           this.callbacks.onConfirm;
 
         if (needsConfirmation) {
@@ -738,7 +435,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       // Track consecutive errors
       if (hasError) {
         consecutiveErrors++;
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        if (consecutiveErrors >= AGENT_CONFIG.MAX_CONSECUTIVE_ERRORS) {
           finalResponse += '\n\n(Stopping due to repeated errors. Please check the issue and try again.)';
           break;
         }
@@ -837,7 +534,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       truncateOldToolResults(this.messages);
     }
 
-    if (iterations >= MAX_ITERATIONS) {
+    if (iterations >= AGENT_CONFIG.MAX_ITERATIONS) {
       finalResponse += '\n\n(Reached maximum iterations, stopping)';
     }
 
@@ -906,7 +603,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
   async forceCompact(): Promise<{ before: number; after: number; summary: string | null }> {
     const before = countMessageTokens(this.messages);
 
-    if (this.messages.length <= RECENT_MESSAGES_TO_KEEP) {
+    if (this.messages.length <= AGENT_CONFIG.RECENT_MESSAGES_TO_KEEP) {
       return { before, after: before, summary: this.conversationSummary };
     }
 
@@ -916,7 +613,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
     // If compactContext didn't run (tokens were under limit), force it
     if (this.messages.length === originalMessages.length) {
-      let recentMessages = this.messages.slice(-RECENT_MESSAGES_TO_KEEP);
+      let recentMessages = this.messages.slice(-AGENT_CONFIG.RECENT_MESSAGES_TO_KEEP);
 
       // Ensure recent messages don't start with orphaned tool_result
       const safeStartIdx = findSafeStartIndex(recentMessages);

@@ -2,11 +2,15 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import { getBlockingPatterns } from '../utils/index.js';
 
 const execAsync = promisify(exec);
 
 const TIMEOUT_MS = 30000; // 30 second timeout
 const MAX_OUTPUT_LENGTH = 50000; // Truncate output if too long
+
+// Get blocking patterns from unified constants
+const BLOCKING_PATTERNS = getBlockingPatterns();
 
 export class BashTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -38,17 +42,10 @@ export class BashTool extends BaseTool {
       throw new Error('Command is required');
     }
 
-    // Basic safety check for extremely dangerous commands
-    const dangerousPatterns = [
-      /rm\s+-rf\s+\/(?!\w)/,  // rm -rf /
-      /mkfs\./,               // Format filesystems
-      /dd\s+.*of=\/dev/,      // Direct disk write
-      />\s*\/dev\/sd[a-z]/,   // Overwrite disks
-    ];
-
-    for (const pattern of dangerousPatterns) {
+    // Safety check using unified blocking patterns
+    for (const { pattern, description } of BLOCKING_PATTERNS) {
       if (pattern.test(command)) {
-        throw new Error('This command appears to be destructive and has been blocked for safety');
+        throw new Error(`Command blocked for safety: ${description}`);
       }
     }
 
