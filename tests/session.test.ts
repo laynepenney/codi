@@ -1,7 +1,21 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+
+// Mock fs module
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof fs>('node:fs');
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    readFileSync: vi.fn(),
+    unlinkSync: vi.fn(),
+    readdirSync: vi.fn(),
+  };
+});
 
 import {
   saveSession,
@@ -12,31 +26,15 @@ import {
   generateSessionName,
   formatSessionInfo,
   getSessionsDir,
-  type Session,
   type SessionInfo,
-} from '../src/session';
-import type { Message } from '../src/types';
+} from '../src/session.js';
+import type { Message } from '../src/types.js';
 
-// Use a temp directory for tests
-const TEST_SESSIONS_DIR = path.join(os.tmpdir(), '.codi-test-sessions');
-
-// Mock the sessions directory
-const originalSessionsDir = getSessionsDir();
+const mockFs = vi.mocked(fs);
 
 describe('Session Management', () => {
   beforeEach(() => {
-    // Create test sessions directory
-    if (fs.existsSync(TEST_SESSIONS_DIR)) {
-      fs.rmSync(TEST_SESSIONS_DIR, { recursive: true });
-    }
-    fs.mkdirSync(TEST_SESSIONS_DIR, { recursive: true });
-  });
-
-  afterEach(() => {
-    // Clean up test sessions directory
-    if (fs.existsSync(TEST_SESSIONS_DIR)) {
-      fs.rmSync(TEST_SESSIONS_DIR, { recursive: true });
-    }
+    vi.clearAllMocks();
   });
 
   describe('generateSessionName', () => {
@@ -45,203 +43,440 @@ describe('Session Management', () => {
       expect(name).toMatch(/^session-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/);
     });
 
-    it('generates unique names', () => {
+    it('generates names starting with session prefix', () => {
       const name1 = generateSessionName();
-      // Wait a tiny bit to ensure different timestamp
       const name2 = generateSessionName();
-      // Names should be same or different (depending on timing)
       expect(name1).toMatch(/^session-/);
       expect(name2).toMatch(/^session-/);
     });
   });
 
-  describe('saveSession and loadSession', () => {
-    it('saves and loads a session with messages', () => {
-      const messages: Message[] = [
-        { role: 'user', content: 'Hello' },
-        { role: 'assistant', content: 'Hi there!' },
-      ];
-
-      // Save directly to test dir
-      const sessionPath = path.join(TEST_SESSIONS_DIR, 'test-save.json');
-      const session: Session = {
-        name: 'test-save',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        projectPath: '/test/path',
-        projectName: 'test-project',
-        provider: 'Anthropic',
-        model: 'claude-3',
-        messages,
-        conversationSummary: null,
-      };
-      fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
-
-      // Load it back
-      const content = fs.readFileSync(sessionPath, 'utf-8');
-      const loaded = JSON.parse(content) as Session;
-
-      expect(loaded.name).toBe('test-save');
-      expect(loaded.messages).toHaveLength(2);
-      expect(loaded.messages[0].content).toBe('Hello');
-      expect(loaded.messages[1].content).toBe('Hi there!');
-      expect(loaded.projectName).toBe('test-project');
-      expect(loaded.provider).toBe('Anthropic');
-    });
-
-    it('saves session with conversation summary', () => {
-      const messages: Message[] = [
-        { role: 'user', content: 'Test' },
-      ];
-
-      const sessionPath = path.join(TEST_SESSIONS_DIR, 'test-summary.json');
-      const session: Session = {
-        name: 'test-summary',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        projectPath: '/test',
-        messages,
-        conversationSummary: 'This is a summary of the conversation.',
-      };
-      fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
-
-      const content = fs.readFileSync(sessionPath, 'utf-8');
-      const loaded = JSON.parse(content) as Session;
-
-      expect(loaded.conversationSummary).toBe('This is a summary of the conversation.');
-    });
-
-    it('handles messages with content blocks', () => {
-      const messages: Message[] = [
-        { role: 'user', content: 'Use a tool' },
-        {
-          role: 'assistant',
-          content: [
-            { type: 'text', text: 'Let me help' },
-            { type: 'tool_use', id: 'tool_1', name: 'read_file', input: { path: 'test.txt' } },
-          ],
-        },
-      ];
-
-      const sessionPath = path.join(TEST_SESSIONS_DIR, 'test-blocks.json');
-      const session: Session = {
-        name: 'test-blocks',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        projectPath: '/test',
-        messages,
-        conversationSummary: null,
-      };
-      fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
-
-      const content = fs.readFileSync(sessionPath, 'utf-8');
-      const loaded = JSON.parse(content) as Session;
-
-      expect(loaded.messages[1].content).toHaveLength(2);
-      expect((loaded.messages[1].content as any)[0].type).toBe('text');
-      expect((loaded.messages[1].content as any)[1].type).toBe('tool_use');
+  describe('getSessionsDir', () => {
+    it('returns the sessions directory path', () => {
+      const dir = getSessionsDir();
+      expect(dir).toContain('.codi');
+      expect(dir).toContain('sessions');
+      expect(dir).toBe(path.join(os.homedir(), '.codi', 'sessions'));
     });
   });
 
-  describe('listSessions', () => {
-    it('returns empty array when no sessions exist', () => {
-      // Test dir is empty
-      const sessions = listSessionsFromDir(TEST_SESSIONS_DIR);
-      expect(sessions).toEqual([]);
+  describe('saveSession', () => {
+    it('creates sessions directory if it does not exist', () => {
+      mockFs.existsSync.mockReturnValue(false);
+
+      const messages: Message[] = [{ role: 'user', content: 'Hello' }];
+      saveSession('test-session', messages, null);
+
+      expect(mockFs.mkdirSync).toHaveBeenCalledWith(
+        expect.stringContaining('sessions'),
+        { recursive: true }
+      );
     });
 
-    it('lists sessions sorted by updatedAt descending', () => {
-      // Create sessions with different timestamps
-      const now = new Date();
-      const older = new Date(now.getTime() - 60000);
-      const oldest = new Date(now.getTime() - 120000);
+    it('saves a new session and returns isNew: true', () => {
+      mockFs.existsSync.mockReturnValueOnce(true) // sessions dir exists
+        .mockReturnValueOnce(false); // session file doesn't exist
 
-      createTestSession(TEST_SESSIONS_DIR, 'session-1', oldest.toISOString(), oldest.toISOString());
-      createTestSession(TEST_SESSIONS_DIR, 'session-2', older.toISOString(), older.toISOString());
-      createTestSession(TEST_SESSIONS_DIR, 'session-3', now.toISOString(), now.toISOString());
+      const messages: Message[] = [{ role: 'user', content: 'Hello' }];
+      const result = saveSession('new-session', messages, null);
 
-      const sessions = listSessionsFromDir(TEST_SESSIONS_DIR);
-      expect(sessions).toHaveLength(3);
-      expect(sessions[0].name).toBe('session-3'); // Most recent first
-      expect(sessions[1].name).toBe('session-2');
-      expect(sessions[2].name).toBe('session-1');
+      expect(result.isNew).toBe(true);
+      expect(result.path).toContain('new-session.json');
+      expect(mockFs.writeFileSync).toHaveBeenCalled();
     });
 
-    it('includes correct metadata in session info', () => {
-      createTestSession(TEST_SESSIONS_DIR, 'meta-test', undefined, undefined, {
+    it('updates existing session and preserves createdAt', () => {
+      const existingCreatedAt = '2024-01-01T00:00:00.000Z';
+      mockFs.existsSync.mockReturnValueOnce(true) // sessions dir exists
+        .mockReturnValueOnce(true); // session file exists
+      mockFs.readFileSync.mockReturnValue(JSON.stringify({
+        name: 'existing',
+        createdAt: existingCreatedAt,
+        updatedAt: existingCreatedAt,
+        projectPath: '/old/path',
+        messages: [],
+        conversationSummary: null,
+      }));
+
+      const messages: Message[] = [{ role: 'user', content: 'Updated' }];
+      const result = saveSession('existing', messages, null);
+
+      expect(result.isNew).toBe(false);
+      const writtenData = JSON.parse(
+        (mockFs.writeFileSync as any).mock.calls[0][1]
+      );
+      expect(writtenData.createdAt).toBe(existingCreatedAt);
+    });
+
+    it('saves session with all options', () => {
+      mockFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      const messages: Message[] = [{ role: 'user', content: 'Test' }];
+      saveSession('full-session', messages, 'Summary text', {
+        projectPath: '/my/project',
         projectName: 'my-project',
-        provider: 'OpenAI',
-        model: 'gpt-4',
-        messageCount: 5,
+        provider: 'Anthropic',
+        model: 'claude-3',
       });
 
-      const sessions = listSessionsFromDir(TEST_SESSIONS_DIR);
-      expect(sessions).toHaveLength(1);
-      expect(sessions[0].projectName).toBe('my-project');
-      expect(sessions[0].provider).toBe('OpenAI');
-      expect(sessions[0].model).toBe('gpt-4');
-      expect(sessions[0].messageCount).toBe(5);
+      const writtenData = JSON.parse(
+        (mockFs.writeFileSync as any).mock.calls[0][1]
+      );
+      expect(writtenData.name).toBe('full-session');
+      expect(writtenData.projectPath).toBe('/my/project');
+      expect(writtenData.projectName).toBe('my-project');
+      expect(writtenData.provider).toBe('Anthropic');
+      expect(writtenData.model).toBe('claude-3');
+      expect(writtenData.conversationSummary).toBe('Summary text');
+      expect(writtenData.messages).toHaveLength(1);
+    });
+
+    it('sanitizes session name for filesystem', () => {
+      mockFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      const messages: Message[] = [];
+      const result = saveSession('my/session:name', messages, null);
+
+      expect(result.path).toContain('my_session_name.json');
+    });
+
+    it('uses current directory as default projectPath', () => {
+      mockFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      saveSession('test', [], null);
+
+      const writtenData = JSON.parse(
+        (mockFs.writeFileSync as any).mock.calls[0][1]
+      );
+      expect(writtenData.projectPath).toBe(process.cwd());
+    });
+
+    it('handles error when reading existing session', () => {
+      mockFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(true);
+      mockFs.readFileSync.mockImplementation(() => {
+        throw new Error('Read error');
+      });
+
+      // Should not throw - uses current time instead
+      const result = saveSession('error-session', [], null);
+      expect(result.isNew).toBe(false);
+      expect(mockFs.writeFileSync).toHaveBeenCalled();
+    });
+  });
+
+  describe('loadSession', () => {
+    it('returns null when session does not exist', () => {
+      mockFs.existsSync.mockReturnValue(false);
+
+      const result = loadSession('nonexistent');
+
+      expect(result).toBeNull();
+    });
+
+    it('loads and parses existing session', () => {
+      const sessionData = {
+        name: 'my-session',
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T11:00:00.000Z',
+        projectPath: '/test',
+        messages: [{ role: 'user', content: 'Hello' }],
+        conversationSummary: 'A test conversation',
+      };
+
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify(sessionData));
+
+      const result = loadSession('my-session');
+
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe('my-session');
+      expect(result?.messages).toHaveLength(1);
+      expect(result?.conversationSummary).toBe('A test conversation');
+    });
+
+    it('returns null on parse error', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue('invalid json {{{');
+
+      const result = loadSession('bad-session');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when readFileSync throws', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockImplementation(() => {
+        throw new Error('Permission denied');
+      });
+
+      const result = loadSession('error-session');
+
+      expect(result).toBeNull();
     });
   });
 
   describe('deleteSession', () => {
-    it('deletes an existing session', () => {
-      createTestSession(TEST_SESSIONS_DIR, 'to-delete');
+    it('returns false when session does not exist', () => {
+      mockFs.existsSync.mockReturnValue(false);
 
-      const sessionPath = path.join(TEST_SESSIONS_DIR, 'to-delete.json');
-      expect(fs.existsSync(sessionPath)).toBe(true);
+      const result = deleteSession('nonexistent');
 
-      fs.unlinkSync(sessionPath);
-      expect(fs.existsSync(sessionPath)).toBe(false);
+      expect(result).toBe(false);
+      expect(mockFs.unlinkSync).not.toHaveBeenCalled();
     });
 
-    it('returns false for non-existent session', () => {
-      const sessionPath = path.join(TEST_SESSIONS_DIR, 'non-existent.json');
-      expect(fs.existsSync(sessionPath)).toBe(false);
+    it('deletes existing session and returns true', () => {
+      mockFs.existsSync.mockReturnValue(true);
+
+      const result = deleteSession('to-delete');
+
+      expect(result).toBe(true);
+      expect(mockFs.unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining('to-delete.json')
+      );
+    });
+
+    it('returns false when unlinkSync throws', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.unlinkSync.mockImplementation(() => {
+        throw new Error('Permission denied');
+      });
+
+      const result = deleteSession('error-session');
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('listSessions', () => {
+    it('creates sessions directory if it does not exist', () => {
+      mockFs.existsSync.mockReturnValue(false);
+      mockFs.readdirSync.mockReturnValue([]);
+
+      listSessions();
+
+      expect(mockFs.mkdirSync).toHaveBeenCalledWith(
+        expect.stringContaining('sessions'),
+        { recursive: true }
+      );
+    });
+
+    it('returns empty array when no sessions', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([]);
+
+      const result = listSessions();
+
+      expect(result).toEqual([]);
+    });
+
+    it('lists sessions sorted by updatedAt descending', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([
+        'old.json' as any,
+        'new.json' as any,
+        'middle.json' as any,
+      ]);
+
+      mockFs.readFileSync
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'old',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z',
+          projectPath: '/test',
+          messages: [{ role: 'user', content: 'a' }],
+          conversationSummary: null,
+        }))
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'new',
+          createdAt: '2024-01-03T00:00:00.000Z',
+          updatedAt: '2024-01-03T00:00:00.000Z',
+          projectPath: '/test',
+          messages: [{ role: 'user', content: 'b' }, { role: 'assistant', content: 'c' }],
+          conversationSummary: 'Summary',
+        }))
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'middle',
+          createdAt: '2024-01-02T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+          projectPath: '/test',
+          messages: [],
+          conversationSummary: null,
+        }));
+
+      const result = listSessions();
+
+      expect(result).toHaveLength(3);
+      expect(result[0].name).toBe('new');
+      expect(result[1].name).toBe('middle');
+      expect(result[2].name).toBe('old');
+    });
+
+    it('skips non-json files', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([
+        'session.json' as any,
+        'readme.txt' as any,
+        '.gitignore' as any,
+      ]);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify({
+        name: 'session',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+        projectPath: '/test',
+        messages: [],
+        conversationSummary: null,
+      }));
+
+      const result = listSessions();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('session');
+    });
+
+    it('includes correct metadata', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue(['test.json' as any]);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify({
+        name: 'test',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+        projectPath: '/my/project',
+        projectName: 'my-project',
+        provider: 'Anthropic',
+        model: 'claude-3',
+        messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }],
+        conversationSummary: 'Test summary',
+      }));
+
+      const result = listSessions();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        name: 'test',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+        projectPath: '/my/project',
+        projectName: 'my-project',
+        provider: 'Anthropic',
+        model: 'claude-3',
+        messageCount: 2,
+        hasSummary: true,
+      });
+    });
+
+    it('skips invalid session files', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([
+        'valid.json' as any,
+        'invalid.json' as any,
+      ]);
+      mockFs.readFileSync
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'valid',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z',
+          projectPath: '/test',
+          messages: [],
+          conversationSummary: null,
+        }))
+        .mockReturnValueOnce('not valid json');
+
+      const result = listSessions();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('valid');
+    });
+
+    it('returns empty array when readdirSync throws', () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockImplementation(() => {
+        throw new Error('Permission denied');
+      });
+
+      const result = listSessions();
+
+      expect(result).toEqual([]);
     });
   });
 
   describe('findSessions', () => {
+    beforeEach(() => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([
+        'feature-auth.json' as any,
+        'feature-api.json' as any,
+        'bugfix-login.json' as any,
+      ]);
+
+      mockFs.readFileSync
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'feature-auth',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z',
+          projectPath: '/test/codi',
+          projectName: 'codi',
+          messages: [],
+          conversationSummary: null,
+        }))
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'feature-api',
+          createdAt: '2024-01-02T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+          projectPath: '/test/other',
+          projectName: 'other',
+          messages: [],
+          conversationSummary: null,
+        }))
+        .mockReturnValueOnce(JSON.stringify({
+          name: 'bugfix-login',
+          createdAt: '2024-01-03T00:00:00.000Z',
+          updatedAt: '2024-01-03T00:00:00.000Z',
+          projectPath: '/test/codi',
+          projectName: 'codi',
+          messages: [],
+          conversationSummary: null,
+        }));
+    });
+
     it('finds sessions by name pattern', () => {
-      createTestSession(TEST_SESSIONS_DIR, 'feature-auth');
-      createTestSession(TEST_SESSIONS_DIR, 'feature-api');
-      createTestSession(TEST_SESSIONS_DIR, 'bugfix-login');
+      const result = findSessions('feature');
 
-      const sessions = listSessionsFromDir(TEST_SESSIONS_DIR);
-      const featureSessions = sessions.filter(s => s.name.includes('feature'));
-
-      expect(featureSessions).toHaveLength(2);
-      expect(featureSessions.map(s => s.name)).toContain('feature-auth');
-      expect(featureSessions.map(s => s.name)).toContain('feature-api');
+      expect(result).toHaveLength(2);
+      expect(result.map(s => s.name)).toContain('feature-auth');
+      expect(result.map(s => s.name)).toContain('feature-api');
     });
 
     it('finds sessions by project name', () => {
-      createTestSession(TEST_SESSIONS_DIR, 'session-1', undefined, undefined, {
-        projectName: 'codi',
-      });
-      createTestSession(TEST_SESSIONS_DIR, 'session-2', undefined, undefined, {
-        projectName: 'other-project',
-      });
+      const result = findSessions('codi');
 
-      const sessions = listSessionsFromDir(TEST_SESSIONS_DIR);
-      const codiSessions = sessions.filter(s => s.projectName === 'codi');
+      expect(result).toHaveLength(2);
+      expect(result.map(s => s.name)).toContain('feature-auth');
+      expect(result.map(s => s.name)).toContain('bugfix-login');
+    });
 
-      expect(codiSessions).toHaveLength(1);
-      expect(codiSessions[0].name).toBe('session-1');
+    it('finds sessions by project path', () => {
+      const result = findSessions('other');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('feature-api');
     });
 
     it('is case-insensitive', () => {
-      createTestSession(TEST_SESSIONS_DIR, 'MySession');
+      const result = findSessions('FEATURE');
 
-      const sessions = listSessionsFromDir(TEST_SESSIONS_DIR);
-      const found = sessions.filter(s => s.name.toLowerCase().includes('mysession'));
+      expect(result).toHaveLength(2);
+    });
 
-      expect(found).toHaveLength(1);
+    it('returns empty array when no matches', () => {
+      const result = findSessions('nonexistent');
+
+      expect(result).toEqual([]);
     });
   });
 
   describe('formatSessionInfo', () => {
-    it('formats session info correctly', () => {
+    it('formats session info with all fields', () => {
       const info: SessionInfo = {
         name: 'test-session',
         createdAt: '2024-01-15T10:30:00.000Z',
@@ -277,88 +512,37 @@ describe('Session Management', () => {
       expect(formatted).toContain('5 msgs');
       expect(formatted).not.toContain('has summary');
     });
-  });
 
-  describe('getSessionsDir', () => {
-    it('returns the sessions directory path', () => {
-      const dir = getSessionsDir();
-      expect(dir).toContain('.codi');
-      expect(dir).toContain('sessions');
+    it('excludes project name when not provided', () => {
+      const info: SessionInfo = {
+        name: 'test-session',
+        createdAt: '2024-01-15T10:30:00.000Z',
+        updatedAt: '2024-01-15T11:00:00.000Z',
+        projectPath: '/test/path',
+        messageCount: 3,
+        hasSummary: false,
+      };
+
+      const formatted = formatSessionInfo(info);
+
+      expect(formatted).not.toContain('[');
+      expect(formatted).not.toContain(']');
+    });
+
+    it('includes date and time', () => {
+      const info: SessionInfo = {
+        name: 'test',
+        createdAt: '2024-01-15T10:30:00.000Z',
+        updatedAt: '2024-06-20T14:45:00.000Z',
+        projectPath: '/test',
+        messageCount: 1,
+        hasSummary: false,
+      };
+
+      const formatted = formatSessionInfo(info);
+
+      // Should contain date parts (format varies by locale)
+      expect(formatted).toContain(' - ');
     });
   });
 });
-
-// Helper functions for tests
-function createTestSession(
-  dir: string,
-  name: string,
-  createdAt?: string,
-  updatedAt?: string,
-  extra?: {
-    projectName?: string;
-    provider?: string;
-    model?: string;
-    messageCount?: number;
-  }
-) {
-  const now = new Date().toISOString();
-  const messages: Message[] = [];
-
-  // Add dummy messages if messageCount specified
-  const count = extra?.messageCount || 1;
-  for (let i = 0; i < count; i++) {
-    messages.push({
-      role: i % 2 === 0 ? 'user' : 'assistant',
-      content: `Message ${i + 1}`,
-    });
-  }
-
-  const session: Session = {
-    name,
-    createdAt: createdAt || now,
-    updatedAt: updatedAt || now,
-    projectPath: '/test',
-    projectName: extra?.projectName,
-    provider: extra?.provider,
-    model: extra?.model,
-    messages,
-    conversationSummary: null,
-  };
-
-  const sessionPath = path.join(dir, `${name}.json`);
-  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
-}
-
-function listSessionsFromDir(dir: string): SessionInfo[] {
-  const sessions: SessionInfo[] = [];
-
-  if (!fs.existsSync(dir)) return sessions;
-
-  const files = fs.readdirSync(dir);
-  for (const file of files) {
-    if (!file.endsWith('.json')) continue;
-
-    try {
-      const content = fs.readFileSync(path.join(dir, file), 'utf-8');
-      const session = JSON.parse(content) as Session;
-      sessions.push({
-        name: session.name,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        projectPath: session.projectPath,
-        projectName: session.projectName,
-        provider: session.provider,
-        model: session.model,
-        messageCount: session.messages.length,
-        hasSummary: session.conversationSummary !== null,
-      });
-    } catch {
-      // Skip invalid files
-    }
-  }
-
-  // Sort by updatedAt descending
-  sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-  return sessions;
-}

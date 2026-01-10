@@ -15,10 +15,10 @@ export default defineConfig({
       ],
       thresholds: {
         // Current baseline - increase as coverage improves
-        statements: 45,
-        branches: 75,
-        functions: 65,
-        lines: 45,
+        statements: 60,
+        branches: 85,
+        functions: 75,
+        lines: 60,
       },
     },
   },
