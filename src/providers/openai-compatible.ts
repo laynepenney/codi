@@ -10,6 +10,34 @@ const MAX_TOKENS = 4096;
 const COMPLETION_TOKEN_MODELS = ['gpt-5', 'o1', 'o3'];
 
 /**
+ * Estimate token count for a string (rough approximation: ~4 chars per token).
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Estimate input tokens from messages array.
+ */
+function estimateInputTokens(messages: OpenAI.ChatCompletionMessageParam[]): number {
+  let totalChars = 0;
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      totalChars += msg.content.length;
+    } else if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === 'text') {
+          totalChars += part.text.length;
+        }
+      }
+    }
+    // Add overhead for role, etc.
+    totalChars += 10;
+  }
+  return Math.ceil(totalChars / 4);
+}
+
+/**
  * OpenAI-compatible provider that works with:
  * - OpenAI API
  * - Ollama (via OpenAI compatibility layer)
@@ -45,6 +73,9 @@ export class OpenAICompatibleProvider extends BaseProvider {
       ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
       : convertedMessages;
 
+    // Estimate input tokens for fallback when API doesn't return usage
+    const estimatedInput = estimateInputTokens(messagesWithSystem);
+
     const response = await this.client.chat.completions.create({
       model: this.model,
       ...this.getTokenParams(),
@@ -52,7 +83,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       tools: tools ? this.convertTools(tools) : undefined,
     });
 
-    return this.parseResponse(response);
+    return this.parseResponse(response, estimatedInput);
   }
 
   async streamChat(
@@ -65,6 +96,9 @@ export class OpenAICompatibleProvider extends BaseProvider {
     const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
       ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
       : convertedMessages;
+
+    // Estimate input tokens for fallback when API doesn't return usage
+    const estimatedInput = estimateInputTokens(messagesWithSystem);
 
     const stream = await this.client.chat.completions.create({
       model: this.model,
@@ -115,7 +149,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
     }
 
     // Use actual usage from stream if available, otherwise estimate
-    const inputTokens = streamUsage?.prompt_tokens ?? 0;
+    const inputTokens = streamUsage?.prompt_tokens ?? estimatedInput;
     const outputTokens = streamUsage?.completion_tokens ??
       Math.ceil((fullContent.length + reasoningContent.length) / 4);
 
@@ -247,7 +281,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
     }));
   }
 
-  private parseResponse(response: OpenAI.ChatCompletion): ProviderResponse {
+  private parseResponse(response: OpenAI.ChatCompletion, estimatedInputTokens: number): ProviderResponse {
     const message = response.choices[0]?.message;
     const content = message?.content || '';
     const toolCalls: ToolCall[] = [];
@@ -262,12 +296,16 @@ export class OpenAICompatibleProvider extends BaseProvider {
       }
     }
 
+    // Use actual usage if available, otherwise estimate
+    const inputTokens = response.usage?.prompt_tokens ?? estimatedInputTokens;
+    const outputTokens = response.usage?.completion_tokens ?? estimateTokens(content);
+
     return createProviderResponse({
       content,
       toolCalls,
       stopReason: response.choices[0]?.finish_reason,
-      inputTokens: response.usage?.prompt_tokens,
-      outputTokens: response.usage?.completion_tokens,
+      inputTokens,
+      outputTokens,
     });
   }
 }
