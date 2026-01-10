@@ -92,6 +92,12 @@ export interface TokenUsage {
   inputTokens: number;
   /** Number of tokens in the output/completion */
   outputTokens: number;
+  /** Tokens used to create cache (Anthropic) */
+  cacheCreationInputTokens?: number;
+  /** Tokens read from cache (Anthropic) */
+  cacheReadInputTokens?: number;
+  /** Tokens served from cache (OpenAI) */
+  cachedInputTokens?: number;
 }
 
 // Provider response

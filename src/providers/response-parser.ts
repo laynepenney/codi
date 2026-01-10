@@ -40,8 +40,22 @@ export function createProviderResponse(params: {
   inputTokens?: number;
   outputTokens?: number;
   reasoningContent?: string;
+  // Cache metrics
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+  cachedInputTokens?: number;
 }): ProviderResponse {
-  const { content, toolCalls, stopReason, inputTokens, outputTokens, reasoningContent } = params;
+  const {
+    content,
+    toolCalls,
+    stopReason,
+    inputTokens,
+    outputTokens,
+    reasoningContent,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    cachedInputTokens,
+  } = params;
 
   return {
     content,
@@ -52,6 +66,9 @@ export function createProviderResponse(params: {
       usage: {
         inputTokens,
         outputTokens,
+        ...(cacheCreationInputTokens !== undefined && { cacheCreationInputTokens }),
+        ...(cacheReadInputTokens !== undefined && { cacheReadInputTokens }),
+        ...(cachedInputTokens !== undefined && { cachedInputTokens }),
       },
     }),
   };

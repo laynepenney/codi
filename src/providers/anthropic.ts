@@ -18,13 +18,48 @@ export class AnthropicProvider extends BaseProvider {
     this.model = config.model || DEFAULT_MODEL;
   }
 
+  /**
+   * Build system prompt with cache control for prompt caching.
+   * Caches the system prompt to reduce costs on subsequent calls.
+   */
+  private buildCachedSystemPrompt(systemPrompt: string): Anthropic.TextBlockParam[] {
+    // Use type assertion since cache_control is a beta feature not yet in SDK types
+    return [{
+      type: 'text' as const,
+      text: systemPrompt,
+      cache_control: { type: 'ephemeral' },
+    } as Anthropic.TextBlockParam];
+  }
+
+  /**
+   * Add cache control to the last tool definition for tool caching.
+   */
+  private buildCachedTools(tools: ToolDefinition[]): Anthropic.Tool[] {
+    if (tools.length === 0) return [];
+
+    return tools.map((tool, index) => {
+      const anthropicTool: Anthropic.Tool = {
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.input_schema as Anthropic.Tool['input_schema'],
+      };
+      // Cache the last tool (caches all preceding tools too)
+      if (index === tools.length - 1) {
+        (anthropicTool as any).cache_control = { type: 'ephemeral' };
+      }
+      return anthropicTool;
+    });
+  }
+
   async chat(messages: Message[], tools?: ToolDefinition[], systemPrompt?: string): Promise<ProviderResponse> {
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: MAX_TOKENS,
-      ...(systemPrompt && { system: systemPrompt }),
+      // Use cached system prompt for prompt caching
+      ...(systemPrompt && { system: this.buildCachedSystemPrompt(systemPrompt) }),
       messages: this.convertMessages(messages),
-      tools: tools as Anthropic.Tool[] | undefined,
+      // Use cached tools for prompt caching
+      tools: tools ? this.buildCachedTools(tools) : undefined,
     });
 
     return this.parseResponse(response);
@@ -39,9 +74,11 @@ export class AnthropicProvider extends BaseProvider {
     const stream = this.client.messages.stream({
       model: this.model,
       max_tokens: MAX_TOKENS,
-      ...(systemPrompt && { system: systemPrompt }),
+      // Use cached system prompt for prompt caching
+      ...(systemPrompt && { system: this.buildCachedSystemPrompt(systemPrompt) }),
       messages: this.convertMessages(messages),
-      tools: tools as Anthropic.Tool[] | undefined,
+      // Use cached tools for prompt caching
+      tools: tools ? this.buildCachedTools(tools) : undefined,
     });
 
     let fullContent = '';
@@ -66,13 +103,23 @@ export class AnthropicProvider extends BaseProvider {
       }
     }
 
+    // Extract cache metrics from usage if available
+    const usage = finalMessage.usage as {
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+
     return {
       content: fullContent,
       toolCalls,
       stopReason: finalMessage.stop_reason === 'tool_use' ? 'tool_use' : 'end_turn',
       usage: {
-        inputTokens: finalMessage.usage.input_tokens,
-        outputTokens: finalMessage.usage.output_tokens,
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheCreationInputTokens: usage.cache_creation_input_tokens,
+        cacheReadInputTokens: usage.cache_read_input_tokens,
       },
     };
   }
@@ -162,12 +209,22 @@ export class AnthropicProvider extends BaseProvider {
       }
     }
 
+    // Extract cache metrics from usage if available
+    const usage = response.usage as {
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+
     return createProviderResponse({
       content,
       toolCalls,
       stopReason: response.stop_reason,
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      cacheCreationInputTokens: usage.cache_creation_input_tokens,
+      cacheReadInputTokens: usage.cache_read_input_tokens,
     });
   }
 }

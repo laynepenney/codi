@@ -112,7 +112,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
     let fullContent = '';
     let reasoningContent = '';
     const toolCallAccumulator = new StreamingToolCallAccumulator();
-    let streamUsage: { prompt_tokens: number; completion_tokens: number } | null = null;
+    let streamUsage: { prompt_tokens: number; completion_tokens: number; cached_tokens?: number } | null = null;
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta;
@@ -144,6 +144,8 @@ export class OpenAICompatibleProvider extends BaseProvider {
         streamUsage = {
           prompt_tokens: chunk.usage.prompt_tokens,
           completion_tokens: chunk.usage.completion_tokens,
+          // OpenAI returns cached tokens in prompt_tokens_details
+          cached_tokens: (chunk.usage as any).prompt_tokens_details?.cached_tokens,
         };
       }
     }
@@ -160,6 +162,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       reasoningContent: reasoningContent || undefined,
       inputTokens,
       outputTokens,
+      cachedInputTokens: streamUsage?.cached_tokens,
     });
   }
 
@@ -299,6 +302,8 @@ export class OpenAICompatibleProvider extends BaseProvider {
     // Use actual usage if available, otherwise estimate
     const inputTokens = response.usage?.prompt_tokens ?? estimatedInputTokens;
     const outputTokens = response.usage?.completion_tokens ?? estimateTokens(content);
+    // OpenAI returns cached tokens in prompt_tokens_details
+    const cachedTokens = (response.usage as any)?.prompt_tokens_details?.cached_tokens;
 
     return createProviderResponse({
       content,
@@ -306,6 +311,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       stopReason: response.choices[0]?.finish_reason,
       inputTokens,
       outputTokens,
+      cachedInputTokens: cachedTokens,
     });
   }
 }

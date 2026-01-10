@@ -54,6 +54,14 @@ export interface UsageRecord {
   outputTokens: number;
   /** Estimated cost in USD */
   cost: number;
+  /** Tokens read from cache (Anthropic) */
+  cacheReadInputTokens?: number;
+  /** Tokens used to create cache (Anthropic) */
+  cacheCreationInputTokens?: number;
+  /** Tokens served from cache (OpenAI) */
+  cachedInputTokens?: number;
+  /** Cost savings from cache */
+  cacheSavings?: number;
 }
 
 /**
@@ -93,6 +101,10 @@ export interface SessionUsage {
   cost: number;
   requests: number;
   startTime: string;
+  /** Total tokens served from cache */
+  cachedTokens: number;
+  /** Total cost savings from cache */
+  cacheSavings: number;
 }
 
 /**
@@ -110,6 +122,8 @@ let sessionUsage: SessionUsage = {
   cost: 0,
   requests: 0,
   startTime: new Date().toISOString(),
+  cachedTokens: 0,
+  cacheSavings: 0,
 };
 
 /**
@@ -182,6 +196,58 @@ export function calculateCost(
 }
 
 /**
+ * Calculate actual input cost with cache pricing.
+ * Anthropic: input_tokens is non-cached only, cache_read at 10%, cache_write at 125%
+ * OpenAI: cached_tokens are 50% off
+ */
+function calculateInputCostWithCache(
+  model: string,
+  usage: TokenUsage
+): { cost: number; savings: number; cachedTokens: number } {
+  const pricing = getModelPricing(model);
+  let cost = 0;
+  let savings = 0;
+  let cachedTokens = 0;
+
+  // Anthropic-style: input_tokens is non-cached, cache metrics are separate
+  const cacheRead = usage.cacheReadInputTokens || 0;
+  const cacheWrite = usage.cacheCreationInputTokens || 0;
+
+  if (cacheRead > 0 || cacheWrite > 0) {
+    // Regular (non-cached) tokens at full price
+    const regularCost = (usage.inputTokens / 1_000_000) * pricing.input;
+    // Cache reads at 10% of normal price
+    const cacheReadCost = (cacheRead / 1_000_000) * pricing.input * 0.1;
+    // Cache writes at 125% of normal price
+    const cacheWriteCost = (cacheWrite / 1_000_000) * pricing.input * 1.25;
+
+    cost = regularCost + cacheReadCost + cacheWriteCost;
+    cachedTokens = cacheRead;
+
+    // Savings = what we would have paid without caching
+    const totalTokens = usage.inputTokens + cacheRead + cacheWrite;
+    const fullCost = (totalTokens / 1_000_000) * pricing.input;
+    savings = fullCost - cost;
+  } else if (usage.cachedInputTokens) {
+    // OpenAI-style: cached_tokens are part of input_tokens at 50% off
+    const nonCached = usage.inputTokens - usage.cachedInputTokens;
+    const regularCost = (nonCached / 1_000_000) * pricing.input;
+    const cachedCost = (usage.cachedInputTokens / 1_000_000) * pricing.input * 0.5;
+
+    cost = regularCost + cachedCost;
+    cachedTokens = usage.cachedInputTokens;
+
+    const fullCost = (usage.inputTokens / 1_000_000) * pricing.input;
+    savings = fullCost - cost;
+  } else {
+    // No caching
+    cost = (usage.inputTokens / 1_000_000) * pricing.input;
+  }
+
+  return { cost, savings, cachedTokens };
+}
+
+/**
  * Record usage from a provider response.
  */
 export function recordUsage(
@@ -191,13 +257,17 @@ export function recordUsage(
 ): void {
   if (!usage) return;
 
-  const cost = calculateCost(model, usage.inputTokens, usage.outputTokens);
+  const { cost: inputCost, savings, cachedTokens } = calculateInputCostWithCache(model, usage);
+  const outputCost = (usage.outputTokens / 1_000_000) * getModelPricing(model).output;
+  const cost = inputCost + outputCost;
 
   // Update session usage
   sessionUsage.inputTokens += usage.inputTokens;
   sessionUsage.outputTokens += usage.outputTokens;
   sessionUsage.cost += cost;
   sessionUsage.requests += 1;
+  sessionUsage.cachedTokens += cachedTokens;
+  sessionUsage.cacheSavings += savings;
 
   // Create record
   const record: UsageRecord = {
@@ -207,6 +277,10 @@ export function recordUsage(
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cost,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+    cacheCreationInputTokens: usage.cacheCreationInputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheSavings: savings > 0 ? savings : undefined,
   };
 
   // Append to file
@@ -238,6 +312,8 @@ export function resetSessionUsage(): void {
     cost: 0,
     requests: 0,
     startTime: new Date().toISOString(),
+    cachedTokens: 0,
+    cacheSavings: 0,
   };
 }
 
