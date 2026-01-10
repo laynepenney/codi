@@ -10,33 +10,10 @@ import {
   getSessionsDir,
   type Session,
 } from '../session.js';
-import type { Agent } from '../agent.js';
-import type { Message } from '../types.js';
-
-// Store reference to the agent for session operations
-// This will be set by index.ts after agent creation
-let agentRef: Agent | null = null;
-let providerName: string = '';
-let modelName: string = '';
-let projectName: string = '';
 
 /**
- * Set the agent reference for session commands to use.
- */
-export function setSessionAgent(
-  agent: Agent,
-  provider: string,
-  model: string,
-  project?: string
-): void {
-  agentRef = agent;
-  providerName = provider;
-  modelName = model;
-  projectName = project || '';
-}
-
-/**
- * Get the current session name if one is loaded.
+ * Current session name - persists across commands.
+ * Updated via context.setSessionName callback.
  */
 let currentSessionName: string | null = null;
 
@@ -48,18 +25,25 @@ export function setCurrentSessionName(name: string | null): void {
   currentSessionName = name;
 }
 
+/**
+ * @deprecated Use context.agent instead. This remains for backward compatibility.
+ */
+export function setSessionAgent(): void {
+  // No-op - agent is now passed via context
+}
+
 export const saveCommand: Command = {
   name: 'save',
   description: 'Save current conversation to a session',
   usage: '/save [name]',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
-    if (!agentRef) {
+    if (!context.agent) {
       return null; // Will show error message in index.ts
     }
 
     const name = args.trim() || currentSessionName || generateSessionName();
-    const messages = agentRef.getHistory();
-    const summary = agentRef.getSummary();
+    const messages = context.agent.getHistory();
+    const summary = context.agent.getSummary();
 
     if (messages.length === 0) {
       return null; // Return null to indicate this is a direct command, not an AI prompt
@@ -67,14 +51,15 @@ export const saveCommand: Command = {
 
     const result = saveSession(name, messages, summary, {
       projectPath: process.cwd(),
-      projectName: context.projectInfo?.name || projectName,
-      provider: providerName,
-      model: modelName,
+      projectName: context.projectInfo?.name || '',
+      provider: context.sessionState?.provider || '',
+      model: context.sessionState?.model || '',
     });
 
+    // Update session name via callback or local state
     currentSessionName = name;
+    context.setSessionName?.(name);
 
-    // Return null and handle output in index.ts
     return `__SESSION_SAVED__:${name}:${result.isNew ? 'new' : 'updated'}:${messages.length}`;
   },
 };
@@ -84,7 +69,7 @@ export const loadCommand: Command = {
   description: 'Load a saved conversation session',
   usage: '/load <name>',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
-    if (!agentRef) {
+    if (!context.agent) {
       return null;
     }
 
@@ -125,8 +110,9 @@ export const loadCommand: Command = {
     }
 
     // Load the session into the agent
-    agentRef.loadSession(session.messages, session.conversationSummary);
+    context.agent.loadSession(session.messages, session.conversationSummary);
     currentSessionName = session.name;
+    context.setSessionName?.(session.name);
 
     return `__SESSION_LOADED__:${session.name}:${session.messages.length}:${session.conversationSummary ? 'yes' : 'no'}`;
   },
@@ -171,6 +157,7 @@ export const sessionsCommand: Command = {
         if (deleted) {
           if (currentSessionName === target) {
             currentSessionName = null;
+            context.setSessionName?.(null);
           }
           return `__SESSION_DELETED__:${target}`;
         } else {
@@ -224,6 +211,7 @@ export const sessionsCommand: Command = {
           if (deleteSession(s.name)) deleted++;
         }
         currentSessionName = null;
+        context.setSessionName?.(null);
         return `__SESSION_CLEARED__:${deleted}`;
       }
 

@@ -58,9 +58,16 @@ const createMockAgent = () => ({
   loadSession: vi.fn(),
 });
 
-const createContext = (): CommandContext => ({
-  workingDirectory: '/test/project',
+// Create context with optional agent
+const createContext = (options: { agent?: ReturnType<typeof createMockAgent> } = {}): CommandContext => ({
   projectInfo: { type: 'node', name: 'test-project', language: 'TypeScript', rootPath: '/test', mainFiles: [] },
+  agent: options.agent as any,
+  sessionState: {
+    currentName: null,
+    provider: 'Anthropic',
+    model: 'claude-3',
+  },
+  setSessionName: vi.fn(),
 });
 
 describe('Session Commands', () => {
@@ -83,16 +90,14 @@ describe('Session Commands', () => {
 
   describe('saveCommand', () => {
     it('returns null when no agent is set', async () => {
-      // Create fresh command without setting agent
+      // Create context without agent
       const result = await saveCommand.execute('', createContext());
-      // Note: Agent ref would be null before setSessionAgent is called
+      expect(result).toBeNull();
     });
 
     it('saves session with provided name', async () => {
       const mockAgent = createMockAgent();
-      setSessionAgent(mockAgent as any, 'Anthropic', 'claude-3', 'test-project');
-
-      const result = await saveCommand.execute('my-session', createContext());
+      const result = await saveCommand.execute('my-session', createContext({ agent: mockAgent }));
 
       expect(mockSaveSession).toHaveBeenCalledWith(
         'my-session',
@@ -109,19 +114,16 @@ describe('Session Commands', () => {
 
     it('generates session name when not provided', async () => {
       const mockAgent = createMockAgent();
-      setSessionAgent(mockAgent as any, 'OpenAI', 'gpt-4');
-
-      const result = await saveCommand.execute('', createContext());
+      const result = await saveCommand.execute('', createContext({ agent: mockAgent }));
 
       expect(result).toContain('session-2024-01-15-10-30-00');
     });
 
     it('uses current session name if available', async () => {
       const mockAgent = createMockAgent();
-      setSessionAgent(mockAgent as any, 'Anthropic', 'claude-3');
       setCurrentSessionName('existing-session');
 
-      const result = await saveCommand.execute('', createContext());
+      const result = await saveCommand.execute('', createContext({ agent: mockAgent }));
 
       expect(mockSaveSession).toHaveBeenCalledWith(
         'existing-session',
@@ -134,31 +136,30 @@ describe('Session Commands', () => {
     it('returns null when no messages to save', async () => {
       const mockAgent = createMockAgent();
       mockAgent.getHistory.mockReturnValue([]);
-      setSessionAgent(mockAgent as any, 'Anthropic', 'claude-3');
 
-      const result = await saveCommand.execute('test', createContext());
+      const result = await saveCommand.execute('test', createContext({ agent: mockAgent }));
 
       expect(result).toBeNull();
     });
 
     it('indicates new vs updated session', async () => {
       const mockAgent = createMockAgent();
-      setSessionAgent(mockAgent as any, 'Anthropic', 'claude-3');
       mockSaveSession.mockReturnValueOnce({ path: '/test.json', isNew: true });
 
-      const result1 = await saveCommand.execute('new-session', createContext());
+      const result1 = await saveCommand.execute('new-session', createContext({ agent: mockAgent }));
       expect(result1).toContain(':new:');
 
       mockSaveSession.mockReturnValueOnce({ path: '/test.json', isNew: false });
-      const result2 = await saveCommand.execute('existing', createContext());
+      const result2 = await saveCommand.execute('existing', createContext({ agent: mockAgent }));
       expect(result2).toContain(':updated:');
     });
   });
 
   describe('loadCommand', () => {
+    let mockAgent: ReturnType<typeof createMockAgent>;
+
     beforeEach(() => {
-      const mockAgent = createMockAgent();
-      setSessionAgent(mockAgent as any, 'Anthropic', 'claude-3');
+      mockAgent = createMockAgent();
     });
 
     it('lists recent sessions when no name provided', async () => {
@@ -167,7 +168,7 @@ describe('Session Commands', () => {
         { name: 'session-2', createdAt: '', updatedAt: '', projectPath: '', messageCount: 10, hasSummary: true },
       ]);
 
-      const result = await loadCommand.execute('', createContext());
+      const result = await loadCommand.execute('', createContext({ agent: mockAgent }));
 
       expect(result).toContain('__SESSION_LIST__');
     });
@@ -175,7 +176,7 @@ describe('Session Commands', () => {
     it('returns empty message when no sessions exist', async () => {
       mockListSessions.mockReturnValue([]);
 
-      const result = await loadCommand.execute('', createContext());
+      const result = await loadCommand.execute('', createContext({ agent: mockAgent }));
 
       expect(result).toBe('__SESSION_LIST_EMPTY__');
     });
@@ -190,7 +191,7 @@ describe('Session Commands', () => {
         conversationSummary: 'Summary',
       });
 
-      const result = await loadCommand.execute('my-session', createContext());
+      const result = await loadCommand.execute('my-session', createContext({ agent: mockAgent }));
 
       expect(result).toContain('__SESSION_LOADED__');
       expect(result).toContain('my-session');
@@ -209,7 +210,7 @@ describe('Session Commands', () => {
         { name: 'feature-auth', createdAt: '', updatedAt: '', projectPath: '', messageCount: 5, hasSummary: false },
       ]);
 
-      const result = await loadCommand.execute('auth', createContext());
+      const result = await loadCommand.execute('auth', createContext({ agent: mockAgent }));
 
       expect(result).toContain('__SESSION_LOADED__');
     });
@@ -221,7 +222,7 @@ describe('Session Commands', () => {
         { name: 'feature-api', createdAt: '', updatedAt: '', projectPath: '', messageCount: 3, hasSummary: false },
       ]);
 
-      const result = await loadCommand.execute('feature', createContext());
+      const result = await loadCommand.execute('feature', createContext({ agent: mockAgent }));
 
       expect(result).toContain('__SESSION_MULTIPLE__');
     });
@@ -230,17 +231,14 @@ describe('Session Commands', () => {
       mockLoadSession.mockReturnValue(null);
       mockFindSessions.mockReturnValue([]);
 
-      const result = await loadCommand.execute('nonexistent', createContext());
+      const result = await loadCommand.execute('nonexistent', createContext({ agent: mockAgent }));
 
       expect(result).toContain('__SESSION_NOT_FOUND__');
     });
   });
 
   describe('sessionsCommand', () => {
-    beforeEach(() => {
-      const mockAgent = createMockAgent();
-      setSessionAgent(mockAgent as any, 'Anthropic', 'claude-3');
-    });
+    // sessionsCommand doesn't require agent, so we use basic context
 
     it('lists all sessions by default', async () => {
       mockListSessions.mockReturnValue([

@@ -900,9 +900,19 @@ async function main() {
     process.exit(0);
   });
 
-  // Command context for slash commands
+  // Session name tracking for prompt display
+  let currentSession: string | null = null;
+
+  // Command context for slash commands (will be updated with agent after creation)
   const commandContext: CommandContext = {
     projectInfo,
+    setSessionName: (name: string | null) => {
+      currentSession = name;
+      setCurrentSessionName(name);
+      if (commandContext.sessionState) {
+        commandContext.sessionState.currentName = name;
+      }
+    },
   };
 
   // Build system prompt with config additions
@@ -956,13 +966,16 @@ async function main() {
     },
   });
 
-  // Set up session commands with agent reference
-  setSessionAgent(
-    agent,
-    provider.getName(),
-    provider.getModel(),
-    projectInfo?.name
-  );
+  // Add agent and session state to command context
+  commandContext.agent = agent;
+  commandContext.sessionState = {
+    currentName: null,
+    provider: provider.getName(),
+    model: provider.getModel(),
+  };
+
+  // Deprecated: setSessionAgent is now a no-op
+  // Agent reference is passed via commandContext
 
   // Load session from command line or config default
   const sessionToLoad = options.session || resolvedConfig.defaultSession;
@@ -970,7 +983,11 @@ async function main() {
     const session = loadSession(sessionToLoad);
     if (session) {
       agent.loadSession(session.messages, session.conversationSummary);
+      currentSession = session.name;
       setCurrentSessionName(session.name);
+      if (commandContext.sessionState) {
+        commandContext.sessionState.currentName = session.name;
+      }
       console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
       if (session.conversationSummary) {
         console.log(chalk.dim('Session has conversation summary from previous compaction.'));

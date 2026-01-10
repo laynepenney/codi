@@ -1,3 +1,5 @@
+import type { Agent } from '../agent.js';
+
 export interface Command {
   name: string;
   aliases?: string[];
@@ -6,8 +8,24 @@ export interface Command {
   execute: (args: string, context: CommandContext) => Promise<string | null>;
 }
 
+/**
+ * Session state passed to commands via context.
+ * This replaces the global state pattern in session-commands.ts.
+ */
+export interface SessionState {
+  currentName: string | null;
+  provider: string;
+  model: string;
+}
+
 export interface CommandContext {
   projectInfo: ProjectInfo | null;
+  /** Agent reference for commands that need access to conversation history */
+  agent?: Agent;
+  /** Session state for session-related commands */
+  sessionState?: SessionState;
+  /** Callback to update session name after save/load */
+  setSessionName?: (name: string | null) => void;
 }
 
 export interface ProjectInfo {
