@@ -267,28 +267,69 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/commands/history-commands.ts` - User-facing commands
 - All file tools modified: `write-file.ts`, `edit-file.ts`, `insert-line.ts`, `patch-file.ts`
 
-#### 6. Plugin System
-**What**: Allow third-party extensions.
+#### 6. Plugin System - IMPLEMENTED
 
-**Implementation**:
-- Define plugin interface (tools, commands, providers)
-- Load plugins from `~/.codi/plugins/` or `node_modules`
-- Plugins export: `{ tools: [], commands: [], providers: [] }`
+**Status**: Complete
 
+**Key Features** (in `src/plugins.ts`):
+- Plugin interface for third-party extensions
+- Automatic loading from `~/.codi/plugins/` directory
+- Support for tools, commands, and providers
+- Lifecycle hooks (onLoad, onUnload)
+- Dynamic ESM imports
+
+**Plugin Interface**:
 ```typescript
-// Plugin interface
 interface CodiPlugin {
   name: string;
   version: string;
+  description?: string;
   tools?: BaseTool[];
   commands?: Command[];
-  providers?: typeof BaseProvider[];
+  providers?: {
+    type: string;
+    factory: (options: ProviderConfig) => BaseProvider;
+  }[];
+  onLoad?: () => Promise<void>;
+  onUnload?: () => Promise<void>;
 }
 ```
 
-**Files to modify**:
-- Create: `src/plugins.ts`
-- Modify: `src/index.ts` (load plugins on startup)
+**Implemented Commands** (in `src/commands/plugin-commands.ts`):
+
+| Command | Description |
+|---------|-------------|
+| `/plugins` | List all loaded plugins |
+| `/plugins info <name>` | Show details about a plugin |
+| `/plugins dir` | Show plugins directory path |
+
+**Plugin Structure**:
+```
+~/.codi/plugins/my-plugin/
+├── package.json          # Must include "main" entry point
+├── index.js              # Exports CodiPlugin object
+└── ...                   # Additional files
+```
+
+**Example Plugin** (`~/.codi/plugins/my-plugin/index.js`):
+```javascript
+export default {
+  name: 'my-plugin',
+  version: '1.0.0',
+  description: 'My custom plugin',
+  commands: [{
+    name: 'my-command',
+    description: 'My custom command',
+    execute: async (args) => `Received: ${args}`,
+  }],
+  onLoad: async () => console.log('Plugin loaded!'),
+};
+```
+
+**Files**:
+- `src/plugins.ts` - Plugin loader and registry
+- `src/commands/plugin-commands.ts` - Plugin management commands
+- `src/providers/index.ts` - Map-based provider factory (for plugin providers)
 
 #### 7. Cost Tracking - IMPLEMENTED
 

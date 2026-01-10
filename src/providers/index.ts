@@ -7,37 +7,64 @@ export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
 
-export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'runpod';
-
 export interface CreateProviderOptions extends ProviderConfig {
-  type: ProviderType;
+  type: string;
   endpointId?: string; // For RunPod serverless
+}
+
+/** Provider factory function type */
+export type ProviderFactory = (options: CreateProviderOptions) => BaseProvider;
+
+/** Registry of provider factories */
+const providerFactories = new Map<string, ProviderFactory>();
+
+// Register built-in providers
+providerFactories.set('anthropic', (options) => new AnthropicProvider(options));
+providerFactories.set('openai', (options) => new OpenAICompatibleProvider(options));
+providerFactories.set('ollama', (options) => createOllamaProvider(options.model));
+providerFactories.set('runpod', (options) => createRunPodProvider(
+  options.endpointId || process.env.RUNPOD_ENDPOINT_ID || '',
+  options.model || 'default',
+  options.apiKey
+));
+
+/**
+ * Register a new provider factory.
+ * Used by plugins to add custom providers.
+ */
+export function registerProviderFactory(type: string, factory: ProviderFactory): void {
+  if (providerFactories.has(type)) {
+    throw new Error(`Provider type '${type}' is already registered`);
+  }
+  providerFactories.set(type, factory);
+}
+
+/**
+ * Get list of registered provider types.
+ */
+export function getProviderTypes(): string[] {
+  return Array.from(providerFactories.keys());
+}
+
+/**
+ * Check if a provider type is registered.
+ */
+export function hasProviderType(type: string): boolean {
+  return providerFactories.has(type);
 }
 
 /**
  * Factory function to create a provider based on type.
  */
 export function createProvider(options: CreateProviderOptions): BaseProvider {
-  switch (options.type) {
-    case 'anthropic':
-      return new AnthropicProvider(options);
+  const factory = providerFactories.get(options.type);
 
-    case 'openai':
-      return new OpenAICompatibleProvider(options);
-
-    case 'ollama':
-      return createOllamaProvider(options.model);
-
-    case 'runpod':
-      return createRunPodProvider(
-        options.endpointId || process.env.RUNPOD_ENDPOINT_ID || '',
-        options.model || 'default',
-        options.apiKey
-      );
-
-    default:
-      throw new Error(`Unknown provider type: ${options.type}`);
+  if (!factory) {
+    const available = getProviderTypes().join(', ');
+    throw new Error(`Unknown provider type: ${options.type}. Available: ${available}`);
   }
+
+  return factory(options);
 }
 
 /**

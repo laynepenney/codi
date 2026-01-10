@@ -40,7 +40,7 @@ function saveToHistory(command: string): void {
 }
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
-import { detectProvider, createProvider, type ProviderType } from './providers/index.js';
+import { detectProvider, createProvider } from './providers/index.js';
 import { globalRegistry, registerDefaultTools } from './tools/index.js';
 import { detectProject, formatProjectContext } from './context.js';
 import {
@@ -63,7 +63,9 @@ import {
 import { registerConfigCommands } from './commands/config-commands.js';
 import { registerHistoryCommands } from './commands/history-commands.js';
 import { registerUsageCommands } from './commands/usage-commands.js';
+import { registerPluginCommands } from './commands/plugin-commands.js';
 import { formatCost, formatTokens } from './usage.js';
+import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
 import {
   loadWorkspaceConfig,
@@ -231,6 +233,11 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /config            - Show current workspace config'));
   console.log(chalk.dim('  /config init       - Create a .codi.json file'));
   console.log(chalk.dim('  /config example    - Show example configuration'));
+
+  console.log(chalk.bold('\nPlugins:'));
+  console.log(chalk.dim('  /plugins           - List loaded plugins'));
+  console.log(chalk.dim('  /plugins info <n>  - Show details about a plugin'));
+  console.log(chalk.dim('  /plugins dir       - Show plugins directory'));
 
   console.log(chalk.bold('\nUndo/History:'));
   console.log(chalk.dim('  /fileundo          - Undo the last file change'));
@@ -707,6 +714,85 @@ function handleUsageOutput(output: string): void {
 }
 
 /**
+ * Handle plugin command output messages.
+ */
+function handlePluginOutput(output: string): void {
+  const lines = output.split('\n');
+  const firstLine = lines[0];
+  const parts = firstLine.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__PLUGINS_EMPTY__': {
+      const pluginsDir = parts.slice(1).join(':');
+      console.log(chalk.dim('\nNo plugins loaded.'));
+      console.log(chalk.dim(`Plugin directory: ${pluginsDir}`));
+      break;
+    }
+
+    case '__PLUGINS_DIR__': {
+      const pluginsDir = parts.slice(1).join(':');
+      console.log(chalk.dim(`\nPlugins directory: ${pluginsDir}`));
+      break;
+    }
+
+    case '__PLUGINS_LIST__': {
+      console.log(chalk.bold('\nLoaded Plugins:'));
+      for (let i = 1; i < lines.length; i++) {
+        const lineParts = lines[i].split(':');
+        const name = lineParts[0];
+        const version = lineParts[1];
+        const toolCount = parseInt(lineParts[2], 10);
+        const commandCount = parseInt(lineParts[3], 10);
+        const providerCount = parseInt(lineParts[4], 10);
+
+        console.log(`  ${chalk.cyan(name)} v${version}`);
+        const features = [];
+        if (toolCount > 0) features.push(`${toolCount} tools`);
+        if (commandCount > 0) features.push(`${commandCount} commands`);
+        if (providerCount > 0) features.push(`${providerCount} providers`);
+        if (features.length > 0) {
+          console.log(chalk.dim(`    ${features.join(', ')}`));
+        }
+      }
+      break;
+    }
+
+    case '__PLUGIN_NOT_FOUND__': {
+      const name = parts[1];
+      console.log(chalk.yellow(`\nPlugin not found: ${name}`));
+      console.log(chalk.dim('Use /plugins to list loaded plugins.'));
+      break;
+    }
+
+    case '__PLUGIN_INFO__': {
+      const name = parts[1];
+      const version = parts[2];
+      const description = parts[3] || '(no description)';
+      const toolCount = parseInt(parts[4], 10);
+      const commandCount = parseInt(parts[5], 10);
+      const providerCount = parseInt(parts[6], 10);
+      const pluginPath = parts[7];
+      // ISO timestamp contains colons, so join remaining parts
+      const loadedAt = parts.slice(8).join(':');
+
+      console.log(chalk.bold(`\nPlugin: ${name}`));
+      console.log(chalk.dim(`  Version: ${version}`));
+      console.log(chalk.dim(`  Description: ${description}`));
+      console.log(chalk.dim(`  Tools: ${toolCount}`));
+      console.log(chalk.dim(`  Commands: ${commandCount}`));
+      console.log(chalk.dim(`  Providers: ${providerCount}`));
+      console.log(chalk.dim(`  Path: ${pluginPath}`));
+      console.log(chalk.dim(`  Loaded at: ${new Date(loadedAt).toLocaleString()}`));
+      break;
+    }
+
+    default:
+      console.log(chalk.dim(output));
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -762,6 +848,13 @@ async function main() {
   registerConfigCommands();
   registerHistoryCommands();
   registerUsageCommands();
+  registerPluginCommands();
+
+  // Load plugins from ~/.codi/plugins/
+  const loadedPlugins = await loadPluginsFromDirectory();
+  if (loadedPlugins.length > 0) {
+    console.log(chalk.dim(`Plugins: ${loadedPlugins.length} loaded (${loadedPlugins.map(p => p.plugin.name).join(', ')})`));
+  }
 
   const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
 
@@ -781,7 +874,7 @@ async function main() {
     provider = detectProvider();
   } else {
     provider = createProvider({
-      type: resolvedConfig.provider as ProviderType,
+      type: resolvedConfig.provider,
       model: resolvedConfig.model,
       baseUrl: resolvedConfig.baseUrl,
       endpointId: resolvedConfig.endpointId,
@@ -1005,6 +1098,12 @@ async function main() {
                 // Handle usage command outputs
                 if (result.startsWith('__USAGE_')) {
                   handleUsageOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle plugin command outputs
+                if (result.startsWith('__PLUGIN')) {
+                  handlePluginOutput(result);
                   prompt();
                   return;
                 }
