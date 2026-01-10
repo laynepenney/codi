@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { BaseProvider } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+import { createProviderResponse, safeParseJson, StreamingToolCallAccumulator } from './response-parser.js';
 
 const DEFAULT_MODEL = 'gpt-4o';
 const MAX_TOKENS = 4096;
@@ -76,7 +77,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
     let fullContent = '';
     let reasoningContent = '';
-    const toolCalls: Map<number, ToolCall> = new Map();
+    const toolCallAccumulator = new StreamingToolCallAccumulator();
     let streamUsage: { prompt_tokens: number; completion_tokens: number } | null = null;
 
     for await (const chunk of stream) {
@@ -93,31 +94,14 @@ export class OpenAICompatibleProvider extends BaseProvider {
         onChunk?.(delta.content);
       }
 
-      // Handle streamed tool calls
+      // Handle streamed tool calls using the accumulator
       if (delta?.tool_calls) {
         for (const toolCallDelta of delta.tool_calls) {
-          const index = toolCallDelta.index;
-          let existing = toolCalls.get(index);
-
-          if (!existing) {
-            existing = {
-              id: toolCallDelta.id || '',
-              name: toolCallDelta.function?.name || '',
-              input: {},
-            };
-            toolCalls.set(index, existing);
-          }
-
-          if (toolCallDelta.id) {
-            existing.id = toolCallDelta.id;
-          }
-          if (toolCallDelta.function?.name) {
-            existing.name = toolCallDelta.function.name;
-          }
-          if (toolCallDelta.function?.arguments) {
-            // Accumulate arguments JSON string (parse at the end)
-            (existing as any)._rawArgs = ((existing as any)._rawArgs || '') + toolCallDelta.function.arguments;
-          }
+          toolCallAccumulator.accumulate(toolCallDelta.index, {
+            id: toolCallDelta.id,
+            name: toolCallDelta.function?.name,
+            arguments: toolCallDelta.function?.arguments,
+          });
         }
       }
 
@@ -130,42 +114,19 @@ export class OpenAICompatibleProvider extends BaseProvider {
       }
     }
 
-    // Parse any remaining raw arguments
-    for (const [, toolCall] of toolCalls) {
-      if ((toolCall as any)._rawArgs) {
-        try {
-          toolCall.input = JSON.parse((toolCall as any)._rawArgs);
-        } catch {
-          toolCall.input = {};
-        }
-        delete (toolCall as any)._rawArgs;
-      }
-    }
-
-    const hasToolCalls = toolCalls.size > 0;
-
     // Use actual usage from stream if available, otherwise estimate
-    let usage: { inputTokens: number; outputTokens: number };
-    if (streamUsage) {
-      usage = {
-        inputTokens: streamUsage.prompt_tokens,
-        outputTokens: streamUsage.completion_tokens,
-      };
-    } else {
-      // Fallback: estimate tokens (rough approximation: ~4 chars per token)
-      usage = {
-        inputTokens: 0,
-        outputTokens: Math.ceil((fullContent.length + reasoningContent.length) / 4),
-      };
-    }
+    const inputTokens = streamUsage?.prompt_tokens ?? 0;
+    const outputTokens = streamUsage?.completion_tokens ??
+      Math.ceil((fullContent.length + reasoningContent.length) / 4);
 
-    return {
+    return createProviderResponse({
       content: fullContent,
-      toolCalls: Array.from(toolCalls.values()),
-      stopReason: hasToolCalls ? 'tool_use' : 'end_turn',
+      toolCalls: toolCallAccumulator.getToolCalls(),
+      stopReason: toolCallAccumulator.hasToolCalls() ? 'tool_use' : 'end_turn',
       reasoningContent: reasoningContent || undefined,
-      usage,
-    };
+      inputTokens,
+      outputTokens,
+    });
   }
 
   supportsToolUse(): boolean {
@@ -296,20 +257,18 @@ export class OpenAICompatibleProvider extends BaseProvider {
         toolCalls.push({
           id: toolCall.id,
           name: toolCall.function.name,
-          input: JSON.parse(toolCall.function.arguments || '{}'),
+          input: safeParseJson(toolCall.function.arguments),
         });
       }
     }
 
-    return {
+    return createProviderResponse({
       content,
       toolCalls,
-      stopReason: toolCalls.length > 0 ? 'tool_use' : 'end_turn',
-      usage: response.usage ? {
-        inputTokens: response.usage.prompt_tokens,
-        outputTokens: response.usage.completion_tokens,
-      } : undefined,
-    };
+      stopReason: response.choices[0]?.finish_reason,
+      inputTokens: response.usage?.prompt_tokens,
+      outputTokens: response.usage?.completion_tokens,
+    });
   }
 }
 

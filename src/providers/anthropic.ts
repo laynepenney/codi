@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { BaseProvider } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+import { createProviderResponse } from './response-parser.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
 const MAX_TOKENS = 4096;
@@ -161,14 +162,12 @@ export class AnthropicProvider extends BaseProvider {
       }
     }
 
-    return {
+    return createProviderResponse({
       content,
       toolCalls,
-      stopReason: response.stop_reason === 'tool_use' ? 'tool_use' : 'end_turn',
-      usage: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      },
-    };
+      stopReason: response.stop_reason,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    });
   }
 }
