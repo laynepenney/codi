@@ -65,6 +65,7 @@ import { registerHistoryCommands } from './commands/history-commands.js';
 import { registerUsageCommands } from './commands/usage-commands.js';
 import { registerPluginCommands } from './commands/plugin-commands.js';
 import { registerModelCommands } from './commands/model-commands.js';
+import { registerImportCommands } from './commands/import-commands.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
@@ -929,6 +930,57 @@ function handleSwitchOutput(output: string): void {
 }
 
 /**
+ * Handle import command output messages.
+ */
+function handleImportOutput(output: string): void {
+  // Check for simple prefixed outputs
+  if (output.startsWith('__IMPORT_ERROR__|')) {
+    const message = output.slice('__IMPORT_ERROR__|'.length);
+    console.log(chalk.red(`\nImport error: ${message}`));
+    return;
+  }
+
+  if (output.startsWith('__IMPORT_SUCCESS__')) {
+    // Multi-line success output
+    const lines = output.split('\n').slice(1); // Skip the marker
+    console.log(chalk.green('\n' + lines[0])); // "Imported X conversations"
+    for (const line of lines.slice(1)) {
+      if (line.startsWith('✓')) {
+        console.log(chalk.green(line));
+      } else if (line.startsWith('✗')) {
+        console.log(chalk.red(line));
+      } else if (line.startsWith('Use /')) {
+        console.log(chalk.dim(line));
+      } else {
+        console.log(line);
+      }
+    }
+    return;
+  }
+
+  if (output.startsWith('__IMPORT_LIST__')) {
+    // Multi-line list output
+    const lines = output.split('\n').slice(1); // Skip the marker
+    console.log(chalk.bold('\n' + lines[0])); // "Found X conversations"
+    for (const line of lines.slice(1)) {
+      if (line.startsWith('─')) {
+        console.log(chalk.dim(line));
+      } else if (line.startsWith('Use /')) {
+        console.log(chalk.dim(line));
+      } else if (line.match(/^\s*\d+\./)) {
+        console.log(chalk.cyan(line));
+      } else {
+        console.log(line);
+      }
+    }
+    return;
+  }
+
+  // Fallback
+  console.log(output);
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -986,6 +1038,7 @@ async function main() {
   registerUsageCommands();
   registerPluginCommands();
   registerModelCommands();
+  registerImportCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
@@ -1281,6 +1334,12 @@ async function main() {
                     commandContext.sessionState.provider = switchParts[1];
                     commandContext.sessionState.model = switchParts[2];
                   }
+                  prompt();
+                  return;
+                }
+                // Handle import command outputs
+                if (result.startsWith('__IMPORT_')) {
+                  handleImportOutput(result);
                   prompt();
                   return;
                 }
