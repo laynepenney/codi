@@ -1192,7 +1192,12 @@ async function main() {
             );
           }
         } catch (error) {
-          console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
+          if (options.debug && error instanceof Error) {
+            console.error(chalk.red(`Compaction failed: ${error.message}`));
+            console.error(chalk.dim(error.stack || 'No stack trace available'));
+          } else {
+            console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
+          }
         }
         prompt();
         return;
@@ -1275,7 +1280,12 @@ async function main() {
                 console.log(chalk.dim(`\n(${elapsed}s)`));
               }
             } catch (error) {
-              console.error(chalk.red(`Command error: ${error instanceof Error ? error.message : error}`));
+              if (options.debug && error instanceof Error) {
+                console.error(chalk.red(`Command error: ${error.message}`));
+                console.error(chalk.dim(error.stack || 'No stack trace available'));
+              } else {
+                console.error(chalk.red(`Command error: ${error instanceof Error ? error.message : error}`));
+              }
             }
             prompt();
             return;
@@ -1296,7 +1306,12 @@ async function main() {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(chalk.dim(`\n(${elapsed}s)`));
       } catch (error) {
-        console.error(chalk.red(`\nError: ${error instanceof Error ? error.message : error}`));
+        if (options.debug && error instanceof Error) {
+          console.error(chalk.red(`\nError: ${error.message}`));
+          console.error(chalk.dim(error.stack || 'No stack trace available'));
+        } else {
+          console.error(chalk.red(`\nError: ${error instanceof Error ? error.message : error}`));
+        }
       }
 
       prompt();
