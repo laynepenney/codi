@@ -32,6 +32,10 @@ export async function generateWriteDiff(
   filePath: string,
   newContent: string
 ): Promise<DiffResult> {
+  if (newContent === undefined || newContent === null) {
+    throw new Error('Content is required for diff generation');
+  }
+
   const resolvedPath = resolve(process.cwd(), filePath);
   const isNewFile = !existsSync(resolvedPath);
 

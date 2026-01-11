@@ -400,13 +400,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
             if (toolCall.name === 'write_file') {
               const path = toolCall.input.path as string;
               const content = toolCall.input.content as string;
-              diffPreview = await generateWriteDiff(path, content);
+              if (path && content !== undefined) {
+                diffPreview = await generateWriteDiff(path, content);
+              }
             } else if (toolCall.name === 'edit_file') {
               const path = toolCall.input.path as string;
               const oldString = toolCall.input.old_string as string;
               const newString = toolCall.input.new_string as string;
               const replaceAll = (toolCall.input.replace_all as boolean) || false;
-              diffPreview = await generateEditDiff(path, oldString, newString, replaceAll);
+              if (path && oldString !== undefined && newString !== undefined) {
+                diffPreview = await generateEditDiff(path, oldString, newString, replaceAll);
+              }
             }
           } catch {
             // If diff generation fails, continue without preview
