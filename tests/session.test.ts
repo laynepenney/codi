@@ -676,5 +676,38 @@ describe('Session Management', () => {
       expect(repaired).toBe(false);
       expect(result).toEqual(messages);
     });
+
+    it('repairs when user text follows tool_use without tool_result', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Write a file' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'I will write a file.' },
+            {
+              type: 'tool_use',
+              id: 'tool_123',
+              name: 'write_file',
+              input: { path: 'test.txt' },
+            },
+          ],
+        },
+        { role: 'user', content: 'continue' },
+      ];
+
+      const { messages: result, repaired } = repairSession(messages);
+
+      expect(repaired).toBe(true);
+      expect(result).toHaveLength(3);
+      // The user message should now have tool_result + text
+      expect(Array.isArray(result[2].content)).toBe(true);
+      const content = result[2].content as any[];
+      expect(content).toHaveLength(2);
+      expect(content[0].type).toBe('tool_result');
+      expect(content[0].tool_use_id).toBe('tool_123');
+      expect(content[0].is_error).toBe(true);
+      expect(content[1].type).toBe('text');
+      expect(content[1].text).toBe('continue');
+    });
   });
 });

@@ -228,6 +228,23 @@ export function repairSession(messages: Message[]): { messages: Message[]; repai
             nextMsg.content = [...nextMsg.content, ...missingResults];
             repaired = true;
           }
+        } else if (nextMsg.role === 'user' && typeof nextMsg.content === 'string') {
+          // Next message is user text without tool_results - need to insert tool_results
+          const toolResults: ContentBlock[] = toolUseBlocks.map(toolUse => ({
+            type: 'tool_result' as const,
+            tool_use_id: toolUse.id,
+            content: `[Session interrupted] Tool "${toolUse.name}" was not executed.`,
+            is_error: true,
+          }));
+
+          // Convert the text message to include tool_results before the text
+          const textBlock: ContentBlock = { type: 'text', text: nextMsg.content };
+          repairedMessages[i + 1] = {
+            role: 'user',
+            content: [...toolResults, textBlock],
+          };
+
+          repaired = true;
         } else if (nextMsg.role !== 'user') {
           // Next message is not a user message - this is a broken structure
           // Insert a synthetic user message with tool results
