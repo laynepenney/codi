@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { BaseProvider } from './base.js';
+import { BaseProvider, type ModelInfo } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 import { createProviderResponse } from './response-parser.js';
+import { getStaticModels } from '../models.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
 const MAX_TOKENS = 4096;
@@ -139,6 +140,12 @@ export class AnthropicProvider extends BaseProvider {
 
   getModel(): string {
     return this.model;
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    // Anthropic SDK doesn't expose a models.list() API
+    // Use static model list instead
+    return getStaticModels('Anthropic');
   }
 
   private convertMessages(messages: Message[]): Anthropic.MessageParam[] {

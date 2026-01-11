@@ -1,6 +1,32 @@
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig } from '../types.js';
 
 /**
+ * Information about an available model.
+ */
+export interface ModelInfo {
+  /** Model identifier (e.g., "claude-sonnet-4-20250514") */
+  id: string;
+  /** Human-readable display name */
+  name: string;
+  /** Provider name (e.g., "Anthropic", "OpenAI") */
+  provider: string;
+  /** Model capabilities */
+  capabilities: {
+    vision: boolean;
+    toolUse: boolean;
+  };
+  /** Context window size in tokens */
+  contextWindow?: number;
+  /** Pricing per million tokens (USD) */
+  pricing?: {
+    input: number;
+    output: number;
+  };
+  /** Whether the model is deprecated */
+  deprecated?: boolean;
+}
+
+/**
  * Abstract base class for AI model providers.
  * Implement this interface to add support for new model backends.
  */
@@ -61,4 +87,11 @@ export abstract class BaseProvider {
    * Get the current model being used.
    */
   abstract getModel(): string;
+
+  /**
+   * List available models from this provider.
+   * Optional - not all providers may support model listing.
+   * @returns List of available models with their info
+   */
+  async listModels?(): Promise<ModelInfo[]>;
 }

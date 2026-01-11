@@ -64,6 +64,7 @@ import { registerConfigCommands } from './commands/config-commands.js';
 import { registerHistoryCommands } from './commands/history-commands.js';
 import { registerUsageCommands } from './commands/usage-commands.js';
 import { registerPluginCommands } from './commands/plugin-commands.js';
+import { registerModelCommands } from './commands/model-commands.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
@@ -794,6 +795,126 @@ function handlePluginOutput(output: string): void {
 }
 
 /**
+ * Handle models command output messages.
+ */
+function handleModelsOutput(output: string): void {
+  const lines = output.split('\n');
+  const notes: string[] = [];
+
+  // First pass: collect notes
+  for (const line of lines) {
+    if (line.startsWith('note|')) {
+      notes.push(line.slice(5));
+    }
+  }
+
+  // Print header
+  console.log(chalk.bold('\nAvailable Models:'));
+
+  // Second pass: print models by provider
+  for (const line of lines) {
+    if (line === '__MODELS__') continue;
+
+    if (line.startsWith('provider|')) {
+      const providerName = line.slice(9);
+      console.log();
+      console.log(chalk.bold.cyan(providerName));
+      console.log(chalk.dim('─'.repeat(75)));
+
+      // Header row
+      const header = `${'Model'.padEnd(30)} ${'Vision'.padEnd(8)} ${'Tools'.padEnd(8)} ${'Context'.padEnd(10)} ${'Input'.padEnd(10)} Output`;
+      console.log(chalk.dim(header));
+    } else if (line.startsWith('model|')) {
+      const parts = line.slice(6).split('|');
+      const id = parts[0];
+      const name = parts[1];
+      const vision = parts[2] === '1' ? chalk.green('✓') : chalk.red('✗');
+      const tools = parts[3] === '1' ? chalk.green('✓') : chalk.red('✗');
+      const contextWindow = parseInt(parts[4], 10);
+      const inputPrice = parseFloat(parts[5]);
+      const outputPrice = parseFloat(parts[6]);
+
+      // Format context window
+      let contextStr = '-';
+      if (contextWindow > 0) {
+        if (contextWindow >= 1000000) {
+          contextStr = `${(contextWindow / 1000000).toFixed(1)}M`;
+        } else if (contextWindow >= 1000) {
+          contextStr = `${Math.round(contextWindow / 1000)}K`;
+        } else {
+          contextStr = contextWindow.toString();
+        }
+      }
+
+      // Format pricing
+      let inputStr = 'free';
+      let outputStr = 'free';
+      if (inputPrice > 0) {
+        inputStr = `$${inputPrice.toFixed(2)}`;
+      }
+      if (outputPrice > 0) {
+        outputStr = `$${outputPrice.toFixed(2)}`;
+      }
+
+      // Determine display name (use ID if shorter or same as name)
+      const displayName = id.length <= 30 ? id : name;
+
+      console.log(
+        `${displayName.padEnd(30)} ${vision.padEnd(8 + vision.length - 1)} ${tools.padEnd(8 + tools.length - 1)} ${contextStr.padEnd(10)} ${inputStr.padEnd(10)} ${outputStr}`
+      );
+    }
+  }
+
+  // Print notes/warnings
+  if (notes.length > 0) {
+    console.log();
+    for (const note of notes) {
+      console.log(chalk.dim(`  ${note}`));
+    }
+  }
+
+  console.log(chalk.dim('\n  Pricing is per million tokens (MTok)'));
+}
+
+/**
+ * Handle switch command output messages.
+ */
+function handleSwitchOutput(output: string): void {
+  const parts = output.split('|');
+  const type = parts[0];
+
+  switch (type) {
+    case '__SWITCH_SUCCESS__': {
+      const provider = parts[1];
+      const model = parts[2];
+      console.log(chalk.green(`\nSwitched to ${chalk.bold(provider)} (${chalk.cyan(model)})`));
+      break;
+    }
+
+    case '__SWITCH_ERROR__': {
+      const message = parts.slice(1).join('|');
+      console.log(chalk.red(`\nFailed to switch: ${message}`));
+      break;
+    }
+
+    case '__SWITCH_CURRENT__': {
+      const provider = parts[1];
+      const model = parts[2];
+      const availableProviders = parts[3];
+      console.log(chalk.bold('\nCurrent Model:'));
+      console.log(`  Provider: ${chalk.cyan(provider)}`);
+      console.log(`  Model: ${chalk.cyan(model)}`);
+      console.log(chalk.dim(`\nAvailable providers: ${availableProviders}`));
+      console.log(chalk.dim('Usage: /switch <provider> [model]'));
+      break;
+    }
+
+    default:
+      console.log(chalk.dim(output));
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -850,6 +971,7 @@ async function main() {
   registerHistoryCommands();
   registerUsageCommands();
   registerPluginCommands();
+  registerModelCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
@@ -1122,6 +1244,24 @@ async function main() {
                 // Handle plugin command outputs
                 if (result.startsWith('__PLUGIN')) {
                   handlePluginOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle models command outputs
+                if (result.startsWith('__MODELS__')) {
+                  handleModelsOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle switch command outputs
+                if (result.startsWith('__SWITCH_')) {
+                  handleSwitchOutput(result);
+                  // Update session state on successful switch
+                  if (result.startsWith('__SWITCH_SUCCESS__') && commandContext.sessionState) {
+                    const switchParts = result.split('|');
+                    commandContext.sessionState.provider = switchParts[1];
+                    commandContext.sessionState.model = switchParts[2];
+                  }
                   prompt();
                   return;
                 }

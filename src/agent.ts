@@ -618,6 +618,23 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
+   * Get the current provider.
+   */
+  getProvider(): BaseProvider {
+    return this.provider;
+  }
+
+  /**
+   * Switch to a different provider.
+   * Preserves conversation history.
+   */
+  setProvider(provider: BaseProvider): void {
+    this.provider = provider;
+    // Update useTools based on new provider's capabilities
+    this.useTools = provider.supportsToolUse();
+  }
+
+  /**
    * Get current context size information.
    */
   getContextInfo(): { tokens: number; messages: number; hasSummary: boolean } {

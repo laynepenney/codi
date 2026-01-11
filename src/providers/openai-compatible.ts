@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
-import { BaseProvider } from './base.js';
+import { BaseProvider, type ModelInfo } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 import { createProviderResponse, safeParseJson, StreamingToolCallAccumulator } from './response-parser.js';
+import { getStaticModels, getModelPricing } from '../models.js';
 
 const DEFAULT_MODEL = 'gpt-4o';
 const MAX_TOKENS = 4096;
@@ -182,6 +183,65 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
   getModel(): string {
     return this.model;
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    // For Ollama, use its native API
+    if (this.providerName === 'Ollama') {
+      return this.listOllamaModels();
+    }
+
+    // For OpenAI and compatible APIs
+    try {
+      const response = await this.client.models.list();
+      return Array.from(response.data)
+        .filter(m =>
+          m.id.startsWith('gpt') ||
+          m.id.startsWith('o1') ||
+          m.id.startsWith('o3') ||
+          m.id.startsWith('chatgpt')
+        )
+        .map(model => {
+          const pricing = getModelPricing(model.id);
+          return {
+            id: model.id,
+            name: model.id,
+            provider: this.providerName,
+            capabilities: {
+              vision: model.id.includes('gpt-4') || model.id.includes('vision'),
+              toolUse: !model.id.includes('instruct'),
+            },
+            pricing,
+          };
+        });
+    } catch {
+      // Fall back to static list
+      return getStaticModels(this.providerName);
+    }
+  }
+
+  private async listOllamaModels(): Promise<ModelInfo[]> {
+    try {
+      const response = await fetch('http://localhost:11434/api/tags');
+      if (!response.ok) {
+        return [];
+      }
+      const data = await response.json() as { models: Array<{ name: string; size: number }> };
+      return data.models.map(m => ({
+        id: m.name,
+        name: m.name,
+        provider: 'Ollama',
+        capabilities: {
+          // Most Ollama models don't support vision, but some do (llava, etc.)
+          vision: m.name.includes('llava') || m.name.includes('vision'),
+          toolUse: true,
+        },
+        pricing: { input: 0, output: 0 }, // Local models are free
+      }));
+    } catch {
+      // Ollama not running or not accessible
+      return [];
+    }
   }
 
   private convertMessages(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
