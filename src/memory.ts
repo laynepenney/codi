@@ -215,18 +215,33 @@ export function updateProfile(key: string, value: string): UserProfile {
 function parseMemories(content: string): MemoryEntry[] {
   const memories: MemoryEntry[] = [];
   const lines = content.split('\n');
+  let currentCategory: string | undefined;
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!trimmed) continue;
+
+    // Check for category header (## Category)
+    const headerMatch = trimmed.match(/^##\s+(.+)$/);
+    if (headerMatch) {
+      const category = headerMatch[1].trim();
+      // "General" is treated as no category
+      currentCategory = category.toLowerCase() === 'general' ? undefined : category;
+      continue;
+    }
+
+    // Skip other headers (# title)
+    if (trimmed.startsWith('#')) continue;
 
     // Format: - [category] memory content (timestamp)
-    // Or simpler: - memory content
+    // Or simpler: - memory content (timestamp)
     const match = trimmed.match(/^-\s*(?:\[([^\]]+)\]\s*)?(.+?)(?:\s*\((\d{4}-\d{2}-\d{2})\))?$/);
     if (match) {
+      // Inline category takes precedence over section category
+      const category = match[1] || currentCategory;
       memories.push({
         content: match[2].trim(),
-        category: match[1] || undefined,
+        category: category || undefined,
         timestamp: match[3] || new Date().toISOString().split('T')[0],
       });
     }
