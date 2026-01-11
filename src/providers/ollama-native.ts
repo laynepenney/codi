@@ -5,15 +5,18 @@
 
 import { BaseProvider } from './base.js';
 import { createProviderResponse } from './response-parser.js';
-import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ContentBlock } from '../types.js';
+import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+
+/** Ollama message format */
+interface OllamaMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  images?: string[];
+}
 
 interface OllamaChatRequest {
   model: string;
-  messages: Array<{
-    role: 'system' | 'user' | 'assistant';
-    content: string;
-    images?: string[];
-  }>;
+  messages: OllamaMessage[];
   stream?: boolean;
   format?: string;
   options?: {
@@ -41,23 +44,22 @@ interface OllamaChatResponse {
     content: string;
   };
   done: boolean;
-  done_reason: string;
-  total_duration: number;
-  load_duration: number;
-  prompt_eval_count: number;
-  prompt_eval_duration: number;
-  eval_count: number;
-  eval_duration: number;
+  done_reason?: string;
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_count?: number;
+  prompt_eval_duration?: number;
+  eval_count?: number;
+  eval_duration?: number;
 }
 
-interface ModelInfo {
+interface OllamaModelInfo {
   id: string;
   name: string;
   provider: string;
   capabilities: {
     vision: boolean;
     toolUse: boolean;
-    coding: boolean;
   };
   pricing: {
     input: number;
@@ -73,7 +75,7 @@ export class OllamaNativeProvider extends BaseProvider {
 
   constructor(config: ProviderConfig = {}) {
     super(config);
-    
+
     // Default to localhost:11434 which is Ollama's default
     this.baseUrl = config.baseUrl || 'http://localhost:11434';
     this.model = config.model || 'llama3.2';
@@ -96,22 +98,17 @@ export class OllamaNativeProvider extends BaseProvider {
 
   supportsVision(): boolean {
     // Some Ollama models support vision (like LLaVA-based ones)
-    return this.model.includes('llava') || 
-           this.model.includes('vision') || 
-           this.model.includes('bakllava');
+    const modelLower = this.model.toLowerCase();
+    return modelLower.includes('llava') ||
+           modelLower.includes('vision') ||
+           modelLower.includes('bakllava');
   }
 
-  async chat(
-    messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string
-  ): Promise<ProviderResponse> {
-    // Convert our message format to Ollama's format
-    const ollamaMessages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-      images?: string[];
-    }> = [];
+  /**
+   * Convert our message format to Ollama's format.
+   */
+  private convertMessages(messages: Message[], systemPrompt?: string): OllamaMessage[] {
+    const ollamaMessages: OllamaMessage[] = [];
 
     // Add system prompt if provided
     if (systemPrompt) {
@@ -124,12 +121,12 @@ export class OllamaNativeProvider extends BaseProvider {
     // Convert messages, handling content blocks
     for (const msg of messages) {
       let content: string;
-      
+
       // Handle different content formats
       if (typeof msg.content === 'string') {
         content = msg.content;
       } else if (Array.isArray(msg.content)) {
-        // Process content blocks - for now just concatenate text parts
+        // Process content blocks - concatenate text parts
         content = msg.content
           .map(block => {
             if ('text' in block) {
@@ -137,33 +134,29 @@ export class OllamaNativeProvider extends BaseProvider {
             }
             return '';
           })
+          .filter(Boolean)
           .join('\n');
       } else {
         content = JSON.stringify(msg.content);
       }
-      
-      // Ensure role is properly typed for Ollama
-      let role: 'system' | 'user' | 'assistant';
-      switch (msg.role) {
-        case 'system':
-          role = 'system';
-          break;
-        case 'user':
-          role = 'user';
-          break;
-        case 'assistant':
-          role = 'assistant';
-          break;
-        default:
-          // Fallback to user for unknown roles
-          role = 'user';
-      }
-      
-      ollamaMessages.push({
-        role,
-        content,
-      });
+
+      // Map role to Ollama's expected values
+      const role: 'system' | 'user' | 'assistant' =
+        msg.role === 'system' ? 'system' :
+        msg.role === 'assistant' ? 'assistant' : 'user';
+
+      ollamaMessages.push({ role, content });
     }
+
+    return ollamaMessages;
+  }
+
+  async chat(
+    messages: Message[],
+    tools?: ToolDefinition[],
+    systemPrompt?: string
+  ): Promise<ProviderResponse> {
+    const ollamaMessages = this.convertMessages(messages, systemPrompt);
 
     const requestBody: OllamaChatRequest = {
       model: this.model,
@@ -171,7 +164,7 @@ export class OllamaNativeProvider extends BaseProvider {
       stream: false,
       options: {
         temperature: this.temperature,
-        num_predict: this.maxTokens || undefined,
+        ...(this.maxTokens && { num_predict: this.maxTokens }),
       },
     };
 
@@ -189,11 +182,10 @@ export class OllamaNativeProvider extends BaseProvider {
       }
 
       const responseData: OllamaChatResponse = await response.json();
-      
+
       // Extract tool calls from response if tools were provided
-      let toolCalls = [];
+      let toolCalls: ToolCall[] = [];
       if (tools && tools.length > 0) {
-        // Try to extract tool calls from the response content
         toolCalls = this.extractToolCalls(responseData.message.content, tools);
       }
 
@@ -215,72 +207,15 @@ export class OllamaNativeProvider extends BaseProvider {
     onChunk?: (chunk: string) => void,
     systemPrompt?: string
   ): Promise<ProviderResponse> {
-    // Convert our message format to Ollama's format
-    const ollamaMessages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-      images?: string[];
-    }> = [];
-
-    // Add system prompt if provided
-    if (systemPrompt) {
-      ollamaMessages.push({
-        role: 'system',
-        content: systemPrompt,
-      });
-    }
-
-    // Convert messages, handling content blocks
-    for (const msg of messages) {
-      let content: string;
-      
-      // Handle different content formats
-      if (typeof msg.content === 'string') {
-        content = msg.content;
-      } else if (Array.isArray(msg.content)) {
-        // Process content blocks - for now just concatenate text parts
-        content = msg.content
-          .map(block => {
-            if ('text' in block) {
-              return block.text;
-            }
-            return '';
-          })
-          .join('\n');
-      } else {
-        content = JSON.stringify(msg.content);
-      }
-      
-      // Ensure role is properly typed for Ollama
-      let role: 'system' | 'user' | 'assistant';
-      switch (msg.role) {
-        case 'system':
-          role = 'system';
-          break;
-        case 'user':
-          role = 'user';
-          break;
-        case 'assistant':
-          role = 'assistant';
-          break;
-        default:
-          // Fallback to user for unknown roles
-          role = 'user';
-      }
-      
-      ollamaMessages.push({
-        role,
-        content,
-      });
-    }
+    const ollamaMessages = this.convertMessages(messages, systemPrompt);
 
     const requestBody: OllamaChatRequest = {
       model: this.model,
       messages: ollamaMessages,
-      stream: true, // Enable streaming
+      stream: true,
       options: {
         temperature: this.temperature,
-        num_predict: this.maxTokens || undefined,
+        ...(this.maxTokens && { num_predict: this.maxTokens }),
       },
     };
 
@@ -304,25 +239,35 @@ export class OllamaNativeProvider extends BaseProvider {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = '';
-      let toolCalls: any[] = [];
-      
+      let inputTokens: number | undefined;
+      let outputTokens: number | undefined;
+      let stopReason: string | undefined;
+
       // Process streamed chunks
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n').filter(line => line.trim());
-        
+
         for (const line of lines) {
           try {
-            const data = JSON.parse(line);
+            const data: OllamaChatResponse = JSON.parse(line);
+
             if (data.message?.content) {
               const content = data.message.content;
               fullText += content;
               if (onChunk) onChunk(content);
             }
-          } catch (e) {
+
+            // Capture token counts and stop reason from final chunk
+            if (data.done) {
+              inputTokens = data.prompt_eval_count;
+              outputTokens = data.eval_count;
+              stopReason = data.done_reason;
+            }
+          } catch {
             // Not valid JSON, skip
             continue;
           }
@@ -330,6 +275,7 @@ export class OllamaNativeProvider extends BaseProvider {
       }
 
       // Extract tool calls if tools were provided
+      let toolCalls: ToolCall[] = [];
       if (tools && tools.length > 0) {
         toolCalls = this.extractToolCalls(fullText, tools);
       }
@@ -337,33 +283,29 @@ export class OllamaNativeProvider extends BaseProvider {
       return createProviderResponse({
         content: fullText,
         toolCalls,
-        stopReason: 'stop',
-        inputTokens: undefined,
-        outputTokens: undefined,
+        stopReason: stopReason || 'stop',
+        inputTokens,
+        outputTokens,
       });
     } catch (error) {
       throw new Error(`Failed to stream completion with Ollama: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async listModels(): Promise<ModelInfo[]> {
+  async listModels(): Promise<OllamaModelInfo[]> {
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`);
       if (!response.ok) {
         return [];
       }
-      
+
       const data = await response.json();
-      return data.models.map((m: any) => {
-        // Heuristic for determining capabilities based on model names
-        const isVisionModel = m.name.includes('llava') || 
-                             m.name.includes('vision') || 
-                             m.name.includes('bakllava');
-                             
-        const isCodeModel = m.name.includes('code') || 
-                           m.name.includes('deepseek') || 
-                           m.name.includes('codellama');
-        
+      return (data.models || []).map((m: { name: string }) => {
+        const nameLower = m.name.toLowerCase();
+        const isVisionModel = nameLower.includes('llava') ||
+                             nameLower.includes('vision') ||
+                             nameLower.includes('bakllava');
+
         return {
           id: m.name,
           name: m.name,
@@ -371,7 +313,6 @@ export class OllamaNativeProvider extends BaseProvider {
           capabilities: {
             vision: isVisionModel,
             toolUse: true, // Assume true for local models
-            coding: isCodeModel,
           },
           pricing: {
             input: 0,
@@ -379,67 +320,74 @@ export class OllamaNativeProvider extends BaseProvider {
           },
         };
       });
-    } catch (error) {
+    } catch {
       // Ollama not running or not accessible
       return [];
     }
   }
 
   /**
-   * Simple heuristic to extract tool calls from response content.
-   * In practice, you might want to use a more sophisticated approach or structured outputs.
+   * Extract tool calls from response content.
+   * Looks for JSON structures that match tool call format.
    */
-  private extractToolCalls(content: string, tools: ToolDefinition[]): any[] {
-    // Look for JSON-like structures that might represent tool calls
-    const toolCallPatterns = [
-      // Direct JSON objects with tool call structure
-      /\{[^{}]*"name"[^{}]*\}/g,
-      // JSON wrapped in ```json markers
-      /```(?:json)?\s*(\{[^}]*"name"[^}]*\})\s*```/g,
-      // Function-style call patterns
-      /(\w+)\s*\(([^)]*)\)/g
-    ];
+  private extractToolCalls(content: string, tools: ToolDefinition[]): ToolCall[] {
+    const toolCalls: ToolCall[] = [];
+    const toolNames = new Set(tools.map(t => t.name));
 
-    const toolCalls = [];
-    const toolNames = tools.map(t => t.name);
-    
-    for (const pattern of toolCallPatterns) {
-      const matches = [...content.matchAll(pattern)];
-      
-      for (const match of matches) {
-        try {
-          let jsonString: string;
-          
-          if (match.length > 1) {
-            // Grouped match (for patterns with capture groups)
-            jsonString = match[1];
-          } else {
-            // Direct match
-            jsonString = match[0];
-          }
-          
-          const parsed = JSON.parse(jsonString);
-          
-          // Validate that it contains a tool name that exists
-          if (parsed.name && toolNames.includes(parsed.name)) {
-            toolCalls.push({
-              id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-              name: parsed.name,
-              input: parsed.arguments || parsed.input || {},
-            });
-          }
-        } catch (e) {
-          // Not valid JSON or not a proper tool call, continue
-          continue;
-        }
+    // Pattern 1: JSON in code blocks - most reliable
+    const codeBlockPattern = /```(?:json)?\s*([\s\S]*?)```/g;
+    let match;
+
+    while ((match = codeBlockPattern.exec(content)) !== null) {
+      const jsonContent = match[1].trim();
+      const extracted = this.tryParseToolCall(jsonContent, toolNames);
+      if (extracted) {
+        toolCalls.push(extracted);
       }
     }
-    
+
+    // If we found tool calls in code blocks, return them
+    if (toolCalls.length > 0) {
+      return toolCalls;
+    }
+
+    // Pattern 2: Look for JSON objects with "name" field
+    // This pattern handles nested braces properly
+    const jsonPattern = /\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}/g;
+
+    while ((match = jsonPattern.exec(content)) !== null) {
+      const extracted = this.tryParseToolCall(match[0], toolNames);
+      if (extracted) {
+        toolCalls.push(extracted);
+      }
+    }
+
     return toolCalls;
   }
 
   /**
-   * Pull a model if it's not already available
+   * Try to parse a JSON string as a tool call.
+   */
+  private tryParseToolCall(jsonString: string, validToolNames: Set<string>): ToolCall | null {
+    try {
+      const parsed = JSON.parse(jsonString);
+
+      // Check if it has a valid tool name
+      if (parsed.name && validToolNames.has(parsed.name)) {
+        return {
+          id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          name: parsed.name,
+          input: parsed.arguments || parsed.input || parsed.parameters || {},
+        };
+      }
+    } catch {
+      // Not valid JSON
+    }
+    return null;
+  }
+
+  /**
+   * Pull a model if it's not already available.
    */
   async pullModel(modelName: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/api/pull`, {
@@ -461,7 +409,7 @@ export class OllamaNativeProvider extends BaseProvider {
   }
 
   /**
-   * Check if Ollama is running and accessible
+   * Check if Ollama is running and accessible.
    */
   async healthCheck(): Promise<boolean> {
     try {
