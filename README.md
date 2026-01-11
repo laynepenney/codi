@@ -69,6 +69,7 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 | `-y, --yes` | Auto-approve all tool operations | Prompt for approval |
 | `--debug` | Show messages sent to the model | Disabled |
 | `-s, --session <name>` | Load a saved session on startup | - |
+| `-c, --compress` | Enable context compression | Disabled |
 
 ## Commands
 
@@ -177,6 +178,19 @@ Examples:
 | `/import <file> <indices>` | Import specific conversations by index |
 
 Import your ChatGPT conversation history to use as context in Codi.
+
+### Context Commands
+
+| Command | Description |
+|---------|-------------|
+| `/compress` | Show compression status |
+| `/compress on` | Enable context compression |
+| `/compress off` | Disable context compression |
+| `/compress --preview` | Show compression analysis with entity legend |
+
+Context compression extracts repeated entities (file paths, class names, function names, URLs) and replaces them with short references (E1, E2, etc.) to reduce token usage. Enable with `-c` flag or `/compress on`.
+
+Example savings: A conversation with repeated file paths and class names can see 15-30% reduction in context size.
 
 ## Tools
 

@@ -41,6 +41,9 @@ export interface WorkspaceConfig {
 
   /** Project-specific context to include in system prompt */
   projectContext?: string;
+
+  /** Enable context compression (reduces token usage) */
+  enableCompression?: boolean;
 }
 
 /**
@@ -59,6 +62,7 @@ export interface ResolvedConfig {
   defaultSession?: string;
   commandAliases: Record<string, string>;
   projectContext?: string;
+  enableCompression: boolean;
 }
 
 /** Default configuration values */
@@ -69,6 +73,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   noTools: false,
   extractToolsFromText: true,
   commandAliases: {},
+  enableCompression: false,
 };
 
 /** Config file names to search for, in order of priority */
@@ -183,6 +188,7 @@ export function mergeConfig(
     if (workspaceConfig.defaultSession) config.defaultSession = workspaceConfig.defaultSession;
     if (workspaceConfig.commandAliases) config.commandAliases = workspaceConfig.commandAliases;
     if (workspaceConfig.projectContext) config.projectContext = workspaceConfig.projectContext;
+    if (workspaceConfig.enableCompression !== undefined) config.enableCompression = workspaceConfig.enableCompression;
   }
 
   // CLI options override workspace config

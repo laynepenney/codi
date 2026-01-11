@@ -67,6 +67,7 @@ import { registerPluginCommands } from './commands/plugin-commands.js';
 import { registerModelCommands } from './commands/model-commands.js';
 import { registerImportCommands } from './commands/import-commands.js';
 import { registerMemoryCommands } from './commands/memory-commands.js';
+import { registerCompressionCommands } from './commands/compression-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
@@ -94,6 +95,7 @@ program
   .option('-y, --yes', 'Auto-approve all tool operations (skip confirmation prompts)')
   .option('--debug', 'Show messages sent to the model')
   .option('-s, --session <name>', 'Load a saved session on startup')
+  .option('-c, --compress', 'Enable context compression (reduces token usage)')
   .parse();
 
 const options = program.opts();
@@ -1123,6 +1125,97 @@ function handleMemoryOutput(output: string): void {
 }
 
 /**
+ * Handle compression command output.
+ */
+function handleCompressionOutput(output: string): void {
+  if (output.startsWith('COMPRESS_ERROR:')) {
+    const message = output.slice('COMPRESS_ERROR:'.length);
+    console.log(chalk.red(`\n${message}`));
+    return;
+  }
+
+  if (output.startsWith('COMPRESS_TOGGLE:')) {
+    const state = output.slice('COMPRESS_TOGGLE:'.length);
+    if (state === 'on') {
+      console.log(chalk.green('\n✓ Context compression enabled'));
+      console.log(chalk.dim('  Repeated entities will be replaced with short references to reduce token usage.'));
+    } else {
+      console.log(chalk.yellow('\n✓ Context compression disabled'));
+    }
+    return;
+  }
+
+  if (output.startsWith('COMPRESS_STATUS:')) {
+    const data = JSON.parse(output.slice('COMPRESS_STATUS:'.length));
+    console.log(chalk.bold('\nCompression Status:'));
+    console.log(`  Enabled: ${data.enabled ? chalk.green('yes') : chalk.dim('no')}`);
+    if (data.stats) {
+      console.log(`  Last savings: ${chalk.cyan(data.stats.savings)} chars (${data.stats.savingsPercent.toFixed(1)}%)`);
+      console.log(`  Entities tracked: ${chalk.cyan(data.stats.entityCount)}`);
+    } else {
+      console.log(chalk.dim('  No compression stats yet (need more conversation)'));
+    }
+    console.log(chalk.dim('\n  Use /compress on|off to toggle, /compress --preview for analysis'));
+    return;
+  }
+
+  if (output.startsWith('COMPRESS_STATS:')) {
+    const json = output.slice('COMPRESS_STATS:'.length);
+    const data = JSON.parse(json);
+    const stats = data.stats;
+
+    const statusBadge = data.enabled
+      ? chalk.green(' [ENABLED]')
+      : chalk.dim(' [DISABLED]');
+    console.log(chalk.bold('\n📊 Compression Analysis') + statusBadge + '\n');
+
+    // Size stats
+    console.log(chalk.dim('─'.repeat(50)));
+    console.log(`  Original size:   ${chalk.cyan(stats.originalChars.toLocaleString())} chars`);
+    console.log(`  Compressed size: ${chalk.cyan(stats.compressedChars.toLocaleString())} chars`);
+    console.log(`  Legend overhead: ${chalk.yellow(stats.legendChars.toLocaleString())} chars`);
+    console.log(`  Net size:        ${chalk.cyan(stats.netChars.toLocaleString())} chars`);
+    console.log(chalk.dim('─'.repeat(50)));
+
+    if (stats.savings > 0) {
+      console.log(chalk.green(`  Savings:         ${stats.savings.toLocaleString()} chars (${stats.savingsPercent.toFixed(1)}%)`));
+    } else {
+      console.log(chalk.yellow(`  Savings:         ${stats.savings} chars (compression not beneficial)`));
+    }
+
+    console.log(`  Entities found:  ${chalk.cyan(stats.entityCount)}`);
+
+    // Top entities
+    if (stats.topEntities && stats.topEntities.length > 0) {
+      console.log(chalk.bold('\n  Top Entities by Savings:'));
+      for (const entity of stats.topEntities.slice(0, 5)) {
+        const truncatedValue = entity.value.length > 40
+          ? entity.value.slice(0, 37) + '...'
+          : entity.value;
+        console.log(`    ${chalk.cyan(entity.id)}: ${truncatedValue} ${chalk.dim(`(${entity.savings} chars saved)`)}`);
+      }
+    }
+
+    // Preview if requested
+    if (data.preview) {
+      console.log(chalk.bold('\n  Entity Legend:'));
+      const legendLines = data.preview.legend.split('\n').slice(0, 15);
+      for (const line of legendLines) {
+        console.log(`    ${chalk.dim(line)}`);
+      }
+      if (data.preview.legend.split('\n').length > 15) {
+        console.log(chalk.dim('    ... (truncated)'));
+      }
+    }
+
+    console.log('');
+    return;
+  }
+
+  console.log(output);
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -1182,6 +1275,7 @@ async function main() {
   registerModelCommands();
   registerImportCommands();
   registerMemoryCommands();
+  registerCompressionCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
@@ -1276,6 +1370,7 @@ async function main() {
     autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,
     customDangerousPatterns,
     debug: options.debug,
+    enableCompression: options.compress || resolvedConfig.enableCompression,
     onText: (text) => process.stdout.write(text),
     onReasoning: (reasoning) => {
       console.log(chalk.dim.italic('\n💭 Thinking...'));
@@ -1425,6 +1520,11 @@ async function main() {
         console.log(chalk.dim(`  Tokens: ${info.tokens} / 8000`));
         console.log(chalk.dim(`  Messages: ${info.messages}`));
         console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
+        console.log(chalk.dim(`  Compression: ${info.compressionEnabled ? 'enabled' : 'disabled'}`));
+        if (info.compression) {
+          console.log(chalk.dim(`  Compression savings: ${info.compression.savings} chars (${info.compression.savingsPercent.toFixed(1)}%)`));
+          console.log(chalk.dim(`  Entities tracked: ${info.compression.entityCount}`));
+        }
         prompt();
         return;
       }
@@ -1495,6 +1595,12 @@ async function main() {
                 // Handle memory command outputs
                 if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
                   handleMemoryOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle compression command outputs
+                if (result.startsWith('COMPRESS_')) {
+                  handleCompressionOutput(result);
                   prompt();
                   return;
                 }

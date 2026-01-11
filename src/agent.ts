@@ -5,6 +5,13 @@ import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js'
 import { recordUsage } from './usage.js';
 import { AGENT_CONFIG, TOOL_CATEGORIES, type DangerousPattern } from './constants.js';
 import {
+  compressContext,
+  generateEntityLegend,
+  getCompressionStats,
+  type CompressedContext,
+  type CompressionStats,
+} from './compression.js';
+import {
   extractToolCallsFromText,
   countMessageTokens,
   getMessageText,
@@ -40,6 +47,7 @@ export interface AgentOptions {
   autoApprove?: boolean | string[]; // Skip confirmation: true = all tools, string[] = specific tools
   customDangerousPatterns?: Array<{ pattern: RegExp; description: string }>; // Additional patterns
   debug?: boolean; // Log messages sent to the model
+  enableCompression?: boolean; // Enable entity-reference compression for context
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
@@ -61,8 +69,10 @@ export class Agent {
   private autoApproveTools: Set<string>;
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
   private debug: boolean;
+  private enableCompression: boolean;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
+  private lastCompressionStats: CompressionStats | null = null;
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -91,6 +101,7 @@ export class Agent {
 
     this.customDangerousPatterns = options.customDangerousPatterns ?? [];
     this.debug = options.debug ?? false;
+    this.enableCompression = options.enableCompression ?? false;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
       onText: options.onText,
@@ -257,6 +268,24 @@ Always use tools to interact with the filesystem rather than asking the user to 
         systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
       }
 
+      // Apply compression if enabled
+      let messagesToSend = this.messages;
+      if (this.enableCompression && this.messages.length > 2) {
+        const compressed = compressContext(this.messages);
+        if (compressed.entities.size > 0) {
+          messagesToSend = compressed.messages;
+          this.lastCompressionStats = getCompressionStats(compressed);
+
+          // Add entity legend to system context
+          const legend = generateEntityLegend(compressed.entities);
+          systemContext += `\n\n${legend}\n\nNote: The conversation uses entity references (E1, E2, etc.) to reduce context size. Refer to the legend above when you see these references.`;
+
+          if (this.debug) {
+            console.log(`\n[Compression] Saved ${this.lastCompressionStats.savings} chars (${this.lastCompressionStats.savingsPercent.toFixed(1)}%), ${this.lastCompressionStats.entityCount} entities`);
+          }
+        }
+      }
+
       // Debug: log messages being sent
       if (this.debug) {
         console.log('\n' + '='.repeat(60));
@@ -271,7 +300,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
             systemContext.slice(-DEBUG_LIMIT / 2)
           : systemContext;
         console.log(systemPreview);
-        for (const msg of this.messages) {
+        for (const msg of messagesToSend) {
           console.log(`\n[${msg.role.toUpperCase()}]:`);
           if (typeof msg.content === 'string') {
             // Show beginning and end, truncate middle for long messages
@@ -299,7 +328,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // Call the model with streaming (using native system prompt support)
       const response = await this.provider.streamChat(
-        this.messages,
+        messagesToSend,
         tools,
         this.callbacks.onText,
         systemContext
@@ -653,12 +682,44 @@ Always use tools to interact with the filesystem rather than asking the user to 
   /**
    * Get current context size information.
    */
-  getContextInfo(): { tokens: number; messages: number; hasSummary: boolean } {
+  getContextInfo(): {
+    tokens: number;
+    messages: number;
+    hasSummary: boolean;
+    compression: CompressionStats | null;
+    compressionEnabled: boolean;
+  } {
     return {
       tokens: countMessageTokens(this.messages),
       messages: this.messages.length,
       hasSummary: this.conversationSummary !== null,
+      compression: this.lastCompressionStats,
+      compressionEnabled: this.enableCompression,
     };
+  }
+
+  /**
+   * Get a copy of the current messages for analysis.
+   */
+  getMessages(): Message[] {
+    return [...this.messages];
+  }
+
+  /**
+   * Enable or disable context compression.
+   */
+  setCompression(enabled: boolean): void {
+    this.enableCompression = enabled;
+    if (!enabled) {
+      this.lastCompressionStats = null;
+    }
+  }
+
+  /**
+   * Check if compression is enabled.
+   */
+  isCompressionEnabled(): boolean {
+    return this.enableCompression;
   }
 
   /**
