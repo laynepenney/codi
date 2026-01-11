@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import type { Message } from './types.js';
+import type { Message, ContentBlock } from './types.js';
 
 const SESSIONS_DIR = path.join(os.homedir(), '.codi', 'sessions');
 
@@ -113,6 +113,7 @@ export function saveSession(
 
 /**
  * Load a session from disk.
+ * Automatically repairs broken sessions (e.g., tool_use without tool_result).
  */
 export function loadSession(name: string): Session | null {
   const sessionPath = getSessionPath(name);
@@ -123,10 +124,132 @@ export function loadSession(name: string): Session | null {
 
   try {
     const content = fs.readFileSync(sessionPath, 'utf-8');
-    return JSON.parse(content) as Session;
+    const session = JSON.parse(content) as Session;
+
+    // Repair the session if needed
+    const { messages, repaired } = repairSession(session.messages);
+    if (repaired) {
+      session.messages = messages;
+      // Save the repaired session
+      fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+    }
+
+    return session;
   } catch {
     return null;
   }
+}
+
+/**
+ * Repair a session by fixing broken tool_use/tool_result pairs.
+ * This can happen when the session is saved after a crash during tool execution.
+ *
+ * The Anthropic API requires that every tool_use block in an assistant message
+ * must have a corresponding tool_result block in the immediately following user message.
+ *
+ * @param messages - The message history to repair
+ * @returns The repaired messages and whether any repairs were made
+ */
+export function repairSession(messages: Message[]): { messages: Message[]; repaired: boolean } {
+  if (messages.length === 0) {
+    return { messages, repaired: false };
+  }
+
+  const repairedMessages = [...messages];
+  let repaired = false;
+
+  // Check if the last message is from the assistant with tool_use blocks
+  const lastMessage = repairedMessages[repairedMessages.length - 1];
+
+  if (lastMessage.role === 'assistant' && Array.isArray(lastMessage.content)) {
+    // Find all tool_use blocks in the last assistant message
+    const toolUseBlocks = lastMessage.content.filter(
+      (block): block is ContentBlock & { type: 'tool_use'; id: string; name: string } =>
+        block.type === 'tool_use' && !!block.id
+    );
+
+    if (toolUseBlocks.length > 0) {
+      // The session ends with tool_use blocks but no tool_result
+      // Add a synthetic user message with error results for each tool_use
+      const toolResults: ContentBlock[] = toolUseBlocks.map(toolUse => ({
+        type: 'tool_result' as const,
+        tool_use_id: toolUse.id,
+        content: `[Session interrupted] Tool "${toolUse.name}" was not executed. The session was saved before the tool could complete.`,
+        is_error: true,
+      }));
+
+      repairedMessages.push({
+        role: 'user',
+        content: toolResults,
+      });
+
+      repaired = true;
+    }
+  }
+
+  // Also check for any assistant messages in the middle that have unmatched tool_use
+  for (let i = 0; i < repairedMessages.length - 1; i++) {
+    const msg = repairedMessages[i];
+    const nextMsg = repairedMessages[i + 1];
+
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      const toolUseBlocks = msg.content.filter(
+        (block): block is ContentBlock & { type: 'tool_use'; id: string; name: string } =>
+          block.type === 'tool_use' && !!block.id
+      );
+
+      if (toolUseBlocks.length > 0) {
+        // Get tool_use IDs that need results
+        const toolUseIds = new Set(toolUseBlocks.map(b => b.id));
+
+        // Check if next message has corresponding tool_results
+        if (nextMsg.role === 'user' && Array.isArray(nextMsg.content)) {
+          const resultIds = new Set(
+            nextMsg.content
+              .filter(b => b.type === 'tool_result' && b.tool_use_id)
+              .map(b => b.tool_use_id)
+          );
+
+          // Find missing results
+          const missingIds = [...toolUseIds].filter(id => !resultIds.has(id));
+
+          if (missingIds.length > 0) {
+            // Add missing tool_results to the user message
+            const missingResults: ContentBlock[] = missingIds.map(id => {
+              const toolUse = toolUseBlocks.find(b => b.id === id)!;
+              return {
+                type: 'tool_result' as const,
+                tool_use_id: id,
+                content: `[Session interrupted] Tool "${toolUse.name}" was not executed.`,
+                is_error: true,
+              };
+            });
+
+            nextMsg.content = [...nextMsg.content, ...missingResults];
+            repaired = true;
+          }
+        } else if (nextMsg.role !== 'user') {
+          // Next message is not a user message - this is a broken structure
+          // Insert a synthetic user message with tool results
+          const toolResults: ContentBlock[] = toolUseBlocks.map(toolUse => ({
+            type: 'tool_result' as const,
+            tool_use_id: toolUse.id,
+            content: `[Session interrupted] Tool "${toolUse.name}" was not executed.`,
+            is_error: true,
+          }));
+
+          repairedMessages.splice(i + 1, 0, {
+            role: 'user',
+            content: toolResults,
+          });
+
+          repaired = true;
+        }
+      }
+    }
+  }
+
+  return { messages: repairedMessages, repaired };
 }
 
 /**

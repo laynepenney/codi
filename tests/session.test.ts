@@ -26,6 +26,7 @@ import {
   generateSessionName,
   formatSessionInfo,
   getSessionsDir,
+  repairSession,
   type SessionInfo,
 } from '../src/session.js';
 import type { Message } from '../src/types.js';
@@ -543,6 +544,137 @@ describe('Session Management', () => {
 
       // Should contain date parts (format varies by locale)
       expect(formatted).toContain(' - ');
+    });
+  });
+
+  describe('repairSession', () => {
+    it('returns unchanged messages when no repair needed', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi there!' },
+      ];
+
+      const { messages: result, repaired } = repairSession(messages);
+
+      expect(repaired).toBe(false);
+      expect(result).toEqual(messages);
+    });
+
+    it('returns empty array unchanged', () => {
+      const { messages: result, repaired } = repairSession([]);
+
+      expect(repaired).toBe(false);
+      expect(result).toEqual([]);
+    });
+
+    it('repairs session ending with unmatched tool_use', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Write a file' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'I will write a file.' },
+            {
+              type: 'tool_use',
+              id: 'tool_123',
+              name: 'write_file',
+              input: { path: 'test.txt' },
+            },
+          ],
+        },
+      ];
+
+      const { messages: result, repaired } = repairSession(messages);
+
+      expect(repaired).toBe(true);
+      expect(result).toHaveLength(3);
+      expect(result[2].role).toBe('user');
+      expect(Array.isArray(result[2].content)).toBe(true);
+      const content = result[2].content as any[];
+      expect(content[0].type).toBe('tool_result');
+      expect(content[0].tool_use_id).toBe('tool_123');
+      expect(content[0].is_error).toBe(true);
+      expect(content[0].content).toContain('write_file');
+    });
+
+    it('repairs session with multiple unmatched tool_use blocks', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Do multiple things' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tool_1',
+              name: 'read_file',
+              input: { path: 'a.txt' },
+            },
+            {
+              type: 'tool_use',
+              id: 'tool_2',
+              name: 'write_file',
+              input: { path: 'b.txt' },
+            },
+          ],
+        },
+      ];
+
+      const { messages: result, repaired } = repairSession(messages);
+
+      expect(repaired).toBe(true);
+      expect(result).toHaveLength(3);
+      const content = result[2].content as any[];
+      expect(content).toHaveLength(2);
+      expect(content[0].tool_use_id).toBe('tool_1');
+      expect(content[1].tool_use_id).toBe('tool_2');
+    });
+
+    it('does not repair when tool_results exist', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Read a file' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tool_123',
+              name: 'read_file',
+              input: { path: 'test.txt' },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool_123',
+              content: 'File contents here',
+            },
+          ],
+        },
+        { role: 'assistant', content: 'The file contains...' },
+      ];
+
+      const { messages: result, repaired } = repairSession(messages);
+
+      expect(repaired).toBe(false);
+      expect(result).toEqual(messages);
+    });
+
+    it('handles assistant message with only text content', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Hello' },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Just text, no tools' }],
+        },
+      ];
+
+      const { messages: result, repaired } = repairSession(messages);
+
+      expect(repaired).toBe(false);
+      expect(result).toEqual(messages);
     });
   });
 });
