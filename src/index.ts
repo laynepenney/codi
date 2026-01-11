@@ -13,14 +13,15 @@ const MAX_HISTORY_SIZE = 1000;
 
 /**
  * Load command history from file.
+ * Returns array with most recent entries first (required by readline).
  */
 function loadHistory(): string[] {
   try {
     if (existsSync(HISTORY_FILE)) {
       const content = readFileSync(HISTORY_FILE, 'utf-8');
       const lines = content.split('\n').filter((line) => line.trim());
-      // Return most recent entries up to MAX_HISTORY_SIZE
-      return lines.slice(-MAX_HISTORY_SIZE);
+      // Return most recent entries first (readline expects newest at index 0)
+      return lines.slice(-MAX_HISTORY_SIZE).reverse();
     }
   } catch {
     // Ignore errors reading history
@@ -1386,6 +1387,8 @@ async function main() {
     output: process.stdout,
     history,
     historySize: MAX_HISTORY_SIZE,
+    terminal: true,
+    prompt: chalk.bold.cyan('\nYou: '),
   });
 
   // Track if readline is closed (for piped input)
@@ -1571,224 +1574,223 @@ async function main() {
   }
 
   /**
-   * Prompts for user input and handles a single interaction turn.
-   *
-   * This function re-invokes itself after each handled command/message to keep
-   * the CLI session running.
+   * Handle a single line of user input.
    */
-  const prompt = () => {
-    // Don't prompt if readline was closed (e.g., piped input ended)
-    if (rlClosed) return;
+  const handleInput = async (input: string) => {
+    const trimmed = input.trim();
 
-    rl.question(chalk.bold.cyan('\nYou: '), async (input) => {
-      const trimmed = input.trim();
+    if (!trimmed) {
+      rl.prompt();
+      return;
+    }
 
-      if (!trimmed) {
-        prompt();
+    // Save to history file
+    saveToHistory(trimmed);
+
+    // Handle built-in commands
+    if (trimmed === '/exit' || trimmed === '/quit') {
+      console.log(chalk.dim('\nGoodbye!'));
+      rl.close();
+      process.exit(0);
+    }
+
+    if (trimmed === '/clear') {
+      agent.clearHistory();
+      console.log(chalk.dim('Conversation cleared.'));
+      rl.prompt();
+      return;
+    }
+
+    if (trimmed === '/help') {
+      showHelp(projectInfo);
+      rl.prompt();
+      return;
+    }
+
+    if (trimmed === '/context') {
+      if (projectInfo) {
+        console.log(chalk.bold('\nProject Context:'));
+        console.log(formatProjectContext(projectInfo));
+      } else {
+        console.log(chalk.dim('\nNo project detected in current directory.'));
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (trimmed === '/compact') {
+      const info = agent.getContextInfo();
+      console.log(chalk.dim(`\nCurrent context: ${info.tokens} tokens, ${info.messages} messages`));
+      if (info.messages <= 6) {
+        console.log(chalk.yellow('Not enough messages to compact (need >6).'));
+        rl.prompt();
         return;
       }
-
-      // Save to history file
-      saveToHistory(trimmed);
-
-      // Handle built-in commands
-      if (trimmed === '/exit' || trimmed === '/quit') {
-        console.log(chalk.dim('\nGoodbye!'));
-        rl.close();
-        process.exit(0);
-      }
-
-      if (trimmed === '/clear') {
-        agent.clearHistory();
-        console.log(chalk.dim('Conversation cleared.'));
-        prompt();
-        return;
-      }
-
-      if (trimmed === '/help') {
-        showHelp(projectInfo);
-        prompt();
-        return;
-      }
-
-      if (trimmed === '/context') {
-        if (projectInfo) {
-          console.log(chalk.bold('\nProject Context:'));
-          console.log(formatProjectContext(projectInfo));
-        } else {
-          console.log(chalk.dim('\nNo project detected in current directory.'));
+      console.log(chalk.dim('Compacting...'));
+      try {
+        const result = await agent.forceCompact();
+        console.log(chalk.green(`Compacted: ${result.before} → ${result.after} tokens`));
+        if (result.summary) {
+          console.log(
+            chalk.dim(
+              `Summary: ${result.summary.slice(0, 200)}${result.summary.length > 200 ? '...' : ''}`,
+            ),
+          );
         }
-        prompt();
-        return;
+      } catch (error) {
+        if (options.debug && error instanceof Error) {
+          console.error(chalk.red(`Compaction failed: ${error.message}`));
+          console.error(chalk.dim(error.stack || 'No stack trace available'));
+        } else {
+          console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
+        }
       }
+      rl.prompt();
+      return;
+    }
 
-      if (trimmed === '/compact') {
-        const info = agent.getContextInfo();
-        console.log(chalk.dim(`\nCurrent context: ${info.tokens} tokens, ${info.messages} messages`));
-        if (info.messages <= 6) {
-          console.log(chalk.yellow('Not enough messages to compact (need >6).'));
-          prompt();
+    if (trimmed === '/status') {
+      const info = agent.getContextInfo();
+      console.log(chalk.bold('\nContext Status:'));
+      console.log(chalk.dim(`  Tokens: ${info.tokens} / 8000`));
+      console.log(chalk.dim(`  Messages: ${info.messages}`));
+      console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
+      console.log(chalk.dim(`  Compression: ${info.compressionEnabled ? 'enabled' : 'disabled'}`));
+      if (info.compression) {
+        console.log(chalk.dim(`  Compression savings: ${info.compression.savings} chars (${info.compression.savingsPercent.toFixed(1)}%)`));
+        console.log(chalk.dim(`  Entities tracked: ${info.compression.entityCount}`));
+      }
+      rl.prompt();
+      return;
+    }
+
+    // Handle slash commands
+    if (isCommand(trimmed)) {
+      const parsed = parseCommand(trimmed);
+      if (parsed) {
+        const command = getCommand(parsed.name);
+        if (command) {
+          try {
+            const result = await command.execute(parsed.args, commandContext);
+            if (result) {
+              // Handle session command outputs (special format)
+              if (result.startsWith('__SESSION_')) {
+                handleSessionOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle config command outputs
+              if (result.startsWith('__CONFIG_')) {
+                handleConfigOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle history command outputs
+              if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
+                handleHistoryOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle usage command outputs
+              if (result.startsWith('__USAGE_')) {
+                handleUsageOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle plugin command outputs
+              if (result.startsWith('__PLUGIN')) {
+                handlePluginOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle models command outputs
+              if (result.startsWith('__MODELS__')) {
+                handleModelsOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle switch command outputs
+              if (result.startsWith('__SWITCH_')) {
+                handleSwitchOutput(result);
+                // Update session state on successful switch
+                if (result.startsWith('__SWITCH_SUCCESS__') && commandContext.sessionState) {
+                  const switchParts = result.split('|');
+                  commandContext.sessionState.provider = switchParts[1];
+                  commandContext.sessionState.model = switchParts[2];
+                }
+                rl.prompt();
+                return;
+              }
+              // Handle import command outputs
+              if (result.startsWith('__IMPORT_')) {
+                handleImportOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle memory command outputs
+              if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
+                handleMemoryOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle compression command outputs
+              if (result.startsWith('COMPRESS_')) {
+                handleCompressionOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Clear history for slash commands - they should start fresh
+              agent.clearHistory();
+              // Command returned a prompt - send to agent
+              console.log(chalk.bold.magenta('\nAssistant: '));
+              isStreaming = false;
+              spinner.thinking();
+              const startTime = Date.now();
+              await agent.chat(result);
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+              console.log(chalk.dim(`\n(${elapsed}s)`));
+            }
+          } catch (error) {
+            spinner.stop();
+            logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
+          }
+          rl.prompt();
+          return;
+        } else {
+          console.log(chalk.yellow(`Unknown command: /${parsed.name}. Type /help for available commands.`));
+          rl.prompt();
           return;
         }
-        console.log(chalk.dim('Compacting...'));
-        try {
-          const result = await agent.forceCompact();
-          console.log(chalk.green(`Compacted: ${result.before} → ${result.after} tokens`));
-          if (result.summary) {
-            console.log(
-              chalk.dim(
-                `Summary: ${result.summary.slice(0, 200)}${result.summary.length > 200 ? '...' : ''}`,
-              ),
-            );
-          }
-        } catch (error) {
-          if (options.debug && error instanceof Error) {
-            console.error(chalk.red(`Compaction failed: ${error.message}`));
-            console.error(chalk.dim(error.stack || 'No stack trace available'));
-          } else {
-            console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
-          }
-        }
-        prompt();
-        return;
       }
+    }
 
-      if (trimmed === '/status') {
-        const info = agent.getContextInfo();
-        console.log(chalk.bold('\nContext Status:'));
-        console.log(chalk.dim(`  Tokens: ${info.tokens} / 8000`));
-        console.log(chalk.dim(`  Messages: ${info.messages}`));
-        console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
-        console.log(chalk.dim(`  Compression: ${info.compressionEnabled ? 'enabled' : 'disabled'}`));
-        if (info.compression) {
-          console.log(chalk.dim(`  Compression savings: ${info.compression.savings} chars (${info.compression.savingsPercent.toFixed(1)}%)`));
-          console.log(chalk.dim(`  Entities tracked: ${info.compression.entityCount}`));
-        }
-        prompt();
-        return;
-      }
+    // Regular message - send to agent
+    console.log(chalk.bold.magenta('\nAssistant: '));
+    isStreaming = false;
+    spinner.thinking();
 
-      // Handle slash commands
-      if (isCommand(trimmed)) {
-        const parsed = parseCommand(trimmed);
-        if (parsed) {
-          const command = getCommand(parsed.name);
-          if (command) {
-            try {
-              const result = await command.execute(parsed.args, commandContext);
-              if (result) {
-                // Handle session command outputs (special format)
-                if (result.startsWith('__SESSION_')) {
-                  handleSessionOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle config command outputs
-                if (result.startsWith('__CONFIG_')) {
-                  handleConfigOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle history command outputs
-                if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
-                  handleHistoryOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle usage command outputs
-                if (result.startsWith('__USAGE_')) {
-                  handleUsageOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle plugin command outputs
-                if (result.startsWith('__PLUGIN')) {
-                  handlePluginOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle models command outputs
-                if (result.startsWith('__MODELS__')) {
-                  handleModelsOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle switch command outputs
-                if (result.startsWith('__SWITCH_')) {
-                  handleSwitchOutput(result);
-                  // Update session state on successful switch
-                  if (result.startsWith('__SWITCH_SUCCESS__') && commandContext.sessionState) {
-                    const switchParts = result.split('|');
-                    commandContext.sessionState.provider = switchParts[1];
-                    commandContext.sessionState.model = switchParts[2];
-                  }
-                  prompt();
-                  return;
-                }
-                // Handle import command outputs
-                if (result.startsWith('__IMPORT_')) {
-                  handleImportOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle memory command outputs
-                if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
-                  handleMemoryOutput(result);
-                  prompt();
-                  return;
-                }
-                // Handle compression command outputs
-                if (result.startsWith('COMPRESS_')) {
-                  handleCompressionOutput(result);
-                  prompt();
-                  return;
-                }
-                // Clear history for slash commands - they should start fresh
-                agent.clearHistory();
-                // Command returned a prompt - send to agent
-                console.log(chalk.bold.magenta('\nAssistant: '));
-                isStreaming = false;
-                spinner.thinking();
-                const startTime = Date.now();
-                await agent.chat(result);
-                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(chalk.dim(`\n(${elapsed}s)`));
-              }
-            } catch (error) {
-              spinner.stop();
-              logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
-            }
-            prompt();
-            return;
-          } else {
-            console.log(chalk.yellow(`Unknown command: /${parsed.name}. Type /help for available commands.`));
-            prompt();
-            return;
-          }
-        }
-      }
+    try {
+      const startTime = Date.now();
+      await agent.chat(trimmed);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(chalk.dim(`\n(${elapsed}s)`));
+    } catch (error) {
+      spinner.stop();
+      logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
+    }
 
-      // Regular message - send to agent
-      console.log(chalk.bold.magenta('\nAssistant: '));
-      isStreaming = false;
-      spinner.thinking();
-
-      try {
-        const startTime = Date.now();
-        await agent.chat(trimmed);
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(chalk.dim(`\n(${elapsed}s)`));
-      } catch (error) {
-        spinner.stop();
-        logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
-      }
-
-      prompt();
-    });
+    rl.prompt();
   };
 
+  // Set up line handler for REPL
+  rl.on('line', (input) => {
+    // Don't process if readline was closed
+    if (rlClosed) return;
+    handleInput(input);
+  });
+
   console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
-  prompt();
+  rl.prompt();
 }
 
 // Handle uncaught errors gracefully
