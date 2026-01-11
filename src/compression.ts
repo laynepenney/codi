@@ -12,6 +12,14 @@
  */
 
 import type { Message } from './types.js';
+import {
+  mergeEntityVariants,
+  toEntityMap,
+  type NormalizationConfig,
+  type DeduplicationStats,
+  DEFAULT_NORMALIZATION_CONFIG,
+} from './entity-normalization.js';
+import { CONTEXT_OPTIMIZATION } from './constants.js';
 
 /**
  * Entity types we extract and compress.
@@ -38,6 +46,7 @@ export interface CompressedContext {
   originalSize: number;              // Original character count
   compressedSize: number;            // After compression
   compressionRatio: number;          // originalSize / compressedSize
+  deduplicationStats?: DeduplicationStats;  // Stats from entity normalization
 }
 
 /**
@@ -247,9 +256,32 @@ function compressMessage(message: Message, entities: Map<string, Entity>): Messa
 }
 
 /**
+ * Options for context compression.
+ */
+export interface CompressionOptions {
+  enableNormalization?: boolean;
+  normalizationConfig?: Partial<NormalizationConfig>;
+}
+
+/**
+ * Default compression options based on CONTEXT_OPTIMIZATION config.
+ */
+const DEFAULT_COMPRESSION_OPTIONS: CompressionOptions = {
+  enableNormalization: true,
+  normalizationConfig: {
+    mergeCaseVariants: CONTEXT_OPTIMIZATION.MERGE_CASE_VARIANTS,
+    mergeSimilarNames: CONTEXT_OPTIMIZATION.MERGE_SIMILAR_NAMES,
+    minSimilarityScore: CONTEXT_OPTIMIZATION.MIN_SIMILARITY_SCORE,
+  },
+};
+
+/**
  * Compress a conversation by extracting and replacing entities.
  */
-export function compressContext(messages: Message[]): CompressedContext {
+export function compressContext(
+  messages: Message[],
+  options: CompressionOptions = DEFAULT_COMPRESSION_OPTIONS
+): CompressedContext {
   // Calculate original size
   const originalSize = messages
     .map(extractTextFromMessage)
@@ -257,17 +289,33 @@ export function compressContext(messages: Message[]): CompressedContext {
     .length;
 
   // Extract entities
-  const entities = extractEntities(messages);
+  const rawEntities = extractEntities(messages);
 
   // If no entities worth compressing, return original
-  if (entities.size === 0) {
+  if (rawEntities.size === 0) {
     return {
-      entities,
+      entities: rawEntities,
       messages,
       originalSize,
       compressedSize: originalSize,
       compressionRatio: 1,
     };
+  }
+
+  // Apply normalization if enabled
+  let entities: Map<string, Entity>;
+  let deduplicationStats: DeduplicationStats | undefined;
+
+  if (options.enableNormalization !== false) {
+    const normConfig: NormalizationConfig = {
+      ...DEFAULT_NORMALIZATION_CONFIG,
+      ...options.normalizationConfig,
+    };
+    const result = mergeEntityVariants(rawEntities, normConfig);
+    entities = toEntityMap(result.entities);
+    deduplicationStats = result.stats;
+  } else {
+    entities = rawEntities;
   }
 
   // Compress messages
@@ -285,6 +333,7 @@ export function compressContext(messages: Message[]): CompressedContext {
     originalSize,
     compressedSize,
     compressionRatio: originalSize / compressedSize,
+    deduplicationStats,
   };
 }
 
@@ -349,6 +398,7 @@ export interface CompressionStats {
   savingsPercent: number;
   entityCount: number;
   topEntities: Array<{ id: string; value: string; savings: number }>;
+  deduplication?: DeduplicationStats;  // Stats from entity normalization
 }
 
 /**
@@ -378,5 +428,6 @@ export function getCompressionStats(result: CompressedContext): CompressionStats
     savingsPercent: (savings / result.originalSize) * 100,
     entityCount: result.entities.size,
     topEntities,
+    deduplication: result.deduplicationStats,
   };
 }

@@ -3,7 +3,7 @@ import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 import { recordUsage } from './usage.js';
-import { AGENT_CONFIG, TOOL_CATEGORIES, type DangerousPattern } from './constants.js';
+import { AGENT_CONFIG, TOOL_CATEGORIES, CONTEXT_OPTIMIZATION, type DangerousPattern } from './constants.js';
 import {
   compressContext,
   generateEntityLegend,
@@ -11,6 +11,15 @@ import {
   type CompressedContext,
   type CompressionStats,
 } from './compression.js';
+import { scoreMessages, type MessageScore } from './importance-scorer.js';
+import {
+  selectMessagesToKeep,
+  updateWorkingSet,
+  createWorkingSet,
+  applySelection,
+  type WorkingSet,
+  type WindowingConfig,
+} from './context-windowing.js';
 import {
   extractToolCallsFromText,
   countMessageTokens,
@@ -73,6 +82,7 @@ export class Agent {
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
   private lastCompressionStats: CompressionStats | null = null;
+  private workingSet: WorkingSet = createWorkingSet();
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -136,8 +146,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
-   * Compact the conversation history by summarizing older messages.
-   * Keeps recent messages verbatim and replaces older ones with a summary.
+   * Compact the conversation history using smart windowing.
+   * Uses importance scoring to determine what to keep vs summarize.
    */
   private async compactContext(): Promise<void> {
     const totalTokens = countMessageTokens(this.messages);
@@ -150,23 +160,34 @@ Always use tools to interact with the filesystem rather than asking the user to 
       console.log(`\n[Context] Compacting: ${totalTokens} tokens exceeds ${AGENT_CONFIG.MAX_CONTEXT_TOKENS} limit`);
     }
 
-    // Split messages: older ones to summarize, recent ones to keep
-    let recentMessages = this.messages.slice(-AGENT_CONFIG.RECENT_MESSAGES_TO_KEEP);
+    // Score messages by importance
+    const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
 
-    // Ensure recent messages don't start with orphaned tool_result
-    // (OpenAI requires tool_result to follow assistant with tool_calls)
-    const safeStartIdx = findSafeStartIndex(recentMessages);
-    if (safeStartIdx > 0) {
-      recentMessages = recentMessages.slice(safeStartIdx);
+    // Configure windowing
+    const windowConfig: WindowingConfig = {
+      minRecentMessages: CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES,
+      maxMessages: CONTEXT_OPTIMIZATION.MAX_MESSAGES,
+      importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD,
+      preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
+      preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
+      maxWorkingSetFiles: CONTEXT_OPTIMIZATION.MAX_WORKING_SET_FILES,
+    };
+
+    // Select what to keep using smart windowing
+    const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
+
+    if (this.debug) {
+      console.log(`[Context] Smart windowing: keeping ${selection.keep.length}/${this.messages.length} messages, summarizing ${selection.summarize.length}`);
     }
 
-    const messagesToSummarize = this.messages.slice(0, this.messages.length - recentMessages.length);
-
-    if (messagesToSummarize.length === 0) {
-      // All messages are "recent", just truncate the oldest
-      this.messages = recentMessages;
+    // If nothing to summarize, just apply selection
+    if (selection.summarize.length === 0) {
+      this.messages = applySelection(this.messages, selection);
       return;
     }
+
+    // Get messages to summarize
+    const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
 
     // Format older messages for summarization
     const oldContent = messagesToSummarize
@@ -192,18 +213,18 @@ Always use tools to interact with the filesystem rather than asking the user to 
       );
 
       this.conversationSummary = summaryResponse.content;
-      this.messages = recentMessages;
+      this.messages = applySelection(this.messages, selection);
 
       if (this.debug) {
         const newTokens = countMessageTokens(this.messages);
         console.log(`[Context] Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
       }
     } catch (error) {
-      // If summarization fails, fall back to simple truncation
+      // If summarization fails, fall back to simple selection without summary
       if (this.debug) {
-        console.log(`[Context] Summarization failed, using simple truncation: ${error}`);
+        console.log(`[Context] Summarization failed, using selection only: ${error}`);
       }
-      this.messages = recentMessages;
+      this.messages = applySelection(this.messages, selection);
     }
   }
 
@@ -490,6 +511,9 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
         this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
 
+        // Update working set with file operations
+        updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
+
         const result = await this.toolRegistry.execute(toolCall);
         toolResults.push(result);
 
@@ -619,11 +643,12 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
-   * Clear conversation history and summary.
+   * Clear conversation history, summary, and working set.
    */
   clearHistory(): void {
     this.messages = [];
     this.conversationSummary = null;
+    this.workingSet = createWorkingSet();
   }
 
   /**
@@ -688,6 +713,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     hasSummary: boolean;
     compression: CompressionStats | null;
     compressionEnabled: boolean;
+    workingSetFiles: number;
   } {
     return {
       tokens: countMessageTokens(this.messages),
@@ -695,6 +721,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       hasSummary: this.conversationSummary !== null,
       compression: this.lastCompressionStats,
       compressionEnabled: this.enableCompression,
+      workingSetFiles: this.workingSet.recentFiles.size,
     };
   }
 
@@ -729,48 +756,51 @@ Always use tools to interact with the filesystem rather than asking the user to 
   async forceCompact(): Promise<{ before: number; after: number; summary: string | null }> {
     const before = countMessageTokens(this.messages);
 
-    if (this.messages.length <= AGENT_CONFIG.RECENT_MESSAGES_TO_KEEP) {
+    if (this.messages.length <= CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES) {
       return { before, after: before, summary: this.conversationSummary };
     }
 
-    // Temporarily lower threshold to force compaction
-    const originalMessages = [...this.messages];
-    await this.compactContext();
+    // Score messages and use smart windowing
+    const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
+    const windowConfig: WindowingConfig = {
+      minRecentMessages: CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES,
+      maxMessages: Math.min(CONTEXT_OPTIMIZATION.MAX_MESSAGES, Math.ceil(this.messages.length / 2)),
+      importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD,
+      preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
+      preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
+      maxWorkingSetFiles: CONTEXT_OPTIMIZATION.MAX_WORKING_SET_FILES,
+    };
 
-    // If compactContext didn't run (tokens were under limit), force it
-    if (this.messages.length === originalMessages.length) {
-      let recentMessages = this.messages.slice(-AGENT_CONFIG.RECENT_MESSAGES_TO_KEEP);
+    const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
 
-      // Ensure recent messages don't start with orphaned tool_result
-      const safeStartIdx = findSafeStartIndex(recentMessages);
-      if (safeStartIdx > 0) {
-        recentMessages = recentMessages.slice(safeStartIdx);
-      }
+    if (selection.summarize.length === 0) {
+      this.messages = applySelection(this.messages, selection);
+      const after = countMessageTokens(this.messages);
+      return { before, after, summary: this.conversationSummary };
+    }
 
-      const messagesToSummarize = this.messages.slice(0, this.messages.length - recentMessages.length);
+    const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
+    const oldContent = messagesToSummarize
+      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+      .join('\n\n');
 
-      const oldContent = messagesToSummarize
-        .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
-        .join('\n\n');
+    const contextToSummarize = this.conversationSummary
+      ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
+      : oldContent;
 
-      const contextToSummarize = this.conversationSummary
-        ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
-        : oldContent;
-
-      try {
-        const summaryResponse = await this.provider.streamChat(
-          [{
-            role: 'user',
-            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
-          }],
-          undefined,
-          undefined
-        );
-        this.conversationSummary = summaryResponse.content;
-        this.messages = recentMessages;
-      } catch {
-        this.messages = recentMessages;
-      }
+    try {
+      const summaryResponse = await this.provider.streamChat(
+        [{
+          role: 'user',
+          content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+        }],
+        undefined,
+        undefined
+      );
+      this.conversationSummary = summaryResponse.content;
+      this.messages = applySelection(this.messages, selection);
+    } catch {
+      this.messages = applySelection(this.messages, selection);
     }
 
     const after = countMessageTokens(this.messages);

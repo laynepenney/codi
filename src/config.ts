@@ -44,6 +44,25 @@ export interface WorkspaceConfig {
 
   /** Enable context compression (reduces token usage) */
   enableCompression?: boolean;
+
+  /** Context optimization settings */
+  contextOptimization?: {
+    /** Enable semantic deduplication (merge case variants) */
+    mergeCaseVariants?: boolean;
+    /** Enable merging similar names (auth -> authentication) */
+    mergeSimilarNames?: boolean;
+    /** Minimum messages to always keep during compaction */
+    minRecentMessages?: number;
+    /** Importance score threshold for keeping messages (0-1) */
+    importanceThreshold?: number;
+    /** Custom importance weights */
+    weights?: {
+      recency?: number;
+      referenceCount?: number;
+      userEmphasis?: number;
+      actionRelevance?: number;
+    };
+  };
 }
 
 /**
@@ -251,6 +270,13 @@ export function getExampleConfig(): string {
       b: '/build',
     },
     projectContext: '',
+    enableCompression: false,
+    contextOptimization: {
+      mergeCaseVariants: true,
+      mergeSimilarNames: true,
+      minRecentMessages: 3,
+      importanceThreshold: 0.4,
+    },
   };
 
   return JSON.stringify(example, null, 2);

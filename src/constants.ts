@@ -81,3 +81,38 @@ export const CLI_CONFIG = {
   /** Maximum number of history entries to keep */
   MAX_HISTORY_SIZE: 1000,
 } as const;
+
+/**
+ * Context optimization configuration.
+ */
+export const CONTEXT_OPTIMIZATION = {
+  // Semantic deduplication
+  /** Merge case variants (UserService, userService -> UserService) */
+  MERGE_CASE_VARIANTS: true,
+  /** Merge semantic synonyms (auth, authentication -> authentication) */
+  MERGE_SIMILAR_NAMES: true,
+  /** Minimum similarity score for Levenshtein-based merging (0-1) */
+  MIN_SIMILARITY_SCORE: 0.8,
+
+  // Importance scoring weights (should sum to ~1.0)
+  WEIGHTS: {
+    recency: 0.3,           // Recent messages are important
+    referenceCount: 0.2,    // Often-referenced content is important
+    userEmphasis: 0.3,      // User messages and emphasis markers
+    actionRelevance: 0.2,   // Tool calls and results
+  },
+
+  // Smart windowing
+  /** Minimum recent messages to always keep */
+  MIN_RECENT_MESSAGES: 3,
+  /** Maximum messages to keep (hard cap) */
+  MAX_MESSAGES: 20,
+  /** Keep messages with importance score >= this threshold */
+  IMPORTANCE_THRESHOLD: 0.4,
+  /** Never split tool_use from tool_result */
+  PRESERVE_TOOL_PAIRS: true,
+  /** Keep messages referencing recently accessed files */
+  PRESERVE_WORKING_SET: true,
+  /** Maximum files to track in working set */
+  MAX_WORKING_SET_FILES: 10,
+} as const;
