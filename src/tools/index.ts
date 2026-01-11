@@ -10,6 +10,7 @@ export { EditFileTool } from './edit-file.js';
 export { PatchFileTool } from './patch-file.js';
 export { InsertLineTool } from './insert-line.js';
 export { AnalyzeImageTool } from './analyze-image.js';
+export { RunTestsTool } from './run-tests.js';
 
 import { globalRegistry } from './registry.js';
 import { ReadFileTool } from './read-file.js';
@@ -22,6 +23,7 @@ import { EditFileTool } from './edit-file.js';
 import { PatchFileTool } from './patch-file.js';
 import { InsertLineTool } from './insert-line.js';
 import { AnalyzeImageTool } from './analyze-image.js';
+import { RunTestsTool } from './run-tests.js';
 
 /**
  * Register all default tools with the global registry.
@@ -44,4 +46,7 @@ export function registerDefaultTools(): void {
 
   // Vision
   globalRegistry.register(new AnalyzeImageTool());
+
+  // Testing
+  globalRegistry.register(new RunTestsTool());
 }
