@@ -29,6 +29,7 @@ import {
   parseImageResult,
   checkDangerousBash,
 } from './utils/index.js';
+import { logger, LogLevel } from './logger.js';
 
 /**
  * Information about a tool call for confirmation.
@@ -55,7 +56,8 @@ export interface AgentOptions {
   extractToolsFromText?: boolean; // Extract tool calls from JSON in text (for models without native tool support)
   autoApprove?: boolean | string[]; // Skip confirmation: true = all tools, string[] = specific tools
   customDangerousPatterns?: Array<{ pattern: RegExp; description: string }>; // Additional patterns
-  debug?: boolean; // Log messages sent to the model
+  logLevel?: LogLevel; // Log level for debug output (replaces debug)
+  debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
@@ -77,7 +79,7 @@ export class Agent {
   private autoApproveAll: boolean;
   private autoApproveTools: Set<string>;
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
-  private debug: boolean;
+  private logLevel: LogLevel;
   private enableCompression: boolean;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -110,7 +112,8 @@ export class Agent {
     }
 
     this.customDangerousPatterns = options.customDangerousPatterns ?? [];
-    this.debug = options.debug ?? false;
+    // Support both logLevel and deprecated debug option
+    this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
@@ -156,9 +159,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       return; // No compaction needed
     }
 
-    if (this.debug) {
-      console.log(`\n[Context] Compacting: ${totalTokens} tokens exceeds ${AGENT_CONFIG.MAX_CONTEXT_TOKENS} limit`);
-    }
+    logger.debug(`Compacting: ${totalTokens} tokens exceeds ${AGENT_CONFIG.MAX_CONTEXT_TOKENS} limit`);
 
     // Score messages by importance
     const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
@@ -176,9 +177,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     // Select what to keep using smart windowing
     const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
 
-    if (this.debug) {
-      console.log(`[Context] Smart windowing: keeping ${selection.keep.length}/${this.messages.length} messages, summarizing ${selection.summarize.length}`);
-    }
+    logger.debug(`Smart windowing: keeping ${selection.keep.length}/${this.messages.length} messages, summarizing ${selection.summarize.length}`);
 
     // If nothing to summarize, just apply selection
     if (selection.summarize.length === 0) {
@@ -215,15 +214,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
       this.conversationSummary = summaryResponse.content;
       this.messages = applySelection(this.messages, selection);
 
-      if (this.debug) {
-        const newTokens = countMessageTokens(this.messages);
-        console.log(`[Context] Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
-      }
+      const newTokens = countMessageTokens(this.messages);
+      logger.debug(`Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
     } catch (error) {
       // If summarization fails, fall back to simple selection without summary
-      if (this.debug) {
-        console.log(`[Context] Summarization failed, using selection only: ${error}`);
-      }
+      logger.debug(`Summarization failed, using selection only: ${error}`);
       this.messages = applySelection(this.messages, selection);
     }
   }
@@ -236,7 +231,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     const taskPreview = originalTask.length > 150
       ? originalTask.slice(0, 150) + '...'
       : originalTask;
-    return `\n\nContinue working on your task. Remember, the user asked: "${taskPreview}"\n\nUse more tools if needed, or provide your final response when done.`;
+    return `\n\nOriginal request: "${taskPreview}"\n\nIf you have completed the user's request, respond with your final answer. Do NOT continue calling tools unless the task is incomplete.`;
   }
 
   /**
@@ -301,58 +296,41 @@ Always use tools to interact with the filesystem rather than asking the user to 
           const legend = generateEntityLegend(compressed.entities);
           systemContext += `\n\n${legend}\n\nNote: The conversation uses entity references (E1, E2, etc.) to reduce context size. Refer to the legend above when you see these references.`;
 
-          if (this.debug) {
-            console.log(`\n[Compression] Saved ${this.lastCompressionStats.savings} chars (${this.lastCompressionStats.savingsPercent.toFixed(1)}%), ${this.lastCompressionStats.entityCount} entities`);
-          }
+          logger.compressionStats(
+            this.lastCompressionStats.savings,
+            this.lastCompressionStats.savingsPercent,
+            this.lastCompressionStats.entityCount
+          );
         }
       }
 
-      // Debug: log messages being sent
-      if (this.debug) {
-        console.log('\n' + '='.repeat(60));
-        console.log('DEBUG: Messages being sent to model:');
-        console.log('='.repeat(60));
-        console.log('\n[SYSTEM]:');
-        // Show beginning and end, truncate middle for long content
-        const DEBUG_LIMIT = 2000;
-        const systemPreview = systemContext.length > DEBUG_LIMIT
-          ? systemContext.slice(0, DEBUG_LIMIT / 2) +
-            `\n\n... [${systemContext.length - DEBUG_LIMIT} chars truncated] ...\n\n` +
-            systemContext.slice(-DEBUG_LIMIT / 2)
-          : systemContext;
-        console.log(systemPreview);
-        for (const msg of messagesToSend) {
-          console.log(`\n[${msg.role.toUpperCase()}]:`);
-          if (typeof msg.content === 'string') {
-            // Show beginning and end, truncate middle for long messages
-            const preview = msg.content.length > DEBUG_LIMIT
-              ? msg.content.slice(0, DEBUG_LIMIT / 2) +
-                `\n\n... [${msg.content.length - DEBUG_LIMIT} chars truncated] ...\n\n` +
-                msg.content.slice(-DEBUG_LIMIT / 2)
-              : msg.content;
-            console.log(preview);
-          } else {
-            const json = JSON.stringify(msg.content, null, 2);
-            const preview = json.length > DEBUG_LIMIT
-              ? json.slice(0, DEBUG_LIMIT / 2) +
-                `\n\n... [${json.length - DEBUG_LIMIT} chars truncated] ...\n\n` +
-                json.slice(-DEBUG_LIMIT / 2)
-              : json;
-            console.log(preview);
-          }
-        }
-        if (tools) {
-          console.log(`\nTools: ${tools.map(t => t.name).join(', ')}`);
-        }
-        console.log('='.repeat(60) + '\n');
-      }
+      // Log API request at appropriate level
+      logger.apiRequest(this.provider.getModel(), messagesToSend.length, !!tools);
+      logger.apiRequestFull(this.provider.getModel(), messagesToSend, tools, systemContext);
 
       // Call the model with streaming (using native system prompt support)
+      const apiStartTime = Date.now();
       const response = await this.provider.streamChat(
         messagesToSend,
         tools,
         this.callbacks.onText,
         systemContext
+      );
+      const apiDuration = (Date.now() - apiStartTime) / 1000;
+
+      // Log API response
+      logger.apiResponse(
+        response.usage?.outputTokens || 0,
+        response.stopReason,
+        apiDuration,
+        response.toolCalls.length
+      );
+      logger.apiResponseFull(
+        response.stopReason,
+        response.usage?.inputTokens || 0,
+        response.usage?.outputTokens || 0,
+        response.content || response.toolCalls,
+        response.toolCalls.map(tc => ({ name: tc.name, input: tc.input }))
       );
 
       // Record usage for cost tracking

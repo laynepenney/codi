@@ -90,6 +90,8 @@ import {
 } from './config.js';
 import { formatDiffForTerminal, truncateDiff } from './diff.js';
 import { VERSION } from './version.js';
+import { spinner } from './spinner.js';
+import { logger, parseLogLevel, LogLevel } from './logger.js';
 
 // CLI setup
 program
@@ -102,7 +104,9 @@ program
   .option('--endpoint-id <id>', 'Endpoint ID (for RunPod serverless)')
   .option('--no-tools', "Disable tool use (for models that don't support it)")
   .option('-y, --yes', 'Auto-approve all tool operations (skip confirmation prompts)')
-  .option('--debug', 'Show messages sent to the model')
+  .option('--verbose', 'Show detailed tool information')
+  .option('--debug', 'Show API and context details')
+  .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
   .option('-c, --compress', 'Enable context compression (reduces token usage)')
   .parse();
@@ -342,7 +346,7 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
 function promptConfirmation(rl: ReturnType<typeof createInterface>, message: string): Promise<ConfirmationResult> {
   return new Promise((resolve) => {
     rl.question(message, (answer) => {
-      const lower = answer.toLowerCase().trim();
+      const lower = (answer || '').toLowerCase().trim();
       if (lower === 'y' || lower === 'yes') {
         resolve('approve');
       } else if (lower === 'a' || lower === 'abort') {
@@ -1396,6 +1400,11 @@ async function main() {
     process.exit(0);
   });
 
+  // Handle readline errors
+  rl.on('error', (err) => {
+    logger.error(`Readline error: ${err.message}`, err);
+  });
+
   // Session name tracking for prompt display
   let currentSession: string | null = null;
 
@@ -1429,6 +1438,26 @@ async function main() {
   // Get custom dangerous patterns from config
   const customDangerousPatterns = getCustomDangerousPatterns(resolvedConfig);
 
+  // Initialize logger with level from CLI options
+  const logLevel = parseLogLevel({
+    verbose: options.verbose,
+    debug: options.debug,
+    trace: options.trace,
+  });
+  logger.setLevel(logLevel);
+
+  // Disable spinner when verbose/debug/trace mode is enabled
+  // Spinners conflict with verbose output and can interfere with readline
+  if (logLevel > LogLevel.NORMAL) {
+    spinner.setEnabled(false);
+  }
+
+  // Track if we've received streaming output (to manage spinner)
+  let isStreaming = false;
+
+  // Track tool start times for duration logging
+  const toolStartTimes = new Map<string, number>();
+
   // Create agent with enhanced system prompt
   const agent = new Agent({
     provider,
@@ -1438,34 +1467,75 @@ async function main() {
     extractToolsFromText: resolvedConfig.extractToolsFromText,
     autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,
     customDangerousPatterns,
-    debug: options.debug,
+    logLevel,
     enableCompression: options.compress || resolvedConfig.enableCompression,
-    onText: (text) => process.stdout.write(text),
+    onText: (text) => {
+      // Stop spinner when we start receiving text
+      if (!isStreaming) {
+        isStreaming = true;
+        spinner.stop();
+      }
+      process.stdout.write(text);
+    },
     onReasoning: (reasoning) => {
+      spinner.stop();
       console.log(chalk.dim.italic('\n💭 Thinking...'));
       console.log(chalk.dim(reasoning));
       console.log(chalk.dim.italic('---\n'));
     },
     onToolCall: (name, input) => {
-      console.log(chalk.yellow(`\n\n📎 ${name}`));
-      const preview = JSON.stringify(input);
-      console.log(chalk.dim(preview.length > 100 ? preview.slice(0, 100) + '...' : preview));
+      // Stop any spinner and record start time
+      spinner.stop();
+      isStreaming = false;
+      toolStartTimes.set(name, Date.now());
+
+      // Log tool input based on verbosity level
+      if (logLevel >= LogLevel.VERBOSE) {
+        logger.toolInput(name, input as Record<string, unknown>);
+      } else {
+        // Normal mode: show simple tool call info
+        console.log(chalk.yellow(`\n\n📎 ${name}`));
+        const preview = JSON.stringify(input);
+        console.log(chalk.dim(preview.length > 100 ? preview.slice(0, 100) + '...' : preview));
+      }
+
+      // Start spinner for tool execution
+      spinner.toolStart(name);
     },
     onToolResult: (name, result, isError) => {
-      if (isError) {
-        console.log(chalk.red(`\n❌ Error: ${result.slice(0, 200)}`));
+      // Calculate duration
+      const startTime = toolStartTimes.get(name) || Date.now();
+      const duration = (Date.now() - startTime) / 1000;
+      toolStartTimes.delete(name);
+
+      // Stop spinner
+      spinner.stop();
+
+      // Log tool result based on verbosity level
+      if (logLevel >= LogLevel.VERBOSE) {
+        logger.toolOutput(name, result, duration, isError);
       } else {
-        const lines = result.split('\n').length;
-        console.log(chalk.green(`\n✓ ${name} (${lines} lines)`));
+        // Normal mode: show simple result
+        if (isError) {
+          console.log(chalk.red(`\n❌ Error: ${result.slice(0, 200)}`));
+        } else {
+          const lines = result.split('\n').length;
+          console.log(chalk.green(`\n✓ ${name} (${lines} lines)`));
+        }
       }
       console.log();
     },
     onConfirm: async (confirmation) => {
+      // Stop spinner during confirmation
+      spinner.stop();
+
       console.log('\n' + formatConfirmation(confirmation));
       const promptText = confirmation.isDangerous
         ? chalk.red.bold('Approve? [y/N/abort] ')
         : chalk.yellow('Approve? [y/N/abort] ');
-      return promptConfirmation(rl, promptText);
+
+      const result = await promptConfirmation(rl, promptText);
+      return result;
     },
   });
 
@@ -1677,18 +1747,16 @@ async function main() {
                 agent.clearHistory();
                 // Command returned a prompt - send to agent
                 console.log(chalk.bold.magenta('\nAssistant: '));
+                isStreaming = false;
+                spinner.thinking();
                 const startTime = Date.now();
                 await agent.chat(result);
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                 console.log(chalk.dim(`\n(${elapsed}s)`));
               }
             } catch (error) {
-              if (options.debug && error instanceof Error) {
-                console.error(chalk.red(`Command error: ${error.message}`));
-                console.error(chalk.dim(error.stack || 'No stack trace available'));
-              } else {
-                console.error(chalk.red(`Command error: ${error instanceof Error ? error.message : error}`));
-              }
+              spinner.stop();
+              logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
             }
             prompt();
             return;
@@ -1702,6 +1770,8 @@ async function main() {
 
       // Regular message - send to agent
       console.log(chalk.bold.magenta('\nAssistant: '));
+      isStreaming = false;
+      spinner.thinking();
 
       try {
         const startTime = Date.now();
@@ -1709,12 +1779,8 @@ async function main() {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(chalk.dim(`\n(${elapsed}s)`));
       } catch (error) {
-        if (options.debug && error instanceof Error) {
-          console.error(chalk.red(`\nError: ${error.message}`));
-          console.error(chalk.dim(error.stack || 'No stack trace available'));
-        } else {
-          console.error(chalk.red(`\nError: ${error instanceof Error ? error.message : error}`));
-        }
+        spinner.stop();
+        logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
       }
 
       prompt();
@@ -1724,5 +1790,19 @@ async function main() {
   console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
   prompt();
 }
+
+// Handle uncaught errors gracefully
+process.on('uncaughtException', (error) => {
+  console.error(chalk.red(`\nUncaught exception: ${error.message}`));
+  if (process.env.DEBUG) {
+    console.error(error.stack);
+  }
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error(chalk.red(`\nUnhandled rejection: ${reason}`));
+  process.exit(1);
+});
 
 main().catch(console.error);
