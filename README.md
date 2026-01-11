@@ -148,6 +148,36 @@ Examples:
 - `/switch openai gpt-4o` - Switch to OpenAI's GPT-4o
 - `/switch claude-3-5-haiku-latest` - Switch to Haiku on current provider
 
+### Memory Commands
+
+| Command | Description |
+|---------|-------------|
+| `/remember [category:] <fact>` | Remember a fact for future sessions |
+| `/forget <pattern>` | Remove memories matching pattern |
+| `/memories [query]` | List or search stored memories |
+| `/profile` | View your user profile |
+| `/profile set <key> <value>` | Update profile (name, preferences, expertise) |
+
+Memories and profile are automatically injected into the system prompt, personalizing responses based on your preferences.
+
+Examples:
+- `/remember Prefers TypeScript over JavaScript`
+- `/remember project: Uses pnpm instead of npm`
+- `/profile set name Layne`
+- `/profile set preferences.language TypeScript`
+- `/memories react` - Search for memories about React
+
+### Import Commands
+
+| Command | Description |
+|---------|-------------|
+| `/import <file> list` | List conversations in ChatGPT export |
+| `/import <file> search <query>` | Search conversations |
+| `/import <file> all [--summary]` | Import all conversations |
+| `/import <file> <indices>` | Import specific conversations by index |
+
+Import your ChatGPT conversation history to use as context in Codi.
+
 ## Tools
 
 The AI has access to these tools for interacting with your codebase:
@@ -354,7 +384,8 @@ Key areas for expansion:
 - ~~**Vision Support**: Screenshot/image analysis for compatible models~~ (Implemented!)
 - ~~**Cost Tracking**: Token usage and cost monitoring~~ (Implemented!)
 - ~~**Undo/Redo System**: File change history with `/fileundo`~~ (Implemented!)
-- **Memory System**: Cross-session context with embeddings
+- ~~**Memory System**: Persistent user context with `/remember` and `/profile`~~ (Implemented!)
+- ~~**ChatGPT Import**: Import conversation history with `/import`~~ (Implemented!)
 
 ## Contributing
 

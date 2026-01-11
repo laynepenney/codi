@@ -241,7 +241,70 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/providers/openai-compatible.ts` - Live model listing from API + Ollama
 - `src/index.ts` - Output formatting for model tables
 
-#### 6. Diff Preview Mode - IMPLEMENTED
+#### 5. Memory System - IMPLEMENTED
+
+**Status**: Complete
+
+**Implemented Commands** (in `src/commands/memory-commands.ts`):
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/remember [category:] <fact>` | `/mem`, `/note` | Remember a fact for future sessions |
+| `/forget <pattern>` | `/unmem` | Remove memories matching pattern |
+| `/memories [query]` | `/mems` | List or search stored memories |
+| `/profile [set key value]` | `/me` | View or update user profile |
+
+**Key Features**:
+- Implements context personalization pattern from OpenAI Agents SDK
+- Structured user profile (name, preferences, expertise, avoid lists)
+- Categorized memory notes with timestamps
+- Automatic memory injection into system prompt
+- Session notes with consolidation (`/memories consolidate`)
+- Duplicate detection prevents redundant memories
+
+**Storage**:
+- `~/.codi/profile.yaml` - User profile in YAML format
+- `~/.codi/memories.md` - Persistent memories in Markdown format
+- `~/.codi/session-notes.md` - Temporary session notes
+
+**Profile Keys**:
+- `name` - User's name
+- `preferences.language` - Preferred programming language
+- `preferences.style` - Coding style (functional, oop, etc.)
+- `preferences.verbosity` - Response verbosity (concise, normal, detailed)
+- `expertise` - Add an area of expertise
+- `avoid` - Add something to avoid
+
+**Files**:
+- `src/memory.ts` - Memory and profile management
+- `src/commands/memory-commands.ts` - Command implementations
+- `src/index.ts` - Memory context injection into system prompt
+
+#### 6. ChatGPT Import - IMPLEMENTED
+
+**Status**: Complete
+
+**Implemented Commands** (in `src/commands/import-commands.ts`):
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/import <file> list` | `/import-chatgpt` | List conversations in export |
+| `/import <file> search <query>` | - | Search conversations by title/content |
+| `/import <file> all [--summary]` | - | Import all conversations |
+| `/import <file> <indices>` | - | Import specific conversations by index |
+
+**Key Features**:
+- Parses ChatGPT's tree-based message format
+- Converts to Codi session format
+- Generates conversation summaries for context
+- Optional `--summary` flag imports only summaries (saves tokens)
+- Search and filter conversations before importing
+
+**Files**:
+- `src/import-chatgpt.ts` - ChatGPT export parser and converter
+- `src/commands/import-commands.ts` - Command implementations
+
+#### 7. Diff Preview Mode - IMPLEMENTED
 
 **Status**: Complete
 
@@ -264,7 +327,7 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/index.ts` - Displays formatted diffs in confirmation prompt
 - Dependency: `diff` package
 
-#### 7. Undo/Redo System - IMPLEMENTED
+#### 8. Undo/Redo System - IMPLEMENTED
 
 **Status**: Complete
 
@@ -297,7 +360,7 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/commands/history-commands.ts` - User-facing commands
 - All file tools modified: `write-file.ts`, `edit-file.ts`, `insert-line.ts`, `patch-file.ts`
 
-#### 8. Plugin System - IMPLEMENTED
+#### 9. Plugin System - IMPLEMENTED
 
 **Status**: Complete
 
@@ -361,7 +424,7 @@ export default {
 - `src/commands/plugin-commands.ts` - Plugin management commands
 - `src/providers/index.ts` - Map-based provider factory (for plugin providers)
 
-#### 9. Cost Tracking - IMPLEMENTED
+#### 10. Cost Tracking - IMPLEMENTED
 
 **Status**: Complete
 
@@ -393,7 +456,7 @@ export default {
 - `src/providers/anthropic.ts` - Returns usage info
 - `src/providers/openai-compatible.ts` - Returns usage info
 
-#### 10. Vision Support - IMPLEMENTED
+#### 11. Vision Support - IMPLEMENTED
 
 **Status**: Complete
 
