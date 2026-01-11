@@ -510,18 +510,68 @@ export default {
 **Files to modify**:
 - Modify: `src/agent.ts` (parallel execution logic)
 
-#### 11. Memory/RAG System
-**What**: Remember context across sessions using embeddings.
+#### 11. Context Compression System
+**What**: Intelligent compression of conversation context to maximize token efficiency while preserving semantic meaning.
+
+**Implementation Phases**:
+
+**Phase 1 - Entity-Reference Compression**:
+```typescript
+interface CompressedContext {
+  entities: Map<string, string>;        // E1 -> "UserService"
+  facts: Array<{text: string, importance: number}>;
+  recentMessages: Message[];            // Last N uncompressed
+  summary: string;                      // High-level overview
+}
+```
+- Extract repeated entities (class names, file paths, variables)
+- Replace with short tokens (@E1, @E2, etc.)
+- Maintain entity table for expansion
+- **Savings**: 30-50% on entity-heavy conversations
+
+**Phase 2 - Semantic Deduplication**:
+- Detect semantically similar statements
+- Merge into single weighted fact
+- Track confidence/repetition count
+
+**Phase 3 - Importance-Weighted Pruning**:
+```typescript
+importance = (
+  recency_score * 0.3 +      // Recent = important
+  reference_count * 0.2 +     // Often referenced = important
+  user_explicit * 0.3 +       // User emphasized = important
+  action_relevance * 0.2      // Led to actions = important
+)
+```
+
+**Phase 4 - Hierarchical Summarization**:
+- Level 0: 100 tokens (one-liner)
+- Level 1: 500 tokens (key points)
+- Level 2: 2000 tokens (full details)
+- Model sees L0, can request deeper levels
+
+**Files to create**:
+- `src/compression.ts` - Core compression logic
+- `src/entity-extractor.ts` - Entity detection and tokenization
+- `src/importance-scorer.ts` - Message importance scoring
+
+**Evaluation Metrics**:
+- Fidelity: Can model answer questions about compressed context?
+- Task Success: Does compression hurt downstream performance?
+- Compression Ratio: tokens_before / tokens_after
+
+#### 12. RAG System (Embeddings)
+**What**: Retrieve relevant context from project files using embeddings.
 
 **Implementation**:
-- Index project files with embeddings
+- Index project files with embeddings (OpenAI or local)
 - Store in local vector DB (e.g., `vectra` or `sqlite-vss`)
-- Retrieve relevant context for each query
-- Add `/remember` and `/forget` commands
+- Retrieve relevant snippets based on query similarity
+- Inject retrieved context into system prompt
 
-**This is complex** - consider as a separate major feature.
+**This is complex** - consider as a separate major feature after context compression.
 
-#### 12. Web Search Tool
+#### 14. Web Search Tool
 **What**: Allow AI to search the web for documentation/answers.
 
 **Implementation**:
@@ -532,7 +582,7 @@ export default {
 **Files to modify**:
 - Create: `src/tools/web-search.ts`
 
-#### 13. Code Snippets Library
+#### 15. Code Snippets Library
 **What**: Save and reuse code snippets.
 
 **Implementation**:
@@ -540,7 +590,7 @@ export default {
 - Add `/snippet save <name>` and `/snippet use <name>` commands
 - Support tags and search
 
-#### 14. Multi-file Refactoring
+#### 16. Multi-file Refactoring
 **What**: Coordinated changes across multiple files.
 
 **Implementation**:
@@ -549,7 +599,7 @@ export default {
 - Generate coordinated edit plan
 - Apply changes atomically (all or nothing)
 
-#### 15. Test Runner Integration
+#### 17. Test Runner Integration
 **What**: Run tests and report results to AI for debugging.
 
 **Implementation**:
