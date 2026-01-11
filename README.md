@@ -61,15 +61,17 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `runpod`, or `auto` | `auto` |
+| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `ollama-native`, `runpod`, or `auto` | `auto` |
 | `-m, --model <name>` | Model name to use | Provider default |
 | `--base-url <url>` | Custom API base URL | Provider default |
 | `--endpoint-id <id>` | Endpoint ID for RunPod serverless | - |
 | `--no-tools` | Disable tool use (chat-only mode) | Tools enabled |
 | `-y, --yes` | Auto-approve all tool operations | Prompt for approval |
-| `--debug` | Show messages sent to the model | Disabled |
 | `-s, --session <name>` | Load a saved session on startup | - |
 | `-c, --compress` | Enable context compression | Disabled |
+| `--verbose` | Show tool inputs/outputs with timing | Disabled |
+| `--debug` | Show API details and context info | Disabled |
+| `--trace` | Show full request/response payloads | Disabled |
 
 ## Commands
 
@@ -192,6 +194,28 @@ Context compression extracts repeated entities (file paths, class names, functio
 
 Example savings: A conversation with repeated file paths and class names can see 15-30% reduction in context size.
 
+### Debug/Verbose Modes
+
+Codi supports graduated verbosity for debugging and development:
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show tool inputs/outputs with timing |
+| `--debug` | Show API details, context info, token counts |
+| `--trace` | Show full request/response payloads |
+
+Example usage:
+```bash
+# See tool execution details
+codi --verbose
+
+# Debug API calls and context management
+codi --debug
+
+# Full trace for debugging issues
+codi --trace
+```
+
 ## Tools
 
 The AI has access to these tools for interacting with your codebase:
@@ -207,6 +231,8 @@ The AI has access to these tools for interacting with your codebase:
 | `grep` | Search file contents with regex patterns |
 | `list_directory` | List directory contents with details |
 | `bash` | Execute shell commands (with safety checks) |
+| `analyze_image` | Analyze images using vision-capable models |
+| `run_tests` | Auto-detect and run project tests |
 
 ### Safety Features
 
@@ -389,7 +415,7 @@ npm start
 
 See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guidelines.
 
-Key areas for expansion:
+### Completed Features
 - ~~**Git Integration**: `/commit`, `/branch`, `/pr` commands~~ (Implemented!)
 - ~~**Session Persistence**: Save/load conversations~~ (Implemented!)
 - ~~**Workspace Config**: Per-project `.codi.json` configuration~~ (Implemented!)
@@ -400,6 +426,17 @@ Key areas for expansion:
 - ~~**Undo/Redo System**: File change history with `/fileundo`~~ (Implemented!)
 - ~~**Memory System**: Persistent user context with `/remember` and `/profile`~~ (Implemented!)
 - ~~**ChatGPT Import**: Import conversation history with `/import`~~ (Implemented!)
+- ~~**Test Runner**: Auto-detect and run project tests~~ (Implemented!)
+- ~~**Context Optimization**: Smart compaction and semantic deduplication~~ (Implemented!)
+- ~~**RAG System**: Semantic code search using embeddings~~ (Implemented!)
+- ~~**Debug UI**: Spinners and graduated verbosity (--verbose/--debug/--trace)~~ (Implemented!)
+
+### Planned Features
+- **Web Search Tool**: Search web for documentation and answers
+- **Interactive File Selection**: Fuzzy file finder for commands
+- **Parallel Tool Execution**: Run independent tools concurrently
+- **Code Snippets Library**: Save and reuse code snippets
+- **Multi-file Refactoring**: Coordinated changes across files
 
 ## Contributing
 

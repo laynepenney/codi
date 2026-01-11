@@ -31,6 +31,9 @@ src/
 ├── context.ts        # Project detection (Node, Python, Rust, Go)
 ├── session.ts        # Session persistence management
 ├── types.ts          # TypeScript interfaces
+├── logger.ts         # Level-aware logging (NORMAL/VERBOSE/DEBUG/TRACE)
+├── spinner.ts        # Ora spinner manager for visual feedback
+├── compression.ts    # Entity-based context compression
 ├── commands/         # Slash command system
 │   ├── index.ts      # Command registry
 │   ├── code-commands.ts
@@ -39,7 +42,11 @@ src/
 │   ├── session-commands.ts
 │   └── config-commands.ts
 ├── providers/        # AI model backends
-└── tools/            # Filesystem interaction tools
+├── tools/            # Filesystem interaction tools
+└── rag/              # RAG system for semantic code search
+    ├── indexer.ts    # File indexing and chunking
+    ├── search.ts     # Semantic search
+    └── embeddings.ts # Embedding generation
 ```
 
 ## Key Files
@@ -50,8 +57,14 @@ src/
 | `src/index.ts` | CLI setup, REPL, command parsing, user interaction |
 | `src/config.ts` | Workspace configuration loading, validation, and merging |
 | `src/session.ts` | Session persistence - save/load conversation history |
+| `src/logger.ts` | Level-aware logging with NORMAL/VERBOSE/DEBUG/TRACE levels |
+| `src/spinner.ts` | Ora spinner manager with TTY detection |
+| `src/compression.ts` | Entity-based context compression for token savings |
 | `src/providers/base.ts` | Abstract provider interface all backends implement |
 | `src/tools/registry.ts` | Tool registration and execution |
+| `src/tools/run-tests.ts` | Automatic test runner detection and execution |
+| `src/rag/indexer.ts` | RAG file indexing and chunking |
+| `src/rag/search.ts` | Semantic code search using embeddings |
 | `src/types.ts` | All TypeScript interfaces |
 
 ## Coding Conventions
@@ -510,68 +523,7 @@ export default {
 **Files to modify**:
 - Modify: `src/agent.ts` (parallel execution logic)
 
-#### 11. Context Compression System
-**What**: Intelligent compression of conversation context to maximize token efficiency while preserving semantic meaning.
-
-**Implementation Phases**:
-
-**Phase 1 - Entity-Reference Compression**:
-```typescript
-interface CompressedContext {
-  entities: Map<string, string>;        // E1 -> "UserService"
-  facts: Array<{text: string, importance: number}>;
-  recentMessages: Message[];            // Last N uncompressed
-  summary: string;                      // High-level overview
-}
-```
-- Extract repeated entities (class names, file paths, variables)
-- Replace with short tokens (@E1, @E2, etc.)
-- Maintain entity table for expansion
-- **Savings**: 30-50% on entity-heavy conversations
-
-**Phase 2 - Semantic Deduplication**:
-- Detect semantically similar statements
-- Merge into single weighted fact
-- Track confidence/repetition count
-
-**Phase 3 - Importance-Weighted Pruning**:
-```typescript
-importance = (
-  recency_score * 0.3 +      // Recent = important
-  reference_count * 0.2 +     // Often referenced = important
-  user_explicit * 0.3 +       // User emphasized = important
-  action_relevance * 0.2      // Led to actions = important
-)
-```
-
-**Phase 4 - Hierarchical Summarization**:
-- Level 0: 100 tokens (one-liner)
-- Level 1: 500 tokens (key points)
-- Level 2: 2000 tokens (full details)
-- Model sees L0, can request deeper levels
-
-**Files to create**:
-- `src/compression.ts` - Core compression logic
-- `src/entity-extractor.ts` - Entity detection and tokenization
-- `src/importance-scorer.ts` - Message importance scoring
-
-**Evaluation Metrics**:
-- Fidelity: Can model answer questions about compressed context?
-- Task Success: Does compression hurt downstream performance?
-- Compression Ratio: tokens_before / tokens_after
-
-#### 12. RAG System (Embeddings)
-**What**: Retrieve relevant context from project files using embeddings.
-
-**Implementation**:
-- Index project files with embeddings (OpenAI or local)
-- Store in local vector DB (e.g., `vectra` or `sqlite-vss`)
-- Retrieve relevant snippets based on query similarity
-- Inject retrieved context into system prompt
-
-**This is complex** - consider as a separate major feature after context compression.
-
-#### 14. Web Search Tool
+#### 16. Web Search Tool
 **What**: Allow AI to search the web for documentation/answers.
 
 **Implementation**:
@@ -599,14 +551,115 @@ importance = (
 - Generate coordinated edit plan
 - Apply changes atomically (all or nothing)
 
-#### 17. Test Runner Integration
-**What**: Run tests and report results to AI for debugging.
+#### 12. Test Runner Integration - IMPLEMENTED
 
-**Implementation**:
-- Add `run_tests` tool
-- Parse test output (Jest, Vitest, pytest, etc.)
-- Return structured results
-- AI can then suggest fixes for failures
+**Status**: Complete
+
+**Key Features** (in `src/tools/run-tests.ts`):
+- `run_tests` tool for automatic test runner detection and execution
+- Supports npm, yarn, pnpm package managers
+- Auto-detects test frameworks: Jest, Vitest, Mocha, pytest, go test, cargo test
+- Custom command and filter support
+- Timeout handling and output truncation
+
+**How It Works**:
+1. AI calls `run_tests` tool (optionally with filter or custom command)
+2. Tool detects project type and test runner from config files
+3. Executes tests and captures output
+4. Returns structured results with pass/fail status
+
+**Files**:
+- `src/tools/run-tests.ts` - Test runner tool implementation
+- `tests/run-tests.test.ts` - Comprehensive test coverage
+
+#### 13. Context Optimization - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features** (in `src/agent.ts`):
+- **Smart Windowing**: Automatically compacts context when token limit approached
+- **Semantic Deduplication**: Removes duplicate/similar messages
+- **Summarization**: Creates summaries of older messages to preserve context
+- Token counting with model-specific limits
+- Configurable token threshold (default 8000)
+
+**How It Works**:
+1. Before each API call, checks if token count exceeds threshold
+2. If over limit, applies smart windowing algorithm
+3. Keeps recent messages intact, summarizes older ones
+4. Preserves system prompt and critical context
+
+**CLI Options**:
+- `-c, --compress` - Enable context compression (entity normalization)
+- Automatic compaction happens regardless of flag when needed
+
+#### 14. RAG System (Embeddings) - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features** (in `src/rag/`):
+- Local vector database using `vectra` for embeddings storage
+- Automatic project indexing on startup
+- Semantic code search based on query similarity
+- Chunked file processing for large files
+- Background indexing with progress feedback
+
+**Files**:
+- `src/rag/indexer.ts` - File indexing and chunking
+- `src/rag/search.ts` - Semantic search implementation
+- `src/rag/embeddings.ts` - Embedding generation (OpenAI API)
+- Index stored in `.codi/rag-index/`
+
+**How It Works**:
+1. On startup, indexes project files (respects .gitignore)
+2. Creates embeddings for code chunks
+3. When AI needs context, searches for relevant code snippets
+4. Injects relevant context into system prompt
+
+**Requirements**:
+- OpenAI API key (for embeddings)
+- Automatic fallback if unavailable
+
+#### 15. Debug UI - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features**:
+- **Ora Spinners** (`src/spinner.ts`): Visual feedback during long operations
+- **Graduated Verbosity** (`src/logger.ts`): Four log levels for debugging
+
+**CLI Options**:
+| Option | Description |
+|--------|-------------|
+| `--verbose` | Show tool inputs/outputs with timing |
+| `--debug` | Show API details, context info |
+| `--trace` | Show full request/response payloads |
+
+**Log Levels**:
+- `NORMAL` (default): Clean output, spinners for progress
+- `VERBOSE`: Tool calls with parameters and duration
+- `DEBUG`: API request/response metadata, context stats
+- `TRACE`: Full payloads for debugging
+
+**Example Output** (--verbose):
+```
+📎 read_file
+   path: "src/index.ts"
+✓ read_file (523 lines, 0.12s)
+```
+
+**Example Output** (--debug):
+```
+[Context] 15,234 tokens, 12 messages
+[API] Sending to claude-3-5-sonnet...
+[API] Response: 234 tokens, tool_use, 1.2s
+```
+
+**Files**:
+- `src/spinner.ts` - Ora spinner manager with TTY detection
+- `src/logger.ts` - Level-aware logging utilities
+- `tests/spinner.test.ts` - Spinner tests
+- `tests/logger.test.ts` - Logger tests
 
 ---
 
@@ -620,6 +673,10 @@ For maximum impact with reasonable effort:
 4. ~~**Diff Preview** - Safety improvement~~ DONE
 5. ~~**Undo System** - Safety net for file changes~~ DONE
 6. ~~**Cost Tracking** - API usage and cost monitoring~~ DONE
+7. ~~**Test Runner** - Automated test execution~~ DONE
+8. ~~**Context Optimization** - Smart compaction and deduplication~~ DONE
+9. ~~**RAG System** - Semantic code search~~ DONE
+10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
 
 ## Notes for Contributors
 
