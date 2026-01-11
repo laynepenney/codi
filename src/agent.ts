@@ -263,20 +263,32 @@ Always use tools to interact with the filesystem rather than asking the user to 
         console.log('DEBUG: Messages being sent to model:');
         console.log('='.repeat(60));
         console.log('\n[SYSTEM]:');
-        const systemPreview = systemContext.length > 500
-          ? systemContext.slice(0, 500) + `\n... (${systemContext.length} chars total)`
+        // Show beginning and end, truncate middle for long content
+        const DEBUG_LIMIT = 2000;
+        const systemPreview = systemContext.length > DEBUG_LIMIT
+          ? systemContext.slice(0, DEBUG_LIMIT / 2) +
+            `\n\n... [${systemContext.length - DEBUG_LIMIT} chars truncated] ...\n\n` +
+            systemContext.slice(-DEBUG_LIMIT / 2)
           : systemContext;
         console.log(systemPreview);
         for (const msg of this.messages) {
           console.log(`\n[${msg.role.toUpperCase()}]:`);
           if (typeof msg.content === 'string') {
-            // Truncate long messages
-            const preview = msg.content.length > 500
-              ? msg.content.slice(0, 500) + `\n... (${msg.content.length} chars total)`
+            // Show beginning and end, truncate middle for long messages
+            const preview = msg.content.length > DEBUG_LIMIT
+              ? msg.content.slice(0, DEBUG_LIMIT / 2) +
+                `\n\n... [${msg.content.length - DEBUG_LIMIT} chars truncated] ...\n\n` +
+                msg.content.slice(-DEBUG_LIMIT / 2)
               : msg.content;
             console.log(preview);
           } else {
-            console.log(JSON.stringify(msg.content, null, 2).slice(0, 500));
+            const json = JSON.stringify(msg.content, null, 2);
+            const preview = json.length > DEBUG_LIMIT
+              ? json.slice(0, DEBUG_LIMIT / 2) +
+                `\n\n... [${json.length - DEBUG_LIMIT} chars truncated] ...\n\n` +
+                json.slice(-DEBUG_LIMIT / 2)
+              : json;
+            console.log(preview);
           }
         }
         if (tools) {
