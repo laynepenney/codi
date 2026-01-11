@@ -63,6 +63,32 @@ export interface WorkspaceConfig {
       actionRelevance?: number;
     };
   };
+
+  /** RAG (Retrieval-Augmented Generation) settings */
+  rag?: {
+    /** Enable RAG code indexing and search */
+    enabled?: boolean;
+    /** Embedding provider: 'openai', 'ollama', or 'auto' */
+    embeddingProvider?: 'openai' | 'ollama' | 'auto';
+    /** OpenAI embedding model (default: text-embedding-3-small) */
+    openaiModel?: string;
+    /** Ollama embedding model (default: nomic-embed-text) */
+    ollamaModel?: string;
+    /** Ollama base URL (default: http://localhost:11434) */
+    ollamaBaseUrl?: string;
+    /** Number of results to return (default: 5) */
+    topK?: number;
+    /** Minimum similarity score 0-1 (default: 0.7) */
+    minScore?: number;
+    /** File patterns to include */
+    includePatterns?: string[];
+    /** File patterns to exclude */
+    excludePatterns?: string[];
+    /** Auto-index on startup (default: true) */
+    autoIndex?: boolean;
+    /** Watch for file changes (default: true) */
+    watchFiles?: boolean;
+  };
 }
 
 /**
@@ -276,6 +302,14 @@ export function getExampleConfig(): string {
       mergeSimilarNames: true,
       minRecentMessages: 3,
       importanceThreshold: 0.4,
+    },
+    rag: {
+      enabled: false,
+      embeddingProvider: 'auto',
+      topK: 5,
+      minScore: 0.7,
+      autoIndex: true,
+      watchFiles: true,
     },
   };
 

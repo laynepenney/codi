@@ -31,7 +31,8 @@
     "commander": "^12.1.0",
     "diff": "^8.0.2",
     "openai": "^4.70.0",
-    "ora": "^8.1.0"
+    "ora": "^8.1.0",
+    "vectra": "^0.12.2"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",

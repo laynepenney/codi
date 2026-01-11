@@ -68,7 +68,16 @@ import { registerModelCommands } from './commands/model-commands.js';
 import { registerImportCommands } from './commands/import-commands.js';
 import { registerMemoryCommands } from './commands/memory-commands.js';
 import { registerCompressionCommands } from './commands/compression-commands.js';
+import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
+import {
+  BackgroundIndexer,
+  Retriever,
+  createEmbeddingProvider,
+  DEFAULT_RAG_CONFIG,
+  type RAGConfig,
+} from './rag/index.js';
+import { registerRAGSearchTool } from './tools/index.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
@@ -1276,11 +1285,67 @@ async function main() {
   registerImportCommands();
   registerMemoryCommands();
   registerCompressionCommands();
+  registerRAGCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
   if (loadedPlugins.length > 0) {
     console.log(chalk.dim(`Plugins: ${loadedPlugins.length} loaded (${loadedPlugins.map(p => p.plugin.name).join(', ')})`));
+  }
+
+  // Initialize RAG system if enabled
+  let ragIndexer: BackgroundIndexer | null = null;
+  let ragRetriever: Retriever | null = null;
+
+  if (workspaceConfig?.rag?.enabled) {
+    try {
+      // Build RAG config from workspace config
+      const ragConfig: RAGConfig = {
+        ...DEFAULT_RAG_CONFIG,
+        enabled: true,
+        embeddingProvider: workspaceConfig.rag.embeddingProvider ?? DEFAULT_RAG_CONFIG.embeddingProvider,
+        openaiModel: workspaceConfig.rag.openaiModel ?? DEFAULT_RAG_CONFIG.openaiModel,
+        ollamaModel: workspaceConfig.rag.ollamaModel ?? DEFAULT_RAG_CONFIG.ollamaModel,
+        ollamaBaseUrl: workspaceConfig.rag.ollamaBaseUrl ?? DEFAULT_RAG_CONFIG.ollamaBaseUrl,
+        topK: workspaceConfig.rag.topK ?? DEFAULT_RAG_CONFIG.topK,
+        minScore: workspaceConfig.rag.minScore ?? DEFAULT_RAG_CONFIG.minScore,
+        includePatterns: workspaceConfig.rag.includePatterns ?? DEFAULT_RAG_CONFIG.includePatterns,
+        excludePatterns: workspaceConfig.rag.excludePatterns ?? DEFAULT_RAG_CONFIG.excludePatterns,
+        autoIndex: workspaceConfig.rag.autoIndex ?? DEFAULT_RAG_CONFIG.autoIndex,
+        watchFiles: workspaceConfig.rag.watchFiles ?? DEFAULT_RAG_CONFIG.watchFiles,
+      };
+
+      const embeddingProvider = createEmbeddingProvider(ragConfig);
+      console.log(chalk.dim(`RAG: ${embeddingProvider.getName()} (${embeddingProvider.getModel()})`));
+
+      ragIndexer = new BackgroundIndexer(process.cwd(), embeddingProvider, ragConfig);
+      ragRetriever = new Retriever(process.cwd(), embeddingProvider, ragConfig);
+
+      // Share vector store between indexer and retriever
+      ragRetriever.setVectorStore(ragIndexer.getVectorStore());
+
+      // Initialize asynchronously
+      ragIndexer.initialize().catch((err) => {
+        console.error(chalk.red(`RAG indexer error: ${err.message}`));
+      });
+
+      // Set up progress callback
+      ragIndexer.onProgress = (current, total, file) => {
+        if (current === 1 || current === total || current % 10 === 0) {
+          process.stdout.write(chalk.dim(`\rIndexing: ${current}/${total} - ${file.slice(0, 40)}...`.padEnd(60)));
+        }
+      };
+      ragIndexer.onComplete = (stats) => {
+        console.log(chalk.dim(`\nRAG index: ${stats.totalChunks} chunks from ${stats.totalFiles} files`));
+      };
+
+      // Register with commands and tool
+      setRAGIndexer(ragIndexer);
+      setRAGConfig(ragConfig);
+      registerRAGSearchTool(ragRetriever);
+    } catch (err) {
+      console.error(chalk.red(`Failed to initialize RAG: ${err instanceof Error ? err.message : err}`));
+    }
   }
 
   const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
@@ -1323,6 +1388,10 @@ async function main() {
   let rlClosed = false;
   rl.on('close', () => {
     rlClosed = true;
+    // Shutdown RAG indexer if running
+    if (ragIndexer) {
+      ragIndexer.shutdown();
+    }
     console.log(chalk.dim('\nGoodbye!'));
     process.exit(0);
   });

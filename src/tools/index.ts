@@ -11,6 +11,7 @@ export { PatchFileTool } from './patch-file.js';
 export { InsertLineTool } from './insert-line.js';
 export { AnalyzeImageTool } from './analyze-image.js';
 export { RunTestsTool } from './run-tests.js';
+export { RAGSearchTool } from './rag-search.js';
 
 import { globalRegistry } from './registry.js';
 import { ReadFileTool } from './read-file.js';
@@ -24,6 +25,8 @@ import { PatchFileTool } from './patch-file.js';
 import { InsertLineTool } from './insert-line.js';
 import { AnalyzeImageTool } from './analyze-image.js';
 import { RunTestsTool } from './run-tests.js';
+import { RAGSearchTool } from './rag-search.js';
+import type { Retriever } from '../rag/retriever.js';
 
 /**
  * Register all default tools with the global registry.
@@ -49,4 +52,14 @@ export function registerDefaultTools(): void {
 
   // Testing
   globalRegistry.register(new RunTestsTool());
+}
+
+/**
+ * Register the RAG search tool with a retriever.
+ */
+export function registerRAGSearchTool(retriever: Retriever): RAGSearchTool {
+  const ragTool = new RAGSearchTool();
+  ragTool.setRetriever(retriever);
+  globalRegistry.register(ragTool);
+  return ragTool;
 }
