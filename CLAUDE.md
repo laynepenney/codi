@@ -211,7 +211,37 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 
 ### Medium Priority
 
-#### 4. Diff Preview Mode - IMPLEMENTED
+#### 4. Model Commands - IMPLEMENTED
+
+**Status**: Complete
+
+**Implemented Commands** (in `src/commands/model-commands.ts`):
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/models [provider] [--local]` | `/model`, `/list-models` | List available models with pricing and capabilities |
+| `/switch <provider> [model]` | `/use`, `/model-switch` | Switch to a different model during a session |
+
+**Key Features**:
+- Live API fetching with static fallback for model lists
+- Shows model capabilities (vision, tool use)
+- Shows context window sizes
+- Shows pricing per million tokens (input/output)
+- Supports filtering by provider: `/models anthropic`, `/models openai`, `/models ollama`
+- Local-only mode: `/models --local` shows only Ollama models
+- Switch models mid-session without restarting
+- Switch providers mid-session: `/switch openai gpt-4o`
+- Switch models within current provider: `/switch claude-3-5-haiku-latest`
+
+**Files**:
+- `src/commands/model-commands.ts` - Command implementations
+- `src/models.ts` - Static model registry with pricing data
+- `src/providers/base.ts` - `ModelInfo` interface, `listModels()` method
+- `src/providers/anthropic.ts` - Live model listing from API
+- `src/providers/openai-compatible.ts` - Live model listing from API + Ollama
+- `src/index.ts` - Output formatting for model tables
+
+#### 6. Diff Preview Mode - IMPLEMENTED
 
 **Status**: Complete
 
@@ -234,7 +264,7 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/index.ts` - Displays formatted diffs in confirmation prompt
 - Dependency: `diff` package
 
-#### 5. Undo/Redo System - IMPLEMENTED
+#### 7. Undo/Redo System - IMPLEMENTED
 
 **Status**: Complete
 
@@ -267,7 +297,7 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/commands/history-commands.ts` - User-facing commands
 - All file tools modified: `write-file.ts`, `edit-file.ts`, `insert-line.ts`, `patch-file.ts`
 
-#### 6. Plugin System - IMPLEMENTED
+#### 8. Plugin System - IMPLEMENTED
 
 **Status**: Complete
 
@@ -331,7 +361,7 @@ export default {
 - `src/commands/plugin-commands.ts` - Plugin management commands
 - `src/providers/index.ts` - Map-based provider factory (for plugin providers)
 
-#### 7. Cost Tracking - IMPLEMENTED
+#### 9. Cost Tracking - IMPLEMENTED
 
 **Status**: Complete
 
@@ -363,7 +393,7 @@ export default {
 - `src/providers/anthropic.ts` - Returns usage info
 - `src/providers/openai-compatible.ts` - Returns usage info
 
-#### 8. Vision Support - IMPLEMENTED
+#### 10. Vision Support - IMPLEMENTED
 
 **Status**: Complete
 

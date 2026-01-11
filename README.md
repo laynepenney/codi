@@ -133,6 +133,21 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 
 Sessions are stored in `~/.codi/sessions/` and include the full conversation history, any compaction summaries, and metadata about the project and model used.
 
+### Model Commands
+
+| Command | Description |
+|---------|-------------|
+| `/models [provider]` | List available models with pricing and capabilities |
+| `/models --local` | Show only local Ollama models |
+| `/switch <provider> [model]` | Switch to a different provider/model mid-session |
+| `/switch <model>` | Switch to a different model on the current provider |
+
+Examples:
+- `/models` - Show all models from all providers
+- `/models anthropic` - Show only Anthropic models
+- `/switch openai gpt-4o` - Switch to OpenAI's GPT-4o
+- `/switch claude-3-5-haiku-latest` - Switch to Haiku on current provider
+
 ## Tools
 
 The AI has access to these tools for interacting with your codebase:
@@ -333,9 +348,12 @@ See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guideli
 Key areas for expansion:
 - ~~**Git Integration**: `/commit`, `/branch`, `/pr` commands~~ (Implemented!)
 - ~~**Session Persistence**: Save/load conversations~~ (Implemented!)
-- **Workspace Config**: Per-project `.codi.json` configuration
-- **Plugin System**: Third-party extensions
-- **Vision Support**: Screenshot/image analysis for compatible models
+- ~~**Workspace Config**: Per-project `.codi.json` configuration~~ (Implemented!)
+- ~~**Model Commands**: `/models` and `/switch` for model management~~ (Implemented!)
+- ~~**Plugin System**: Third-party extensions~~ (Implemented!)
+- ~~**Vision Support**: Screenshot/image analysis for compatible models~~ (Implemented!)
+- ~~**Cost Tracking**: Token usage and cost monitoring~~ (Implemented!)
+- ~~**Undo/Redo System**: File change history with `/fileundo`~~ (Implemented!)
 - **Memory System**: Cross-session context with embeddings
 
 ## Contributing
