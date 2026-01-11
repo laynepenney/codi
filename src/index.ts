@@ -293,12 +293,26 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
     } else {
       // Fallback to old behavior if no diff preview
       if (toolName === 'write_file') {
-        const content = input.content as string;
-        const lines = content.split('\n').length;
-        display += chalk.dim(`Content: ${lines} lines, ${content.length} chars\n`);
+        const content = input.content as string | undefined;
+        if (content !== undefined) {
+          const lines = content.split('\n').length;
+          display += chalk.dim(`Content: ${lines} lines, ${content.length} chars\n`);
+        } else {
+          display += chalk.red(`Content: (missing - model did not provide content)\n`);
+        }
       } else {
-        display += chalk.dim(`Replace: "${(input.old_string as string).slice(0, 50)}${(input.old_string as string).length > 50 ? '...' : ''}"\n`);
-        display += chalk.dim(`With: "${(input.new_string as string).slice(0, 50)}${(input.new_string as string).length > 50 ? '...' : ''}"\n`);
+        const oldStr = input.old_string as string | undefined;
+        const newStr = input.new_string as string | undefined;
+        if (oldStr !== undefined) {
+          display += chalk.dim(`Replace: "${oldStr.slice(0, 50)}${oldStr.length > 50 ? '...' : ''}"\n`);
+        } else {
+          display += chalk.red(`Replace: (missing)\n`);
+        }
+        if (newStr !== undefined) {
+          display += chalk.dim(`With: "${newStr.slice(0, 50)}${newStr.length > 50 ? '...' : ''}"\n`);
+        } else {
+          display += chalk.red(`With: (missing)\n`);
+        }
       }
     }
   } else {
