@@ -246,9 +246,15 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
   private convertMessages(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
     return messages.map((msg) => {
+      // Map system role to user role for OpenAI compatibility, since system prompts
+      // are handled separately in the chat/streamChat methods
+      const role: 'user' | 'assistant' | 'tool' = 
+        msg.role === 'assistant' ? 'assistant' : 
+        msg.role === 'system' ? 'user' : 'user';
+
       if (typeof msg.content === 'string') {
         return {
-          role: msg.role,
+          role,
           content: msg.content,
         } as OpenAI.ChatCompletionMessageParam;
       }
@@ -318,12 +324,12 @@ export class OpenAICompatibleProvider extends BaseProvider {
           }
           contentParts.push(...imageBlocks);
           parts.push({
-            role: msg.role,
+            role: role,
             content: contentParts,
           } as OpenAI.ChatCompletionMessageParam);
         } else {
           parts.push({
-            role: msg.role,
+            role,
             content: textContent,
           } as OpenAI.ChatCompletionMessageParam);
         }

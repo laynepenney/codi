@@ -1,11 +1,11 @@
 // Core message types
 /**
  * Represents a message with role and content.
- * @property {('user' | 'assistant')} role - The role of the sender.
+ * @property {('user' | 'assistant' | 'system')} role - The role of the sender.
  * @property {(string | ContentBlock[])} content - The content of the message.
  */
 export interface Message {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string | ContentBlock[];
 }
 
@@ -123,9 +123,13 @@ export interface ProviderResponse {
  * @property {string} [apiKey] - Optional API key for authentication.
  * @property {string} [baseUrl] - Optional base URL for the provider's API.
  * @property {string} [model] - The AI model to use, if applicable.
+ * @property {number} [temperature] - Sampling temperature for generation.
+ * @property {number} [maxTokens] - Maximum number of tokens to generate.
  */
 export interface ProviderConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  temperature?: number;
+  maxTokens?: number;
 }

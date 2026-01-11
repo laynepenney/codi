@@ -1,11 +1,13 @@
 import { BaseProvider } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
+import { OllamaNativeProvider } from './ollama-native.js';
 import type { ProviderConfig } from '../types.js';
 
 export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
+export { OllamaNativeProvider } from './ollama-native.js';
 
 export interface CreateProviderOptions extends ProviderConfig {
   type: string;
@@ -27,6 +29,7 @@ providerFactories.set('runpod', (options) => createRunPodProvider(
   options.model || 'default',
   options.apiKey
 ));
+providerFactories.set('ollama-native', (options) => new OllamaNativeProvider(options));
 
 /**
  * Register a new provider factory.
@@ -88,6 +91,14 @@ export function detectProvider(): BaseProvider {
       process.env.RUNPOD_ENDPOINT_ID,
       process.env.RUNPOD_MODEL || 'default'
     );
+  }
+
+  // Check if user wants to use native Ollama
+  const useNativeOllama = process.env.OLLAMA_NATIVE === 'true' || process.env.CODI_PROVIDER === 'ollama-native';
+  
+  if (useNativeOllama) {
+    console.log('Using Ollama Native provider');
+    return new OllamaNativeProvider();
   }
 
   // Default to Ollama for local usage

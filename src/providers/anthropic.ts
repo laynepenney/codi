@@ -149,55 +149,61 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   private convertMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages.map((msg): Anthropic.MessageParam => {
-      if (typeof msg.content === 'string') {
-        return {
-          role: msg.role,
-          content: msg.content,
-        };
-      }
+    return messages
+      // Filter out system messages since Anthropic handles them separately
+      .filter(msg => msg.role !== 'system')
+      .map((msg): Anthropic.MessageParam => {
+        // Map system role to user role for Anthropic compatibility
+        const role: 'user' | 'assistant' = msg.role === 'assistant' ? 'assistant' : 'user';
+        
+        if (typeof msg.content === 'string') {
+          return {
+            role,
+            content: msg.content,
+          };
+        }
 
-      // Convert content blocks to the appropriate Anthropic types
-      const content: Array<
-        | Anthropic.TextBlockParam
-        | Anthropic.ToolUseBlockParam
-        | Anthropic.ToolResultBlockParam
-        | Anthropic.ImageBlockParam
-      > = msg.content.map((block) => {
-        if (block.type === 'text') {
-          return { type: 'text' as const, text: block.text || '' };
-        }
-        if (block.type === 'tool_use') {
-          return {
-            type: 'tool_use' as const,
-            id: block.id || '',
-            name: block.name || '',
-            input: block.input || {},
-          };
-        }
-        if (block.type === 'tool_result') {
-          return {
-            type: 'tool_result' as const,
-            tool_use_id: block.tool_use_id || '',
-            content: block.content || '',
-            is_error: block.is_error || false,
-          };
-        }
-        if (block.type === 'image' && block.image) {
-          return {
-            type: 'image' as const,
-            source: {
-              type: 'base64' as const,
-              media_type: block.image.media_type,
-              data: block.image.data,
-            },
-          };
-        }
-        return { type: 'text' as const, text: '' };
+        // Convert content blocks to the appropriate Anthropic types
+        const content: Array<
+          | Anthropic.TextBlockParam
+          | Anthropic.ToolUseBlockParam
+          | Anthropic.ToolResultBlockParam
+          | Anthropic.ImageBlockParam
+        > = msg.content.map((block) => {
+          if (block.type === 'text') {
+            return { type: 'text' as const, text: block.text || '' };
+          }
+          if (block.type === 'tool_use') {
+            return {
+              type: 'tool_use' as const,
+              id: block.id || '',
+              name: block.name || '',
+              input: block.input || {},
+            };
+          }
+          if (block.type === 'tool_result') {
+            return {
+              type: 'tool_result' as const,
+              tool_use_id: block.tool_use_id || '',
+              content: block.content || '',
+              is_error: block.is_error || false,
+            };
+          }
+          if (block.type === 'image' && block.image) {
+            return {
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: block.image.media_type,
+                data: block.image.data,
+              },
+            };
+          }
+          return { type: 'text' as const, text: '' };
+        });
+
+        return { role, content };
       });
-
-      return { role: msg.role, content };
-    });
   }
 
   private parseResponse(response: Anthropic.Message): ProviderResponse {
