@@ -66,6 +66,8 @@ import { registerUsageCommands } from './commands/usage-commands.js';
 import { registerPluginCommands } from './commands/plugin-commands.js';
 import { registerModelCommands } from './commands/model-commands.js';
 import { registerImportCommands } from './commands/import-commands.js';
+import { registerMemoryCommands } from './commands/memory-commands.js';
+import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
@@ -981,6 +983,146 @@ function handleImportOutput(output: string): void {
 }
 
 /**
+ * Handle memory command output messages.
+ */
+function handleMemoryOutput(output: string): void {
+  if (output.startsWith('__MEMORY_ERROR__|')) {
+    const message = output.slice('__MEMORY_ERROR__|'.length);
+    console.log(chalk.red(`\n${message}`));
+    return;
+  }
+
+  if (output.startsWith('__MEMORY_ADDED__|')) {
+    const parts = output.split('|');
+    const content = parts[1];
+    const category = parts[2];
+    console.log(chalk.green(`\n✓ Remembered: ${content}`));
+    if (category) {
+      console.log(chalk.dim(`  Category: ${category}`));
+    }
+    return;
+  }
+
+  if (output.startsWith('__MEMORY_REMOVED__|')) {
+    const parts = output.split('|');
+    const count = parts[1];
+    const pattern = parts[2];
+    console.log(chalk.yellow(`\nRemoved ${count} memory(s) matching "${pattern}"`));
+    return;
+  }
+
+  if (output.startsWith('__MEMORY_NOTFOUND__|')) {
+    const pattern = output.slice('__MEMORY_NOTFOUND__|'.length);
+    console.log(chalk.yellow(`\nNo memories found matching "${pattern}"`));
+    return;
+  }
+
+  if (output.startsWith('__MEMORY_CLEARED__|')) {
+    const count = output.slice('__MEMORY_CLEARED__|'.length);
+    console.log(chalk.yellow(`\nCleared ${count} memories`));
+    return;
+  }
+
+  if (output.startsWith('__MEMORY_CONSOLIDATED__|')) {
+    const count = output.slice('__MEMORY_CONSOLIDATED__|'.length);
+    if (count === '0') {
+      console.log(chalk.dim('\nNo session notes to consolidate'));
+    } else {
+      console.log(chalk.green(`\n✓ Consolidated ${count} session notes into memories`));
+    }
+    return;
+  }
+
+  if (output.startsWith('__MEMORIES_LIST__|')) {
+    const parts = output.split('|');
+    const memories = JSON.parse(parts[1]);
+    const filePath = parts[2];
+
+    if (memories.length === 0) {
+      console.log(chalk.dim('\nNo memories stored. Use /remember <fact> to add one.'));
+    } else {
+      console.log(chalk.bold(`\n${memories.length} memories:`));
+
+      // Group by category
+      const byCategory = new Map<string, Array<{ content: string; timestamp: string }>>();
+      const uncategorized: Array<{ content: string; timestamp: string }> = [];
+
+      for (const memory of memories) {
+        if (memory.category) {
+          const list = byCategory.get(memory.category) || [];
+          list.push(memory);
+          byCategory.set(memory.category, list);
+        } else {
+          uncategorized.push(memory);
+        }
+      }
+
+      for (const [category, items] of byCategory) {
+        console.log(chalk.cyan(`\n[${category}]`));
+        for (const item of items) {
+          console.log(chalk.dim(`  - ${item.content}`));
+        }
+      }
+
+      if (uncategorized.length > 0) {
+        if (byCategory.size > 0) console.log(chalk.cyan('\n[General]'));
+        for (const item of uncategorized) {
+          console.log(chalk.dim(`  - ${item.content}`));
+        }
+      }
+    }
+
+    console.log(chalk.dim(`\nStored in: ${filePath}`));
+    return;
+  }
+
+  if (output.startsWith('__PROFILE_SHOW__|')) {
+    const parts = output.split('|');
+    const profile = JSON.parse(parts[1]);
+    const filePath = parts[2];
+
+    if (Object.keys(profile).length === 0) {
+      console.log(chalk.dim('\nNo profile set. Use /profile set <key> <value> to add information.'));
+    } else {
+      console.log(chalk.bold('\nUser Profile:'));
+
+      if (profile.name) {
+        console.log(`  Name: ${chalk.cyan(profile.name)}`);
+      }
+
+      if (profile.preferences) {
+        console.log('  Preferences:');
+        for (const [key, value] of Object.entries(profile.preferences)) {
+          if (value) console.log(`    ${key}: ${chalk.cyan(value)}`);
+        }
+      }
+
+      if (profile.expertise && profile.expertise.length > 0) {
+        console.log(`  Expertise: ${chalk.cyan(profile.expertise.join(', '))}`);
+      }
+
+      if (profile.avoid && profile.avoid.length > 0) {
+        console.log(`  Avoid: ${chalk.yellow(profile.avoid.join(', '))}`);
+      }
+    }
+
+    console.log(chalk.dim(`\nStored in: ${filePath}`));
+    return;
+  }
+
+  if (output.startsWith('__PROFILE_UPDATED__|')) {
+    const parts = output.split('|');
+    const key = parts[1];
+    const value = parts[2];
+    console.log(chalk.green(`\n✓ Profile updated: ${key} = ${value}`));
+    return;
+  }
+
+  // Fallback
+  console.log(output);
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -1039,6 +1181,7 @@ async function main() {
   registerPluginCommands();
   registerModelCommands();
   registerImportCommands();
+  registerMemoryCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
@@ -1112,6 +1255,12 @@ async function main() {
   }
   if (resolvedConfig.systemPromptAdditions) {
     systemPrompt += `\n\n${resolvedConfig.systemPromptAdditions}`;
+  }
+
+  // Inject memory context (profile + memories)
+  const memoryContext = generateMemoryContext(process.cwd());
+  if (memoryContext) {
+    systemPrompt += `\n\n${memoryContext}`;
   }
 
   // Get custom dangerous patterns from config
@@ -1340,6 +1489,12 @@ async function main() {
                 // Handle import command outputs
                 if (result.startsWith('__IMPORT_')) {
                   handleImportOutput(result);
+                  prompt();
+                  return;
+                }
+                // Handle memory command outputs
+                if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
+                  handleMemoryOutput(result);
                   prompt();
                   return;
                 }
