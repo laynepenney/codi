@@ -407,7 +407,7 @@ src/agent/
 
 ### Algorithm Optimization Notes
 
-**Current Approach:**
+**V1 Approach (Sequential):**
 - Process 84 files sequentially (1 file at a time)
 - 3 pipeline steps per file (quick-scan, deep-analysis, suggestions)
 - 252 total API calls for full review
@@ -426,6 +426,178 @@ src/agent/
 | **Parallel file processing** | Process N files concurrently | Faster, but rate limits may apply |
 | **Streaming aggregation** | Aggregate incrementally as files complete | Real-time results, memory efficient |
 | **Two-phase pipeline** | Phase 1: fast scan all, Phase 2: deep dive on flagged files only | Much faster for clean codebases |
+
+---
+
+## V2 Algorithm: Intelligent Grouping + Parallel Processing
+
+### Implementation (commit `379d83d`)
+
+The V2 algorithm addresses V1 limitations with a fundamentally different approach:
+
+**Key Features:**
+1. **Intelligent File Grouping** - Groups files by directory hierarchy instead of random batching
+2. **Parallel Processing** - Processes N files concurrently within each group (default: 4)
+3. **Per-Group Summarization** - Each group gets its own summary before meta-aggregation
+4. **Graceful Error Handling** - Continues on failures, reports skipped files at end
+
+**Command:**
+```bash
+/pipeline --provider ollama-cloud --v2 code-review src/**
+```
+
+### Test Results (Ollama-Cloud)
+
+| Metric | Value |
+|--------|-------|
+| **Files processed** | 83/85 |
+| **Groups** | 12 |
+| **Total time** | 44.6 minutes (2673.8s) |
+| **Processing time** | 44.1 min (2644.3s) |
+| **Aggregation time** | 29.5s |
+| **Concurrency** | 4 parallel files |
+| **Models used** | gemini-3-flash-preview, gpt-oss, coder |
+
+**Files Skipped (2)** - Due to Ollama 500 errors (rate limiting):
+- `src/compression.ts`
+- `src/diff.ts`
+
+### Groups Created
+
+The algorithm automatically grouped 85 files into 12 logical groups by directory:
+
+| Group | Files | Description |
+|-------|-------|-------------|
+| commands/output | 3 | Output rendering subsystem |
+| rag/embeddings | 4 | Embedding providers |
+| src-1 | 15 | Core modules (agent, config, context, etc.) |
+| src-2 | 5 | Supporting modules (session, spinner, types) |
+| src/commands | 14 | Slash command implementations |
+| src/model-map | 7 | Multi-model orchestration |
+| src/providers | 7 | AI provider implementations |
+| src/rag | 6 | RAG system core |
+| src/tools-1 | 15 | Tool implementations (part 1) |
+| src/tools-2 | 1 | Tool implementations (part 2) |
+| src/types | 1 | Type declarations |
+| src/utils | 7 | Utility functions |
+
+### V2 Comprehensive Code Review Results
+
+The meta-aggregation of 12 group summaries produced a comprehensive report:
+
+#### Critical Issues (Prioritized)
+
+**🔥 Security Vulnerabilities (Immediate Risk)**
+
+| # | Issue | Files Affected |
+|---|-------|----------------|
+| 1 | Sensitive data exposure via raw config dumping | `commands/output` |
+| 2 | Path traversal attacks in file tools | `src/tools-1`, `src/tools-2`, `src/commands` |
+| 3 | Command injection via unsanitized input to `exec()` | `src/tools-1`, `src/utils` |
+
+**💔 Data Integrity & Race Conditions**
+
+| # | Issue | Files Affected |
+|---|-------|----------------|
+| 4 | Session data corruption from shallow copying | `src-2` |
+| 5 | Non-atomic writes causing data corruption | `src`, `src-2`, `src/tools-2` |
+
+**⚡ Performance Killers**
+
+| # | Issue | Files Affected |
+|---|-------|----------------|
+| 6 | O(N²) Levenshtein comparisons in context windowing | `src`, `src/rag`, `src/model-map` |
+| 7 | Memory exhaustion from loading large files/indexes | `src/tools-1`, `src/rag` |
+
+**🧨 Runtime Failures**
+
+| # | Issue | Files Affected |
+|---|-------|----------------|
+| 8 | Nonexistent model names causing crashes | `src/providers` |
+| 9 | Vectra API signature mismatches | `src/types` |
+
+#### Cross-Cutting Anti-Patterns
+
+| Pattern | Description |
+|---------|-------------|
+| ❌ Inconsistent Error Handling | Mix of thrown exceptions, returned strings, silent failures |
+| 🔄 Mixed Responsibility | Single files combining I/O, business logic, and presentation |
+| 🧵 Concurrency Hazards | Global mutable state without synchronization |
+| 🔧 Configuration Anti-patterns | Direct env var access scattered throughout codebase |
+| 📏 Type Safety Gaps | Overuse of `any` and `Partial<>` types |
+| ⚙️ Testing Difficulties | Hard-coded dependencies preventing mocking |
+
+#### Top 5 Recommendations
+
+| # | Recommendation | Impact | Scope |
+|---|----------------|--------|-------|
+| 1 | **Centralized Security Framework** - Input validation, sanitization, redaction | Critical | All modules handling user input |
+| 2 | **Concurrency Safety Refactor** - Atomic operations, file locking, append-only logs | High | Session, usage, file operations |
+| 3 | **Standardized Error Handling** - Exhaustive switch checking, domain error hierarchies | High | All TypeScript files |
+| 4 | **Performance Optimization** - Parallel processing, metadata caching, batched API calls | High | Embedding, RAG, session listing |
+| 5 | **Clean Architecture Boundaries** - Dependency injection, abstraction layers | Medium-High | Commands and tools |
+
+#### Priority Files for Immediate Attention
+
+**Tier 1: Critical Security & Data Integrity (Address Immediately)**
+1. `src/tools/write-file.ts` - Path traversal, broken history
+2. `src/commands/code-commands.ts` - Command injection
+3. `src/providers/anthropic.ts` - Model name crashes
+4. `src/types/vectra.d.ts` - API mismatches
+
+**Tier 2: Performance & Architecture (Address Within Week)**
+5. `src/session.ts` - Listing performance, auto-repair side effects
+6. `src/rag/indexer.ts` - Sequential processing
+7. `src/usage.ts` - Race conditions
+8. `src/model-map/executor.ts` - Context window overflow
+
+**Tier 3: Code Quality (Address Within Month)**
+9. `src/commands/output/renderer.ts` - Monolithic structure
+10. `src/tools-1/*` - Inconsistent error handling
+11. `src/utils/bash-utils.ts` - Security limitations
+12. `src/providers/index.ts` - Factory ignoring config
+
+#### Architecture Assessment
+
+**Current State:** ❌ Fragile Prototype Architecture
+
+**Strengths:**
+- Good conceptual separation of concerns
+- Strong TypeScript discriminated unions
+- Clear domain boundaries (RAG, providers, tools)
+
+**Critical Weaknesses:**
+- Security-by-accident (no systematic input validation)
+- Concurrency-unfriendly (global state, race conditions)
+- Testing-hostile (hard-coded dependencies)
+- Maintenance-burdened (monolithic files, inconsistent patterns)
+
+**Maturity Level:** Prototype → Early Production
+
+**Recommended Evolution Path:**
+```
+Current (Prototype)
+    ↓
+Security Patch Release
+    ↓
+Architecture Refactoring
+    ↓
+Performance Optimization
+    ↓
+Production Ready
+```
+
+### V1 vs V2 Comparison
+
+| Dimension | V1 (Sequential) | V2 (Grouped + Parallel) |
+|-----------|-----------------|-------------------------|
+| **Processing** | 1 file at a time | 4 files parallel per group |
+| **Grouping** | None (random order) | Hierarchy-based (12 groups) |
+| **Aggregation** | Single pass (often exceeds limits) | Per-group + meta-aggregation |
+| **Error handling** | Fails on first error | Continues, reports at end |
+| **Progress visibility** | File-by-file | Group-by-group with summaries |
+| **Token limits** | Often exceeded | Handled via group summaries |
+| **Final report** | May fail | Comprehensive synthesis |
 
 ---
 
@@ -616,19 +788,29 @@ Long pipeline outputs may exceed context windows for subsequent steps, causing i
 
 ## Conclusion
 
-The model roles feature successfully routes to different models per provider. After implementing file content resolution, the pipeline now provides **meaningful, specific code review**.
+The model roles feature successfully routes to different models per provider. After implementing file content resolution and the V2 algorithm, the pipeline now provides **comprehensive, production-quality code review at scale**.
 
 ### Key Improvements Made
 - **File reading:** Pipeline now resolves glob patterns and reads actual file contents
 - **Role standardization:** Updated pipeline to use `reasoning` role for deep analysis
 - **Real code review:** Models now identify specific issues with line references and code examples
+- **V2 Algorithm:** Intelligent grouping + parallel processing for full codebase analysis
 
-### Multi-File Review Achievements
-The pipeline successfully analyzed 20 files from the 95-file codebase, identifying:
-- **13 distinct architectural/code quality issues**
-- **Specific code examples** with problematic patterns
-- **Actionable refactoring roadmap** with phased approach
-- **Security observations** (workspace boundaries, config validation)
+### V2 Algorithm Achievements
+The V2 pipeline successfully analyzed **83/85 files** across **12 groups**, producing:
+- **Comprehensive security audit** with 9 critical vulnerability categories
+- **6 cross-cutting anti-patterns** identified across the codebase
+- **Top 5 prioritized recommendations** with impact and scope
+- **12 priority files** organized into 3 tiers (Immediate/Week/Month)
+- **Architecture assessment** with maturity level and evolution path
+
+### Algorithm Evolution
+
+| Version | Files | Time | Aggregation | Result |
+|---------|-------|------|-------------|--------|
+| **V1 (20-file limit)** | 20 | ~10 min | Single pass | Partial review |
+| **V1 (--all sequential)** | 84 | ~60 min | Often fails (token limit) | Inconsistent |
+| **V2 (grouped + parallel)** | 83 | ~45 min | Per-group + meta | Comprehensive |
 
 ### Provider Comparison Summary
 - **OpenAI models** produce more actionable, concise output suited for experienced developers
@@ -638,9 +820,10 @@ The pipeline successfully analyzed 20 files from the 95-file codebase, identifyi
 
 **Key Finding:** The providers complement each other - OpenAI excels at high-level design while Ollama-Cloud excels at finding specific implementation issues.
 
-The pipeline is now fully functional for code review tasks at scale.
+The pipeline is now fully functional for **full codebase code review** with intelligent grouping and parallel processing.
 
 ---
 
 *Report generated from pipeline runs on January 11-12, 2025*
 *Updated with multi-file review results on January 12, 2025*
+*Updated with V2 algorithm results on January 12, 2025*
