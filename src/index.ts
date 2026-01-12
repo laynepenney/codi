@@ -3,7 +3,8 @@
 import { createInterface, type Interface } from 'readline';
 import { program } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, appendFileSync, existsSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
+import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -38,6 +39,145 @@ function saveToHistory(command: string): void {
   } catch {
     // Ignore errors writing history
   }
+}
+
+/**
+ * Configuration for pipeline input resolution.
+ */
+interface PipelineInputConfig {
+  maxFiles: number;
+  maxFileSize: number;
+  maxTotalSize: number;
+}
+
+const DEFAULT_PIPELINE_INPUT_CONFIG: PipelineInputConfig = {
+  maxFiles: 20,
+  maxFileSize: 50000, // 50KB per file
+  maxTotalSize: 200000, // 200KB total
+};
+
+/**
+ * Check if a string looks like a glob pattern or file path.
+ */
+function isGlobOrFilePath(input: string): boolean {
+  // Check for glob patterns
+  if (input.includes('*') || input.includes('?')) {
+    return true;
+  }
+  // Check if it looks like a file path (starts with ./ or / or contains file extensions)
+  if (input.startsWith('./') || input.startsWith('/') || input.startsWith('src/')) {
+    return true;
+  }
+  // Check for common file extensions
+  if (/\.(ts|js|tsx|jsx|py|go|rs|java|md|json|yaml|yml)$/i.test(input)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve pipeline input to actual file contents.
+ * If input is a glob pattern or file path, reads the files and returns their contents.
+ * Otherwise, returns the input as-is.
+ */
+async function resolvePipelineInput(
+  input: string,
+  config: PipelineInputConfig = DEFAULT_PIPELINE_INPUT_CONFIG
+): Promise<{ resolvedInput: string; filesRead: number; truncated: boolean }> {
+  if (!isGlobOrFilePath(input)) {
+    return { resolvedInput: input, filesRead: 0, truncated: false };
+  }
+
+  const cwd = process.cwd();
+  const files: string[] = [];
+
+  // Check if it's a direct file path or a glob pattern
+  if (input.includes('*') || input.includes('?')) {
+    // It's a glob pattern
+    for await (const file of glob(input, { cwd })) {
+      files.push(file);
+    }
+  } else {
+    // It's a direct file path
+    const fullPath = input.startsWith('/') ? input : join(cwd, input);
+    if (existsSync(fullPath)) {
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isFile()) {
+          files.push(input);
+        } else if (stat.isDirectory()) {
+          // If it's a directory, glob for common code files
+          for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
+            files.push(file);
+          }
+        }
+      } catch {
+        // Ignore stat errors
+      }
+    }
+  }
+
+  if (files.length === 0) {
+    return { resolvedInput: `No files found matching: ${input}`, filesRead: 0, truncated: false };
+  }
+
+  // Sort files for consistent ordering
+  files.sort();
+
+  // Limit number of files
+  const filesToRead = files.slice(0, config.maxFiles);
+  const truncatedFiles = files.length > config.maxFiles;
+
+  // Read file contents
+  const contents: string[] = [];
+  let totalSize = 0;
+  let truncatedSize = false;
+
+  for (const file of filesToRead) {
+    const fullPath = file.startsWith('/') ? file : join(cwd, file);
+
+    try {
+      const stat = statSync(fullPath);
+      if (!stat.isFile()) continue;
+
+      // Check file size
+      if (stat.size > config.maxFileSize) {
+        contents.push(`\n### File: ${file}\n\`\`\`\n[File too large: ${(stat.size / 1024).toFixed(1)}KB > ${(config.maxFileSize / 1024).toFixed(0)}KB limit]\n\`\`\`\n`);
+        continue;
+      }
+
+      // Check total size limit
+      if (totalSize + stat.size > config.maxTotalSize) {
+        truncatedSize = true;
+        contents.push(`\n### File: ${file}\n\`\`\`\n[Skipped: total size limit reached]\n\`\`\`\n`);
+        continue;
+      }
+
+      const content = readFileSync(fullPath, 'utf-8');
+      const ext = file.split('.').pop() || '';
+      contents.push(`\n### File: ${file}\n\`\`\`${ext}\n${content}\n\`\`\`\n`);
+      totalSize += stat.size;
+    } catch (error) {
+      contents.push(`\n### File: ${file}\n\`\`\`\n[Error reading file: ${error instanceof Error ? error.message : 'Unknown error'}]\n\`\`\`\n`);
+    }
+  }
+
+  // Build the resolved input
+  let resolvedInput = `## Files matching: ${input}\n\nFound ${files.length} file(s)`;
+  if (truncatedFiles) {
+    resolvedInput += ` (showing first ${config.maxFiles})`;
+  }
+  resolvedInput += `:\n${contents.join('')}`;
+
+  if (truncatedSize) {
+    resolvedInput += `\n\n[Note: Some files skipped due to total size limit of ${(config.maxTotalSize / 1024).toFixed(0)}KB]`;
+  }
+
+  return {
+    resolvedInput,
+    filesRead: filesToRead.length,
+    truncated: truncatedFiles || truncatedSize,
+  };
 }
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
@@ -1985,10 +2125,16 @@ async function main() {
                   console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
                   console.log(chalk.dim(`Provider: ${effectiveProvider}`));
                   console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
+
+                  // Resolve file content if input looks like a glob pattern or file path
+                  const { resolvedInput, filesRead, truncated } = await resolvePipelineInput(input);
+                  if (filesRead > 0) {
+                    console.log(chalk.dim(`Files resolved: ${filesRead}${truncated ? ' (truncated)' : ''}`));
+                  }
                   console.log();
 
                   try {
-                    const pipelineResult = await modelMap.executor.execute(pipeline, input, {
+                    const pipelineResult = await modelMap.executor.execute(pipeline, resolvedInput, {
                       providerContext: effectiveProvider,
                       callbacks: {
                         onStepStart: (stepName: string, modelName: string) => {
