@@ -7,6 +7,13 @@ import { OpenAICompatibleProvider, createOllamaProvider } from '../providers/ope
 import { createProvider, getProviderTypes } from '../providers/index.js';
 import { getStaticModels } from '../models.js';
 import type { ModelInfo } from '../providers/base.js';
+import {
+  loadModelMap,
+  validateModelMap,
+  initModelMapFile,
+  getExampleModelMap,
+  type ModelMapConfig,
+} from '../model-map/index.js';
 
 /**
  * /models command - List available models for each provider.
@@ -186,9 +193,122 @@ function formatModelsOutput(models: ModelInfo[], errors: string[]): string {
 }
 
 /**
+ * /modelmap command - Show and manage model map configuration.
+ */
+export const modelMapCommand: Command = {
+  name: 'modelmap',
+  aliases: ['mm', 'models-map'],
+  description: 'Show and manage model map configuration (codi-models.yaml)',
+  usage: '/modelmap [init|show|example]',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    const action = args.trim().toLowerCase() || 'show';
+
+    switch (action) {
+      case 'init': {
+        const result = initModelMapFile(process.cwd());
+        if (result.success) {
+          return `__MODELMAP_INIT__|${result.path}`;
+        }
+        return `__MODELMAP_ERROR__|${result.error}`;
+      }
+
+      case 'example': {
+        const example = getExampleModelMap();
+        return `__MODELMAP_EXAMPLE__|${example}`;
+      }
+
+      case 'show':
+      default: {
+        // Check if agent has a model map
+        const agent = context.agent;
+        const modelMap = agent?.getModelMap();
+
+        if (modelMap) {
+          // Model map is loaded, show its configuration
+          return formatModelMapOutput(modelMap.config, modelMap.configPath);
+        }
+
+        // Try to load from disk
+        const { config, configPath, error } = loadModelMap(process.cwd());
+        if (error) {
+          return `__MODELMAP_ERROR__|${error}`;
+        }
+        if (!config) {
+          return '__MODELMAP_NOTFOUND__';
+        }
+
+        // Validate
+        const validation = validateModelMap(config);
+        if (!validation.valid) {
+          return `__MODELMAP_INVALID__|${validation.errors.map(e => e.message).join('; ')}`;
+        }
+
+        return formatModelMapOutput(config, configPath);
+      }
+    }
+  },
+};
+
+function formatModelMapOutput(config: ModelMapConfig, configPath: string | null): string {
+  const lines: string[] = ['__MODELMAP_SHOW__'];
+  lines.push(`path|${configPath || 'unknown'}`);
+  lines.push(`version|${config.version}`);
+
+  // Models
+  const modelNames = Object.keys(config.models);
+  lines.push(`models|${modelNames.length}`);
+  for (const [name, model] of Object.entries(config.models)) {
+    const desc = model.description || '';
+    lines.push(`model|${name}|${model.provider}|${model.model}|${desc}`);
+  }
+
+  // Tasks
+  const tasks = config.tasks || {};
+  const taskNames = Object.keys(tasks);
+  lines.push(`tasks|${taskNames.length}`);
+  for (const [name, task] of Object.entries(tasks)) {
+    const desc = task.description || '';
+    lines.push(`task|${name}|${task.model}|${desc}`);
+  }
+
+  // Pipelines
+  const pipelines = config.pipelines || {};
+  const pipelineNames = Object.keys(pipelines);
+  lines.push(`pipelines|${pipelineNames.length}`);
+  for (const [name, pipeline] of Object.entries(pipelines)) {
+    const stepCount = pipeline.steps.length;
+    const desc = pipeline.description || '';
+    lines.push(`pipeline|${name}|${stepCount}|${desc}`);
+  }
+
+  // Fallbacks
+  const fallbacks = config.fallbacks || {};
+  const fallbackNames = Object.keys(fallbacks);
+  lines.push(`fallbacks|${fallbackNames.length}`);
+  for (const [name, chain] of Object.entries(fallbacks)) {
+    lines.push(`fallback|${name}|${chain.join(' → ')}`);
+  }
+
+  // Commands with overrides
+  const commands = config.commands || {};
+  const commandNames = Object.keys(commands);
+  if (commandNames.length > 0) {
+    lines.push(`commands|${commandNames.length}`);
+    for (const [name, cmd] of Object.entries(commands)) {
+      const target = cmd.pipeline || cmd.task || cmd.model || 'default';
+      const type = cmd.pipeline ? 'pipeline' : cmd.task ? 'task' : 'model';
+      lines.push(`command|${name}|${type}|${target}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Register all model commands.
  */
 export function registerModelCommands(): void {
   registerCommand(modelsCommand);
   registerCommand(switchCommand);
+  registerCommand(modelMapCommand);
 }

@@ -89,6 +89,7 @@ import {
   getCustomDangerousPatterns,
   type ResolvedConfig,
 } from './config.js';
+import { initModelMap as loadModelMapFromDir, type ModelMap } from './model-map/index.js';
 import { formatDiffForTerminal, truncateDiff } from './diff.js';
 import { VERSION } from './version.js';
 import { spinner } from './spinner.js';
@@ -950,6 +951,108 @@ function handleSwitchOutput(output: string): void {
 }
 
 /**
+ * Handle modelmap command output messages.
+ */
+function handleModelMapOutput(output: string): void {
+  const lines = output.split('\n');
+  const firstLine = lines[0];
+
+  if (firstLine === '__MODELMAP_NOTFOUND__') {
+    console.log(chalk.yellow('\nNo model map configuration found.'));
+    console.log(chalk.dim('Create codi-models.yaml with /modelmap init'));
+    return;
+  }
+
+  if (firstLine.startsWith('__MODELMAP_ERROR__|')) {
+    const error = firstLine.slice('__MODELMAP_ERROR__|'.length);
+    console.log(chalk.red(`\nModel map error: ${error}`));
+    return;
+  }
+
+  if (firstLine.startsWith('__MODELMAP_INVALID__|')) {
+    const errors = firstLine.slice('__MODELMAP_INVALID__|'.length);
+    console.log(chalk.red('\nModel map validation failed:'));
+    console.log(chalk.red(`  ${errors}`));
+    return;
+  }
+
+  if (firstLine.startsWith('__MODELMAP_INIT__|')) {
+    const path = firstLine.slice('__MODELMAP_INIT__|'.length);
+    console.log(chalk.green(`\nCreated model map: ${path}`));
+    console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    return;
+  }
+
+  if (firstLine.startsWith('__MODELMAP_EXAMPLE__|')) {
+    const example = lines.slice(0).join('\n').slice('__MODELMAP_EXAMPLE__|'.length);
+    console.log(chalk.bold('\nExample codi-models.yaml:'));
+    console.log(chalk.dim('─'.repeat(60)));
+    console.log(chalk.dim(example));
+    return;
+  }
+
+  if (firstLine === '__MODELMAP_SHOW__') {
+    console.log(chalk.bold('\nModel Map Configuration:'));
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      const parts = line.split('|');
+      const type = parts[0];
+
+      switch (type) {
+        case 'path':
+          console.log(chalk.dim(`File: ${parts[1]}`));
+          break;
+        case 'version':
+          console.log(chalk.dim(`Version: ${parts[1]}`));
+          console.log();
+          break;
+        case 'models':
+          console.log(chalk.bold.cyan(`Models (${parts[1]}):`));
+          break;
+        case 'model':
+          console.log(`  ${chalk.cyan(parts[1])}: ${parts[2]}/${parts[3]}${parts[4] ? chalk.dim(` - ${parts[4]}`) : ''}`);
+          break;
+        case 'tasks':
+          console.log(chalk.bold.green(`\nTasks (${parts[1]}):`));
+          break;
+        case 'task':
+          console.log(`  ${chalk.green(parts[1])}: → ${parts[2]}${parts[3] ? chalk.dim(` - ${parts[3]}`) : ''}`);
+          break;
+        case 'pipelines':
+          if (parseInt(parts[1]) > 0) {
+            console.log(chalk.bold.magenta(`\nPipelines (${parts[1]}):`));
+          }
+          break;
+        case 'pipeline':
+          console.log(`  ${chalk.magenta(parts[1])}: ${parts[2]} steps${parts[3] ? chalk.dim(` - ${parts[3]}`) : ''}`);
+          break;
+        case 'fallbacks':
+          if (parseInt(parts[1]) > 0) {
+            console.log(chalk.bold.yellow(`\nFallback Chains (${parts[1]}):`));
+          }
+          break;
+        case 'fallback':
+          console.log(`  ${chalk.yellow(parts[1])}: ${parts[2]}`);
+          break;
+        case 'commands':
+          console.log(chalk.bold.blue(`\nCommand Overrides (${parts[1]}):`));
+          break;
+        case 'command':
+          console.log(`  /${chalk.blue(parts[1])}: ${parts[2]} → ${parts[3]}`);
+          break;
+      }
+    }
+
+    console.log(chalk.dim('\nUse /modelmap example to see configuration format.'));
+    return;
+  }
+
+  // Fallback
+  console.log(output);
+}
+
+/**
  * Handle import command output messages.
  */
 function handleImportOutput(output: string): void {
@@ -1267,6 +1370,23 @@ async function main() {
     console.log(chalk.dim(`Config: ${configPath}`));
   }
 
+  // Load model map configuration (codi-models.yaml)
+  let modelMap: ModelMap | null = null;
+  try {
+    modelMap = loadModelMapFromDir(process.cwd());
+    if (modelMap) {
+      const modelCount = Object.keys(modelMap.config.models).length;
+      const taskCount = Object.keys(modelMap.config.tasks || {}).length;
+      const pipelineCount = Object.keys(modelMap.config.pipelines || {}).length;
+      console.log(chalk.dim(`Model map: ${modelCount} models, ${taskCount} tasks, ${pipelineCount} pipelines`));
+      if (modelMap.configPath) {
+        console.log(chalk.dim(`Model map file: ${modelMap.configPath}`));
+      }
+    }
+  } catch (err) {
+    console.warn(chalk.yellow(`Model map error: ${err instanceof Error ? err.message : err}`));
+  }
+
   // Merge workspace config with CLI options
   const resolvedConfig = mergeConfig(workspaceConfig, {
     provider: options.provider,
@@ -1482,6 +1602,7 @@ async function main() {
   const agent = new Agent({
     provider,
     secondaryProvider,
+    modelMap,
     toolRegistry: globalRegistry,
     systemPrompt,
     useTools,
@@ -1736,6 +1857,12 @@ async function main() {
                   commandContext.sessionState.provider = switchParts[1];
                   commandContext.sessionState.model = switchParts[2];
                 }
+                rl.prompt();
+                return;
+              }
+              // Handle modelmap command outputs
+              if (result.startsWith('__MODELMAP_')) {
+                handleModelMapOutput(result);
                 rl.prompt();
                 return;
               }

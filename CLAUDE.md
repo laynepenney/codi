@@ -605,6 +605,97 @@ codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
 - `src/agent.ts` - `getSummaryProvider()` method
 - `tests/multi-model.test.ts` - Unit tests
 
+#### 18. Model Map (Multi-Model Orchestration) - PARTIAL
+
+**Status**: Phase 1 Complete (Core Infrastructure)
+
+**Key Features** (in `src/model-map/`):
+- Docker-compose style configuration for multi-model orchestration
+- Named model definitions with provider, model, and settings
+- Task categories (fast, code, complex, summarize) with model assignments
+- Per-command model overrides
+- Fallback chains for reliability
+- Pipeline definitions for multi-step workflows
+- Lazy provider instantiation with connection pooling
+
+**Config File** (`codi-models.yaml`):
+```yaml
+version: "1"
+models:
+  haiku:
+    provider: anthropic
+    model: claude-3-5-haiku-latest
+    description: "Fast, cheap model for quick tasks"
+  sonnet:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  local:
+    provider: ollama
+    model: llama3.2
+
+tasks:
+  fast:
+    model: haiku
+  code:
+    model: sonnet
+  complex:
+    model: sonnet
+  summarize:
+    model: local
+
+commands:
+  commit:
+    task: fast
+  fix:
+    task: complex
+
+fallbacks:
+  primary: [sonnet, haiku, local]
+
+pipelines:
+  smart-refactor:
+    steps:
+      - name: analyze
+        model: haiku
+        prompt: "Analyze: {input}"
+        output: analysis
+      - name: implement
+        model: sonnet
+        prompt: "Implement based on: {analysis}"
+        output: result
+    result: "{result}"
+```
+
+**Implemented Commands**:
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/modelmap` | `/mm` | Show current model map configuration |
+| `/modelmap init` | - | Create a new codi-models.yaml file |
+| `/modelmap example` | - | Show example configuration |
+
+**Architecture**:
+- `ModelMapLoader` - Load/validate YAML config
+- `ModelRegistry` - Lazy provider instantiation with pooling (max 5, 5-min idle)
+- `TaskRouter` - Route tasks/commands to models
+- `PipelineExecutor` - Execute multi-step pipelines (infrastructure only)
+
+**Files**:
+- `src/model-map/types.ts` - Type definitions
+- `src/model-map/loader.ts` - YAML loading and validation
+- `src/model-map/registry.ts` - Provider pool management
+- `src/model-map/router.ts` - Task/command routing
+- `src/model-map/executor.ts` - Pipeline execution
+- `src/model-map/index.ts` - Module exports
+- `tests/model-map.test.ts` - 38 unit tests
+
+**Remaining Work (Phase 2-4)**:
+- [ ] Add `taskType` to Command interface for automatic routing
+- [ ] Implement `/pipeline` command for manual pipeline execution
+- [ ] Wire pipeline execution into agent for automatic use
+- [ ] Config hot-reload support
+- [ ] Cost tracking per model/pipeline
+
 #### 15. Code Snippets Library
 **What**: Save and reuse code snippets.
 
@@ -750,6 +841,7 @@ For maximum impact with reasonable effort:
 10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
 11. ~~**Web Search** - Search web via DuckDuckGo~~ DONE
 12. ~~**Multi-Model Orchestration** - Use cheaper models for summarization~~ DONE
+13. **Model Map** - Docker-compose style multi-model config (Phase 1 DONE, Phase 2-4 pending)
 
 ## Notes for Contributors
 

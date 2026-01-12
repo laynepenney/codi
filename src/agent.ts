@@ -4,6 +4,7 @@ import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 import { recordUsage } from './usage.js';
 import { AGENT_CONFIG, TOOL_CATEGORIES, CONTEXT_OPTIMIZATION, type DangerousPattern } from './constants.js';
+import type { ModelMap } from './model-map/index.js';
 import {
   compressContext,
   generateEntityLegend,
@@ -60,6 +61,7 @@ export interface AgentOptions {
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
+  modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
@@ -74,6 +76,7 @@ export interface AgentOptions {
 export class Agent {
   private provider: BaseProvider;
   private secondaryProvider: BaseProvider | null = null;
+  private modelMap: ModelMap | null = null;
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
   private useTools: boolean;
@@ -98,6 +101,7 @@ export class Agent {
   constructor(options: AgentOptions) {
     this.provider = options.provider;
     this.secondaryProvider = options.secondaryProvider ?? null;
+    this.modelMap = options.modelMap ?? null;
     this.toolRegistry = options.toolRegistry;
     this.useTools = options.useTools ?? true;
     this.extractToolsFromText = options.extractToolsFromText ?? true;
@@ -140,7 +144,66 @@ export class Agent {
    * Returns secondary provider if configured, otherwise falls back to primary.
    */
   private getSummaryProvider(): BaseProvider {
+    // Try model map first
+    if (this.modelMap) {
+      try {
+        const summarizeModel = this.modelMap.router.getSummarizeModel();
+        return this.modelMap.registry.getProvider(summarizeModel.name);
+      } catch {
+        // Fall through to secondary/primary
+      }
+    }
     return this.secondaryProvider ?? this.provider;
+  }
+
+  /**
+   * Get a provider for a specific task type using model map.
+   * Falls back to primary provider if model map is not configured or task not found.
+   */
+  getProviderForTask(taskType: string): BaseProvider {
+    if (this.modelMap) {
+      try {
+        const result = this.modelMap.router.routeTask(taskType);
+        if (result.type === 'model') {
+          return this.modelMap.registry.getProvider(result.model.name);
+        }
+      } catch {
+        // Fall through to primary
+      }
+    }
+    return this.provider;
+  }
+
+  /**
+   * Get a provider for a specific command using model map.
+   * Falls back to primary provider if model map is not configured or command not found.
+   */
+  getProviderForCommand(commandName: string): BaseProvider {
+    if (this.modelMap) {
+      try {
+        const result = this.modelMap.router.routeCommand(commandName);
+        if (result.type === 'model') {
+          return this.modelMap.registry.getProvider(result.model.name);
+        }
+      } catch {
+        // Fall through to primary
+      }
+    }
+    return this.provider;
+  }
+
+  /**
+   * Check if a command should use a pipeline.
+   */
+  commandHasPipeline(commandName: string): boolean {
+    return this.modelMap?.router.commandHasPipeline(commandName) ?? false;
+  }
+
+  /**
+   * Get the model map instance.
+   */
+  getModelMap(): ModelMap | null {
+    return this.modelMap;
   }
 
   private getDefaultSystemPrompt(): string {

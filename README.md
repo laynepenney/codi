@@ -435,8 +435,10 @@ See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guideli
 - ~~**Debug UI**: Spinners and graduated verbosity (--verbose/--debug/--trace)~~ (Implemented!)
 - ~~**Web Search Tool**: Search web via DuckDuckGo~~ (Implemented!)
 - ~~**Multi-Model Orchestration**: Use cheaper models for summarization~~ (Implemented!)
+- **Model Map**: Docker-compose style multi-model config (`codi-models.yaml`) (Phase 1 Complete - `/modelmap` command)
 
 ### Planned Features
+- **Model Map Phase 2-4**: Pipeline execution, automatic task routing, hot-reload
 - **Interactive File Selection**: Fuzzy file finder for commands
 - **Parallel Tool Execution**: Run independent tools concurrently
 - **Code Snippets Library**: Save and reuse code snippets
