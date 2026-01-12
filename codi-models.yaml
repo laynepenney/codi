@@ -32,6 +32,14 @@ models:
     provider: ollama-native
     model: qwen3:8b
     description: qwen lite
+  gemini-3-flash-preview:
+    provider: ollama-native
+    model: gemini-3-flash-preview:cloud
+    description: gemini cloud fast
+  gpt-oss:
+    provider: ollama-native
+    model: gpt-oss:120b-cloud
+    description: cloud gpt oss 120b-cloud
 tasks:
   fast:
     model: haiku
@@ -66,8 +74,8 @@ model-roles:
   fast:
     anthropic: haiku
     openai: gpt-5-nano
-    ollama-local: llama3
-    ollama-cloud: qwen3-lite
+    ollama-local: qwen3-lite
+    ollama-cloud: gemini-3-flash-preview
   capable:
     anthropic: sonnet
     openai: gpt-5
@@ -77,26 +85,30 @@ model-roles:
     anthropic: opus
     openai: gpt-5
     ollama-local: llama3
-    ollama-cloud: coder
+    ollama-cloud: gpt-oss
 
 pipelines:
+  # Provider-agnostic refactoring pipeline
+  # Use with: /pipeline --provider anthropic smart-refactor <file>
+  #       or: /pipeline --provider openai smart-refactor <file>
   smart-refactor:
     description: Analyze, plan, implement, review
+    provider: openai  # Default provider if --provider not specified
     steps:
       - name: analyze
-        model: gpt-5-nano
+        role: fast
         prompt: 'Analyze refactoring opportunities: {input}'
         output: analysis
       - name: plan
-        model: gpt-5
+        role: capable
         prompt: 'Create refactoring plan based on: {analysis}'
         output: plan
       - name: implement
-        model: gpt-5
+        role: capable
         prompt: 'Implement the plan: {plan}'
         output: implementation
       - name: review
-        model: gpt-5-nano
+        role: fast
         prompt: 'Quick review: {implementation}'
         output: review
     result: |-
@@ -105,7 +117,7 @@ pipelines:
       ## Review
       {review}
 
-  # Provider-agnostic pipeline using roles instead of direct model references
+  # Provider-agnostic code review pipeline
   # Use with: /pipeline --provider anthropic code-review <file>
   #       or: /pipeline --provider openai code-review <file>
   code-review:
