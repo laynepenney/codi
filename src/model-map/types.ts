@@ -185,3 +185,77 @@ export const DEFAULT_COMMAND_TASKS: Record<string, TaskType> = {
   scaffold: 'complex',
   migrate: 'complex',
 };
+
+// ============================================================================
+// Iterative Pipeline Execution Types
+// ============================================================================
+
+/**
+ * Callbacks for pipeline step execution (base callbacks).
+ */
+export interface PipelineCallbacks {
+  /** Called when a step starts */
+  onStepStart?: (stepName: string, modelName: string) => void;
+  /** Called when a step completes */
+  onStepComplete?: (stepName: string, output: string) => void;
+  /** Called for streaming text during step execution */
+  onStepText?: (stepName: string, text: string) => void;
+  /** Called when a step errors */
+  onError?: (stepName: string, error: Error) => void;
+}
+
+/**
+ * Extended callbacks for iterative pipeline execution.
+ */
+export interface IterativeCallbacks extends PipelineCallbacks {
+  /** Called when processing of a file starts */
+  onFileStart?: (file: string, index: number, total: number) => void;
+  /** Called when processing of a file completes */
+  onFileComplete?: (file: string, result: string) => void;
+  /** Called when aggregation phase begins */
+  onAggregationStart?: () => void;
+}
+
+/**
+ * Aggregation options for iterative pipeline execution.
+ */
+export interface AggregationOptions {
+  /** Whether to run aggregation (default: true) */
+  enabled?: boolean;
+  /** Model role for aggregation (default: 'capable') */
+  role?: string;
+  /** Custom aggregation prompt template */
+  prompt?: string;
+}
+
+/**
+ * Options for iterative pipeline execution.
+ */
+export interface IterativeOptions {
+  /** Provider context for role resolution */
+  providerContext?: ProviderContext;
+  /** Callbacks for progress tracking */
+  callbacks?: IterativeCallbacks;
+  /** Aggregation configuration */
+  aggregation?: AggregationOptions;
+  /** Number of files to process in parallel (default: 1) */
+  concurrency?: number;
+}
+
+/**
+ * Result from iterative pipeline execution.
+ */
+export interface IterativeResult {
+  /** Per-file pipeline results */
+  fileResults: Map<string, PipelineResult>;
+  /** Aggregated output from all files */
+  aggregatedOutput?: string;
+  /** Number of files successfully processed */
+  filesProcessed: number;
+  /** Total number of files */
+  totalFiles: number;
+  /** List of models used across all executions */
+  modelsUsed: string[];
+  /** Files that were skipped (with reasons) */
+  skippedFiles?: Array<{ file: string; reason: string }>;
+}

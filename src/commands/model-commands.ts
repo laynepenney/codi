@@ -314,7 +314,7 @@ export const pipelineCommand: Command = {
   name: 'pipeline',
   aliases: ['pipe', 'run-pipeline'],
   description: 'Execute a multi-model pipeline',
-  usage: '/pipeline [--provider <context>] [name] [input]',
+  usage: '/pipeline [--provider <context>] [--all] [name] [input]',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const agent = context.agent;
@@ -331,14 +331,30 @@ export const pipelineCommand: Command = {
       return '__PIPELINE_ERROR__|No pipelines defined in codi-models.yaml. Add a "pipelines" section.';
     }
 
-    // Parse --provider flag
+    // Parse flags
     let providerContext: string | undefined;
+    let iterativeMode = false;
     let remainingArgs = args.trim();
 
+    // Parse --provider flag
     const providerMatch = remainingArgs.match(/^--provider\s+(\S+)\s*/);
     if (providerMatch) {
       providerContext = providerMatch[1];
       remainingArgs = remainingArgs.slice(providerMatch[0].length);
+    }
+
+    // Parse --all or --iterative flag
+    const allMatch = remainingArgs.match(/^(--all|--iterative)\s*/);
+    if (allMatch) {
+      iterativeMode = true;
+      remainingArgs = remainingArgs.slice(allMatch[0].length);
+    }
+
+    // Also check if flag appears after --provider
+    const allMatchLate = remainingArgs.match(/^(--all|--iterative)\s*/);
+    if (allMatchLate) {
+      iterativeMode = true;
+      remainingArgs = remainingArgs.slice(allMatchLate[0].length);
     }
 
     const parts = remainingArgs.split(/\s+/).filter(p => p);
@@ -388,9 +404,10 @@ export const pipelineCommand: Command = {
       return lines.join('\n');
     }
 
-    // Execute the pipeline with optional provider context
+    // Execute the pipeline with optional provider context and iterative mode
     const providerPart = providerContext ? `|provider:${providerContext}` : '';
-    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}|${input}`;
+    const iterativePart = iterativeMode ? '|iterative:true' : '';
+    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}|${input}`;
   },
 };
 

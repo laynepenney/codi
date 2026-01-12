@@ -4,31 +4,29 @@
  * Executes multi-model pipelines with variable substitution.
  */
 
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { join, extname } from 'node:path';
 import type { BaseProvider } from '../providers/base.js';
 import type {
   PipelineDefinition,
   PipelineStep,
   PipelineContext,
   PipelineResult,
+  PipelineCallbacks,
   ProviderContext,
+  IterativeCallbacks,
+  IterativeOptions,
+  IterativeResult,
 } from './types.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
 import { logger } from '../logger.js';
 
-/**
- * Callback for pipeline step progress.
- */
-export interface PipelineCallbacks {
-  /** Called when a step starts */
-  onStepStart?: (stepName: string, modelName: string) => void;
-  /** Called when a step completes */
-  onStepComplete?: (stepName: string, output: string) => void;
-  /** Called when text is streamed from a step */
-  onStepText?: (stepName: string, text: string) => void;
-  /** Called on error */
-  onError?: (stepName: string, error: Error) => void;
-}
+/** Maximum file size for iterative processing (50KB) */
+const MAX_FILE_SIZE = 50000;
+
+// Re-export PipelineCallbacks from types for backwards compatibility
+export type { PipelineCallbacks } from './types.js';
 
 /**
  * Options for pipeline execution.
@@ -135,6 +133,202 @@ export class PipelineExecutor {
       steps: stepOutputs,
       modelsUsed,
     };
+  }
+
+  /**
+   * Execute a pipeline iteratively over multiple files.
+   * Processes each file individually and aggregates results.
+   *
+   * @param pipeline - The pipeline definition
+   * @param files - Array of file paths to process
+   * @param options - Iterative execution options
+   */
+  async executeIterative(
+    pipeline: PipelineDefinition,
+    files: string[],
+    options?: IterativeOptions
+  ): Promise<IterativeResult> {
+    const callbacks = options?.callbacks;
+    const providerContext = options?.providerContext || pipeline.provider || 'openai';
+
+    const fileResults = new Map<string, PipelineResult>();
+    const skippedFiles: Array<{ file: string; reason: string }> = [];
+    const allModelsUsed = new Set<string>();
+    let filesProcessed = 0;
+
+    // Process each file
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      callbacks?.onFileStart?.(file, i, files.length);
+
+      try {
+        // Read file content
+        const content = this.readFileContent(file);
+        if (!content) {
+          skippedFiles.push({ file, reason: 'File not found or empty' });
+          continue;
+        }
+
+        // Format as single-file input
+        const ext = extname(file).slice(1) || 'txt';
+        const formattedInput = `### File: ${file}\n\`\`\`${ext}\n${content}\n\`\`\``;
+
+        // Execute pipeline on this file
+        const result = await this.execute(pipeline, formattedInput, {
+          providerContext,
+          callbacks: {
+            onStepStart: callbacks?.onStepStart,
+            onStepComplete: callbacks?.onStepComplete,
+            onStepText: callbacks?.onStepText,
+            onError: callbacks?.onError,
+          },
+        });
+
+        fileResults.set(file, result);
+        result.modelsUsed.forEach((m) => allModelsUsed.add(m));
+        filesProcessed++;
+
+        callbacks?.onFileComplete?.(file, result.output);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        skippedFiles.push({ file, reason });
+        logger.warn(`Skipped file ${file}: ${reason}`);
+      }
+    }
+
+    // Aggregate results if enabled
+    let aggregatedOutput: string | undefined;
+
+    if (options?.aggregation?.enabled !== false && fileResults.size > 0) {
+      callbacks?.onAggregationStart?.();
+
+      try {
+        aggregatedOutput = await this.aggregateResults(
+          fileResults,
+          providerContext,
+          options?.aggregation,
+          callbacks
+        );
+      } catch (error) {
+        logger.error('Aggregation failed:', error instanceof Error ? error : new Error(String(error)));
+        // Fall back to concatenated results
+        aggregatedOutput = this.formatConcatenatedResults(fileResults);
+      }
+    } else if (fileResults.size > 0) {
+      // No aggregation, just concatenate
+      aggregatedOutput = this.formatConcatenatedResults(fileResults);
+    }
+
+    return {
+      fileResults,
+      aggregatedOutput,
+      filesProcessed,
+      totalFiles: files.length,
+      modelsUsed: Array.from(allModelsUsed),
+      skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
+    };
+  }
+
+  /**
+   * Read file content with size checks.
+   */
+  private readFileContent(file: string): string | null {
+    const cwd = process.cwd();
+    const fullPath = file.startsWith('/') ? file : join(cwd, file);
+
+    if (!existsSync(fullPath)) {
+      return null;
+    }
+
+    const stat = statSync(fullPath);
+    if (!stat.isFile()) {
+      return null;
+    }
+
+    if (stat.size > MAX_FILE_SIZE) {
+      logger.warn(`File ${file} too large (${(stat.size / 1024).toFixed(1)}KB), skipping`);
+      return null;
+    }
+
+    return readFileSync(fullPath, 'utf-8');
+  }
+
+  /**
+   * Aggregate results from multiple files using a model.
+   */
+  private async aggregateResults(
+    fileResults: Map<string, PipelineResult>,
+    providerContext: ProviderContext,
+    aggregationOpts?: { role?: string; prompt?: string },
+    callbacks?: IterativeCallbacks
+  ): Promise<string> {
+    const role = aggregationOpts?.role || 'capable';
+
+    // Build aggregation prompt
+    const resultsText = Array.from(fileResults.entries())
+      .map(([file, result]) => `### ${file}\n${result.output}`)
+      .join('\n\n---\n\n');
+
+    const defaultPrompt = `You received code review results for ${fileResults.size} files.
+Synthesize these findings into a consolidated report.
+
+${resultsText}
+
+Provide:
+1. **Critical Issues** - Most important problems found (prioritized)
+2. **Common Patterns** - Recurring issues or anti-patterns across files
+3. **Top Recommendations** - 5 most impactful improvements
+4. **Files Requiring Attention** - Which files need immediate work`;
+
+    const prompt = aggregationOpts?.prompt
+      ? aggregationOpts.prompt
+          .replace('{results}', resultsText)
+          .replace('{fileCount}', String(fileResults.size))
+      : defaultPrompt;
+
+    // Resolve the aggregation model
+    let modelName: string;
+    if (this.router) {
+      const resolved = this.router.resolveRole(role, providerContext);
+      if (resolved) {
+        modelName = resolved.name;
+      } else {
+        // Fallback to first available model
+        modelName = Array.from(fileResults.values())[0]?.modelsUsed[0] || 'default';
+      }
+    } else {
+      modelName = Array.from(fileResults.values())[0]?.modelsUsed[0] || 'default';
+    }
+
+    callbacks?.onStepStart?.('aggregate', modelName);
+
+    const provider = this.registry.getProvider(modelName);
+    let output = '';
+
+    const response = await provider.streamChat(
+      [{ role: 'user', content: prompt }],
+      undefined,
+      (text: string) => {
+        output += text;
+        callbacks?.onStepText?.('aggregate', text);
+      }
+    );
+
+    const finalOutput = output || response.content;
+    callbacks?.onStepComplete?.('aggregate', finalOutput);
+
+    return finalOutput;
+  }
+
+  /**
+   * Format results as concatenated output (fallback when aggregation disabled/fails).
+   */
+  private formatConcatenatedResults(fileResults: Map<string, PipelineResult>): string {
+    const sections = Array.from(fileResults.entries()).map(
+      ([file, result]) => `## ${file}\n\n${result.output}`
+    );
+    return sections.join('\n\n---\n\n');
   }
 
   /**

@@ -180,6 +180,65 @@ async function resolvePipelineInput(
   };
 }
 
+/**
+ * Resolve a glob pattern or file path to a list of files (without reading contents).
+ * Used for iterative pipeline execution.
+ */
+async function resolveFileList(
+  input: string,
+  maxFileSize: number = DEFAULT_PIPELINE_INPUT_CONFIG.maxFileSize
+): Promise<string[]> {
+  if (!isGlobOrFilePath(input)) {
+    return [];
+  }
+
+  const cwd = process.cwd();
+  const files: string[] = [];
+
+  if (input.includes('*') || input.includes('?')) {
+    // Glob pattern
+    for await (const file of glob(input, { cwd })) {
+      const fullPath = join(cwd, file);
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isFile() && stat.size <= maxFileSize) {
+          files.push(file);
+        }
+      } catch {
+        // Skip files we can't stat
+      }
+    }
+  } else {
+    // Direct file path
+    const fullPath = input.startsWith('/') ? input : join(cwd, input);
+    if (existsSync(fullPath)) {
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isFile() && stat.size <= maxFileSize) {
+          files.push(input);
+        } else if (stat.isDirectory()) {
+          // If directory, glob for code files
+          for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
+            const filePath = join(cwd, file);
+            try {
+              const fileStat = statSync(filePath);
+              if (fileStat.isFile() && fileStat.size <= maxFileSize) {
+                files.push(file);
+              }
+            } catch {
+              // Skip
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  return files.sort();
+}
+
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
 import { globalRegistry, registerDefaultTools } from './tools/index.js';
@@ -2096,13 +2155,21 @@ async function main() {
                   const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
                   const pipelineName = parts[0];
 
-                  // Check for provider context in parts[1]
+                  // Parse optional flags from parts
                   let providerContext: string | undefined;
+                  let iterativeMode = false;
                   let inputStartIndex = 1;
 
-                  if (parts[1]?.startsWith('provider:')) {
-                    providerContext = parts[1].slice('provider:'.length);
-                    inputStartIndex = 2;
+                  // Check for provider context
+                  if (parts[inputStartIndex]?.startsWith('provider:')) {
+                    providerContext = parts[inputStartIndex].slice('provider:'.length);
+                    inputStartIndex++;
+                  }
+
+                  // Check for iterative mode
+                  if (parts[inputStartIndex]?.startsWith('iterative:')) {
+                    iterativeMode = parts[inputStartIndex].slice('iterative:'.length) === 'true';
+                    inputStartIndex++;
                   }
 
                   const input = parts.slice(inputStartIndex).join('|');
@@ -2122,6 +2189,79 @@ async function main() {
                   }
 
                   const effectiveProvider = providerContext || pipeline.provider || 'openai';
+
+                  // Handle iterative mode
+                  if (iterativeMode) {
+                    const files = await resolveFileList(input);
+
+                    if (files.length === 0) {
+                      console.log(chalk.red(`\nNo files found matching: ${input}`));
+                      rl.prompt();
+                      return;
+                    }
+
+                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (iterative mode)`));
+                    console.log(chalk.dim(`Provider: ${effectiveProvider}`));
+                    console.log(chalk.dim(`Files: ${files.length} total`));
+                    console.log();
+
+                    try {
+                      const iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
+                        providerContext: effectiveProvider,
+                        callbacks: {
+                          onFileStart: (file: string, index: number, total: number) => {
+                            console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
+                          },
+                          onFileComplete: (file: string, _result: string) => {
+                            console.log(chalk.green(`  ✓ ${file}`));
+                          },
+                          onAggregationStart: () => {
+                            console.log(chalk.yellow('\nAggregating results...'));
+                          },
+                          onStepStart: (stepName: string, modelName: string) => {
+                            console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                          },
+                          onStepComplete: (stepName: string, _output: string) => {
+                            console.log(chalk.dim(`    ✓ ${stepName}`));
+                          },
+                          onStepText: (_stepName: string, _text: string) => {
+                            // Don't stream text in iterative mode to reduce noise
+                          },
+                          onError: (stepName: string, error: Error) => {
+                            console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                          },
+                        },
+                        aggregation: {
+                          enabled: true,
+                          role: 'capable',
+                        },
+                      });
+
+                      console.log(chalk.bold.green('\n\nPipeline complete!'));
+                      console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
+                      console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
+
+                      if (iterativeResult.skippedFiles && iterativeResult.skippedFiles.length > 0) {
+                        console.log(chalk.yellow(`\nSkipped ${iterativeResult.skippedFiles.length} file(s):`));
+                        for (const { file, reason } of iterativeResult.skippedFiles.slice(0, 5)) {
+                          console.log(chalk.dim(`  - ${file}: ${reason}`));
+                        }
+                        if (iterativeResult.skippedFiles.length > 5) {
+                          console.log(chalk.dim(`  ... and ${iterativeResult.skippedFiles.length - 5} more`));
+                        }
+                      }
+
+                      console.log(chalk.bold('\n## Aggregated Results\n'));
+                      console.log(iterativeResult.aggregatedOutput || '(No output)');
+                    } catch (error) {
+                      console.log(chalk.red(`\nIterative pipeline failed: ${error instanceof Error ? error.message : String(error)}`));
+                    }
+
+                    rl.prompt();
+                    return;
+                  }
+
+                  // Standard (non-iterative) execution
                   console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
                   console.log(chalk.dim(`Provider: ${effectiveProvider}`));
                   console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
