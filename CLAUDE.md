@@ -523,16 +523,38 @@ export default {
 **Files to modify**:
 - Modify: `src/agent.ts` (parallel execution logic)
 
-#### 16. Web Search Tool
-**What**: Allow AI to search the web for documentation/answers.
+#### 16. Web Search Tool - IMPLEMENTED
 
-**Implementation**:
-- Add `web_search` tool
-- Use DuckDuckGo API or similar
-- Return summarized results
+**Status**: Complete
 
-**Files to modify**:
-- Create: `src/tools/web-search.ts`
+**Key Features** (in `src/tools/web-search.ts`):
+- `web_search` tool for searching the web via DuckDuckGo
+- No API key required - uses DuckDuckGo's public lite interface
+- Returns titles, URLs, and snippets from search results
+- Configurable number of results (1-10, default: 5)
+
+**How It Works**:
+1. AI calls `web_search` tool with a query
+2. Tool fetches results from DuckDuckGo lite
+3. Parses HTML to extract titles, URLs, and snippets
+4. Returns formatted text results
+
+**Example Output**:
+```
+Search results for: "TypeScript 5.0 features"
+
+1. TypeScript 5.0 Release Notes
+   https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html
+   TypeScript 5.0 introduces decorators, const type parameters, and more...
+
+2. What's New in TypeScript 5.0
+   https://blog.example.com/typescript-5
+   A comprehensive guide to the latest TypeScript features...
+```
+
+**Files**:
+- `src/tools/web-search.ts` - Web search tool implementation
+- `tests/web-search.test.ts` - Unit tests
 
 #### 15. Code Snippets Library
 **What**: Save and reuse code snippets.
@@ -677,6 +699,7 @@ For maximum impact with reasonable effort:
 8. ~~**Context Optimization** - Smart compaction and deduplication~~ DONE
 9. ~~**RAG System** - Semantic code search~~ DONE
 10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
+11. ~~**Web Search** - Search web via DuckDuckGo~~ DONE
 
 ## Notes for Contributors
 

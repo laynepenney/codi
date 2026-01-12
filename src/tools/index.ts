@@ -12,6 +12,7 @@ export { InsertLineTool } from './insert-line.js';
 export { AnalyzeImageTool } from './analyze-image.js';
 export { RunTestsTool } from './run-tests.js';
 export { RAGSearchTool } from './rag-search.js';
+export { WebSearchTool } from './web-search.js';
 
 import { globalRegistry } from './registry.js';
 import { ReadFileTool } from './read-file.js';
@@ -26,6 +27,7 @@ import { InsertLineTool } from './insert-line.js';
 import { AnalyzeImageTool } from './analyze-image.js';
 import { RunTestsTool } from './run-tests.js';
 import { RAGSearchTool } from './rag-search.js';
+import { WebSearchTool } from './web-search.js';
 import type { Retriever } from '../rag/retriever.js';
 
 /**
@@ -52,6 +54,9 @@ export function registerDefaultTools(): void {
 
   // Testing
   globalRegistry.register(new RunTestsTool());
+
+  // Web search
+  globalRegistry.register(new WebSearchTool());
 }
 
 /**

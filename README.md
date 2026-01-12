@@ -233,6 +233,7 @@ The AI has access to these tools for interacting with your codebase:
 | `bash` | Execute shell commands (with safety checks) |
 | `analyze_image` | Analyze images using vision-capable models |
 | `run_tests` | Auto-detect and run project tests |
+| `web_search` | Search the web via DuckDuckGo (no API key needed) |
 
 ### Safety Features
 
@@ -430,9 +431,9 @@ See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guideli
 - ~~**Context Optimization**: Smart compaction and semantic deduplication~~ (Implemented!)
 - ~~**RAG System**: Semantic code search using embeddings~~ (Implemented!)
 - ~~**Debug UI**: Spinners and graduated verbosity (--verbose/--debug/--trace)~~ (Implemented!)
+- ~~**Web Search Tool**: Search web via DuckDuckGo~~ (Implemented!)
 
 ### Planned Features
-- **Web Search Tool**: Search web for documentation and answers
 - **Interactive File Selection**: Fuzzy file finder for commands
 - **Parallel Tool Execution**: Run independent tools concurrently
 - **Code Snippets Library**: Save and reuse code snippets
