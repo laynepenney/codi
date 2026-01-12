@@ -6,7 +6,7 @@ import { initModelMap } from '../src/model-map/index.js';
 import type { IterativeResult, SymbolicationResult, TriageResult } from '../src/model-map/types.js';
 
 async function main() {
-  const CONCURRENCY = 4;
+  const CONCURRENCY = 2; // Reduced for Ollama rate limits
 
   console.log('V4 Pipeline Test - Full src/** (concurrency=' + CONCURRENCY + ')');
   console.log();

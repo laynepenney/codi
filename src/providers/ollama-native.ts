@@ -84,11 +84,12 @@ export class OllamaNativeProvider extends BaseProvider {
     this.model = config.model || 'llama3.2';
     this.temperature = config.temperature ?? 0.7;
     this.maxTokens = config.maxTokens;
-    // Default retry options: 3 retries with exponential backoff starting at 2s
+    // Default retry options: 5 retries with exponential backoff starting at 5s
+    // Tuned for Ollama cloud rate limits (~1 req/sec)
     this.retryOptions = {
-      maxRetries: 3,
-      initialDelayMs: 2000,
-      maxDelayMs: 30000,
+      maxRetries: 5,
+      initialDelayMs: 5000,
+      maxDelayMs: 60000,
       backoffMultiplier: 2,
       jitter: true,
       ...config.retry,

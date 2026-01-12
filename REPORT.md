@@ -1074,9 +1074,27 @@ After implementing retry with exponential backoff:
 | **Retry config** | 3 retries, 2s initial delay, 2x backoff |
 | **Models used** | gemini-3-flash-preview (triage), gpt-oss (deep), coder (suggestions) |
 
+#### Test 3: Concurrency=2 (Improved Retry)
+
+With more aggressive retry settings tuned for Ollama rate limits:
+
+| Metric | Value |
+|--------|-------|
+| **Files total** | 95 |
+| **Files to process** | 81 (after triage skip) |
+| **Files processed** | 60 (74% success) |
+| **Files skipped** | 21 (rate limits after 5 retries) |
+| **Symbolication time** | 1.9 seconds |
+| **Triage time** | 50.7 seconds |
+| **Concurrency** | 2 parallel files |
+| **Retry config** | 5 retries, 5s initial delay, 2x backoff, 60s max |
+| **Aggregation** | Failed (400 Bad Request - payload too large) |
+
 **Key findings:**
-- Lower concurrency (4 vs 6) allows more files to complete before rate limiting
-- Retry with backoff adds time but allows some rate-limited requests to succeed
+- **Concurrency=2** significantly improves success rate (74% vs 27% with concurrency=4)
+- **Longer retry delays** (5s vs 2s) help avoid rate limits
+- **More retries** (5 vs 3) allow recovery from temporary rate limits
+- Aggregation fails with large payloads (~60 files) - needs batched aggregation
 - The Ollama cloud endpoint has very strict rate limits (~1 request/second)
 
 ### Symbolication Results
@@ -1157,12 +1175,12 @@ Added exponential backoff retry to the Ollama provider (`src/providers/ollama-na
 - `isRetryableError()` - Detect rate limits, network errors, server errors
 - Configurable: maxRetries, initialDelayMs, maxDelayMs, backoffMultiplier, jitter
 
-**Default configuration:**
+**Default configuration (tuned for Ollama rate limits):**
 ```typescript
 {
-  maxRetries: 3,
-  initialDelayMs: 2000,
-  maxDelayMs: 30000,
+  maxRetries: 5,
+  initialDelayMs: 5000,
+  maxDelayMs: 60000,
   backoffMultiplier: 2,
   jitter: true  // 0-25% random variation
 }
@@ -1218,10 +1236,11 @@ The V4 pipeline introduces **codebase symbolication** that provides structural c
 ### Future Work
 1. **Agentic Pipeline Steps** - Give models tool access during analysis
 2. **Budget-Aware Selection** - Track costs and switch models dynamically
-3. ~~**Retry with Backoff**~~ - ✅ Implemented (commit pending)
+3. ~~**Retry with Backoff**~~ - ✅ Implemented
 4. **Cost Tracking per Pipeline** - Detailed cost breakdown by phase
 5. **Incremental Symbolication** - Cache structure, update only changed files
 6. **Adaptive Concurrency** - Auto-reduce concurrency on rate limit detection
+7. **Batched Aggregation** - Split large aggregation requests to avoid 400 errors
 
 The pipeline is now fully functional for **full codebase code review** with intelligent triage, adaptive processing, and structural awareness.
 
