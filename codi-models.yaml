@@ -100,15 +100,15 @@ pipelines:
         prompt: 'Analyze refactoring opportunities: {input}'
         output: analysis
       - name: plan
-        role: capable
+        role: reasoning
         prompt: 'Create refactoring plan based on: {analysis}'
         output: plan
       - name: implement
-        role: capable
+        role: reasoning
         prompt: 'Implement the plan: {plan}'
         output: implementation
       - name: review
-        role: fast
+        role: capable
         prompt: 'Quick review: {implementation}'
         output: review
     result: |-
@@ -129,11 +129,11 @@ pipelines:
         prompt: 'Quick scan for obvious issues: {input}'
         output: quick_issues
       - name: deep-analysis
-        role: capable
+        role: reasoning
         prompt: 'Deep analysis of code quality, architecture, and best practices: {input}\n\nQuick scan found: {quick_issues}'
         output: analysis
       - name: suggestions
-        role: fast
+        role: capable
         prompt: 'Summarize actionable suggestions from: {analysis}'
         output: suggestions
     result: |-
