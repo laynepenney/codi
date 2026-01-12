@@ -556,6 +556,55 @@ Search results for: "TypeScript 5.0 features"
 - `src/tools/web-search.ts` - Web search tool implementation
 - `tests/web-search.test.ts` - Unit tests
 
+#### 17. Multi-Model Orchestration - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features**:
+- Use a separate (cheaper) model for summarization during context compaction
+- CLI options: `--summarize-model` and `--summarize-provider`
+- Config file support via `models.summarize` section
+- Graceful fallback to primary model if secondary unavailable
+- Provider agnostic - secondary can use different provider than primary
+
+**CLI Usage**:
+```bash
+# Use Ollama llama3.2 for summarization (free!)
+codi --summarize-provider ollama --summarize-model llama3.2
+
+# Use Claude Haiku for summarization (cheap)
+codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
+```
+
+**Config File** (`.codi.json`):
+```json
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-20250514",
+  "models": {
+    "summarize": {
+      "provider": "ollama",
+      "model": "llama3.2"
+    }
+  }
+}
+```
+
+**Recommended Combinations**:
+| Use Case | Primary | Summarize |
+|----------|---------|-----------|
+| Cost-conscious | Claude Haiku | Ollama llama3.2 (free) |
+| Balanced | Claude Sonnet | Claude Haiku |
+| Local-first | Ollama deepseek-coder | Ollama llama3.2 |
+| Quality-first | Claude Opus | Claude Sonnet |
+
+**Files**:
+- `src/index.ts` - CLI options
+- `src/config.ts` - Config schema
+- `src/providers/index.ts` - `createSecondaryProvider()` function
+- `src/agent.ts` - `getSummaryProvider()` method
+- `tests/multi-model.test.ts` - Unit tests
+
 #### 15. Code Snippets Library
 **What**: Save and reuse code snippets.
 
@@ -700,6 +749,7 @@ For maximum impact with reasonable effort:
 9. ~~**RAG System** - Semantic code search~~ DONE
 10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
 11. ~~**Web Search** - Search web via DuckDuckGo~~ DONE
+12. ~~**Multi-Model Orchestration** - Use cheaper models for summarization~~ DONE
 
 ## Notes for Contributors
 

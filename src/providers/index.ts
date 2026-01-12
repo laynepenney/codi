@@ -71,6 +71,44 @@ export function createProvider(options: CreateProviderOptions): BaseProvider {
 }
 
 /**
+ * Configuration for creating a secondary provider (e.g., for summarization).
+ */
+export interface SecondaryProviderConfig {
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+}
+
+/**
+ * Create a secondary provider for auxiliary tasks like summarization.
+ * Returns null if no secondary configuration is provided, allowing fallback to primary.
+ */
+export function createSecondaryProvider(config: SecondaryProviderConfig | undefined): BaseProvider | null {
+  if (!config?.provider && !config?.model) {
+    return null; // No secondary config, use primary
+  }
+
+  // If only model is specified, try to detect provider
+  const providerType = config.provider || 'auto';
+
+  if (providerType === 'auto') {
+    // Try to create with auto-detection
+    return detectProvider();
+  }
+
+  try {
+    return createProvider({
+      type: providerType,
+      model: config.model,
+      baseUrl: config.baseUrl,
+    });
+  } catch (error) {
+    console.warn(`Failed to create secondary provider (${providerType}): ${error instanceof Error ? error.message : error}`);
+    return null; // Fallback to primary
+  }
+}
+
+/**
  * Detect the best available provider based on environment.
  */
 export function detectProvider(): BaseProvider {

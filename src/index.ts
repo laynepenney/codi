@@ -41,7 +41,7 @@ function saveToHistory(command: string): void {
 }
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
-import { detectProvider, createProvider } from './providers/index.js';
+import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
 import { globalRegistry, registerDefaultTools } from './tools/index.js';
 import { detectProject, formatProjectContext } from './context.js';
 import {
@@ -110,6 +110,8 @@ program
   .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
   .option('-c, --compress', 'Enable context compression (reduces token usage)')
+  .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
+  .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')
   .parse();
 
 const options = program.opts();
@@ -1274,6 +1276,8 @@ async function main() {
     yes: options.yes,
     tools: options.tools,
     session: options.session,
+    summarizeProvider: options.summarizeProvider,
+    summarizeModel: options.summarizeModel,
   });
 
   // Register tools and commands
@@ -1378,7 +1382,20 @@ async function main() {
     });
   }
 
-  console.log(chalk.dim(`Model: ${provider.getName()} (${provider.getModel()})\n`));
+  console.log(chalk.dim(`Model: ${provider.getName()} (${provider.getModel()})`));
+
+  // Create secondary provider for summarization if configured
+  let secondaryProvider = null;
+  if (resolvedConfig.summarizeProvider || resolvedConfig.summarizeModel) {
+    secondaryProvider = createSecondaryProvider({
+      provider: resolvedConfig.summarizeProvider,
+      model: resolvedConfig.summarizeModel,
+    });
+    if (secondaryProvider) {
+      console.log(chalk.dim(`Summarize model: ${secondaryProvider.getName()} (${secondaryProvider.getModel()})`));
+    }
+  }
+  console.log();
 
   // Create readline interface with history (needed for confirmation prompts)
   const history = loadHistory();
@@ -1464,6 +1481,7 @@ async function main() {
   // Create agent with enhanced system prompt
   const agent = new Agent({
     provider,
+    secondaryProvider,
     toolRegistry: globalRegistry,
     systemPrompt,
     useTools,

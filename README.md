@@ -69,6 +69,8 @@ npm run dev -- --provider runpod --endpoint-id your-endpoint-id
 | `-y, --yes` | Auto-approve all tool operations | Prompt for approval |
 | `-s, --session <name>` | Load a saved session on startup | - |
 | `-c, --compress` | Enable context compression | Disabled |
+| `--summarize-model <name>` | Model for summarization (cheaper model) | Primary model |
+| `--summarize-provider <type>` | Provider for summarization model | Primary provider |
 | `--verbose` | Show tool inputs/outputs with timing | Disabled |
 | `--debug` | Show API details and context info | Disabled |
 | `--trace` | Show full request/response payloads | Disabled |
@@ -432,6 +434,7 @@ See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guideli
 - ~~**RAG System**: Semantic code search using embeddings~~ (Implemented!)
 - ~~**Debug UI**: Spinners and graduated verbosity (--verbose/--debug/--trace)~~ (Implemented!)
 - ~~**Web Search Tool**: Search web via DuckDuckGo~~ (Implemented!)
+- ~~**Multi-Model Orchestration**: Use cheaper models for summarization~~ (Implemented!)
 
 ### Planned Features
 - **Interactive File Selection**: Fuzzy file finder for commands

@@ -59,6 +59,7 @@ export interface AgentOptions {
   logLevel?: LogLevel; // Log level for debug output (replaces debug)
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
+  secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
@@ -72,6 +73,7 @@ export interface AgentOptions {
  */
 export class Agent {
   private provider: BaseProvider;
+  private secondaryProvider: BaseProvider | null = null;
   private toolRegistry: ToolRegistry;
   private systemPrompt: string;
   private useTools: boolean;
@@ -95,6 +97,7 @@ export class Agent {
 
   constructor(options: AgentOptions) {
     this.provider = options.provider;
+    this.secondaryProvider = options.secondaryProvider ?? null;
     this.toolRegistry = options.toolRegistry;
     this.useTools = options.useTools ?? true;
     this.extractToolsFromText = options.extractToolsFromText ?? true;
@@ -130,6 +133,14 @@ export class Agent {
    */
   private shouldAutoApprove(toolName: string): boolean {
     return this.autoApproveAll || this.autoApproveTools.has(toolName);
+  }
+
+  /**
+   * Get the provider to use for summarization.
+   * Returns secondary provider if configured, otherwise falls back to primary.
+   */
+  private getSummaryProvider(): BaseProvider {
+    return this.secondaryProvider ?? this.provider;
   }
 
   private getDefaultSystemPrompt(): string {
@@ -199,8 +210,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
       : oldContent;
 
     try {
-      // Ask the model to create a summary
-      const summaryResponse = await this.provider.streamChat(
+      // Ask the model to create a summary (use secondary provider if configured)
+      const summaryProvider = this.getSummaryProvider();
+      logger.debug(`Using ${summaryProvider.getName()} (${summaryProvider.getModel()}) for summarization`);
+
+      const summaryResponse = await summaryProvider.streamChat(
         [
           {
             role: 'user',
@@ -767,7 +781,9 @@ Always use tools to interact with the filesystem rather than asking the user to 
       : oldContent;
 
     try {
-      const summaryResponse = await this.provider.streamChat(
+      // Use secondary provider for summarization if configured
+      const summaryProvider = this.getSummaryProvider();
+      const summaryResponse = await summaryProvider.streamChat(
         [{
           role: 'user',
           content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,

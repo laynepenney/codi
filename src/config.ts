@@ -64,6 +64,20 @@ export interface WorkspaceConfig {
     };
   };
 
+  /** Multi-model orchestration settings */
+  models?: {
+    /** Primary model configuration (optional - uses CLI/env if not set) */
+    primary?: {
+      provider?: string;
+      model?: string;
+    };
+    /** Model to use for summarization (cheaper model recommended) */
+    summarize?: {
+      provider?: string;
+      model?: string;
+    };
+  };
+
   /** RAG (Retrieval-Augmented Generation) settings */
   rag?: {
     /** Enable RAG code indexing and search */
@@ -108,6 +122,9 @@ export interface ResolvedConfig {
   commandAliases: Record<string, string>;
   projectContext?: string;
   enableCompression: boolean;
+  /** Secondary model for summarization */
+  summarizeProvider?: string;
+  summarizeModel?: string;
 }
 
 /** Default configuration values */
@@ -215,6 +232,8 @@ export function mergeConfig(
     yes?: boolean;
     tools?: boolean;
     session?: string;
+    summarizeProvider?: string;
+    summarizeModel?: string;
   }
 ): ResolvedConfig {
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -234,6 +253,9 @@ export function mergeConfig(
     if (workspaceConfig.commandAliases) config.commandAliases = workspaceConfig.commandAliases;
     if (workspaceConfig.projectContext) config.projectContext = workspaceConfig.projectContext;
     if (workspaceConfig.enableCompression !== undefined) config.enableCompression = workspaceConfig.enableCompression;
+    // Summarize model from workspace config
+    if (workspaceConfig.models?.summarize?.provider) config.summarizeProvider = workspaceConfig.models.summarize.provider;
+    if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
   }
 
   // CLI options override workspace config
@@ -257,6 +279,10 @@ export function mergeConfig(
   if (cliOptions.tools === false) {
     config.noTools = true;
   }
+
+  // CLI summarize model options
+  if (cliOptions.summarizeProvider) config.summarizeProvider = cliOptions.summarizeProvider;
+  if (cliOptions.summarizeModel) config.summarizeModel = cliOptions.summarizeModel;
 
   return config;
 }
@@ -297,6 +323,12 @@ export function getExampleConfig(): string {
     },
     projectContext: '',
     enableCompression: false,
+    models: {
+      summarize: {
+        provider: 'ollama',
+        model: 'llama3.2',
+      },
+    },
     contextOptimization: {
       mergeCaseVariants: true,
       mergeSimilarNames: true,
