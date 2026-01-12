@@ -1545,37 +1545,51 @@ Provide a comprehensive final report:
       ? triageResult.skipPaths.map((f) => ({ file: f, reason: 'low priority' }))
       : [];
 
-    // Phase 2: Process files with enhanced context
+    // Phase 2: Process files with enhanced context (in parallel)
     const processStart = Date.now();
     const fileResults = new Map<string, PipelineResult>();
     const modelsUsed = new Set<string>();
+    const concurrency = options.concurrency ?? 4;
+    const v4Opts = options as V4Options;
 
-    for (let i = 0; i < filesToProcess.length; i++) {
-      const file = filesToProcess[i];
-      callbacks?.onFileStart?.(file, i, filesToProcess.length);
+    // Process files in parallel batches
+    const results = await processInParallel(
+      filesToProcess,
+      async (file, index) => {
+        callbacks?.onFileStart?.(file, index, filesToProcess.length);
 
-      try {
-        // Build enhanced prompt with structure context
-        let enhancedInput: string;
-        const v4Opts = options as V4Options;
-        if (structure && v4Opts.includeNavigationContext !== false) {
-          enhancedInput = this.formatFileInput(file, structure, v4Opts);
-        } else {
-          enhancedInput = file;
+        try {
+          // Build enhanced prompt with structure context
+          let enhancedInput: string;
+          if (structure && v4Opts.includeNavigationContext !== false) {
+            enhancedInput = this.formatFileInput(file, structure, v4Opts);
+          } else {
+            enhancedInput = file;
+          }
+
+          // Execute pipeline for this file
+          const result = await this.execute(pipeline, enhancedInput, {
+            providerContext: options.providerContext,
+          });
+
+          callbacks?.onFileComplete?.(file, result.output);
+          return { file, result, error: null };
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          callbacks?.onError?.(file, error as Error);
+          return { file, result: null, error: errorMsg };
         }
+      },
+      concurrency
+    );
 
-        // Execute pipeline for this file
-        const result = await this.execute(pipeline, enhancedInput, {
-          providerContext: options.providerContext,
-        });
-
-        fileResults.set(file, result);
-        result.modelsUsed.forEach((m) => modelsUsed.add(m));
-        callbacks?.onFileComplete?.(file, result.output);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        skippedFiles.push({ file, reason: errorMsg });
-        callbacks?.onError?.(file, error as Error);
+    // Collect results
+    for (const item of results) {
+      if (item.result) {
+        fileResults.set(item.file, item.result);
+        item.result.modelsUsed.forEach((m) => modelsUsed.add(m));
+      } else if (item.error) {
+        skippedFiles.push({ file: item.file, reason: item.error });
       }
     }
 
