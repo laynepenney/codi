@@ -2158,18 +2158,28 @@ async function main() {
                   // Parse optional flags from parts
                   let providerContext: string | undefined;
                   let iterativeMode = false;
+                  let useV2 = false;
+                  let concurrency = 4;
                   let inputStartIndex = 1;
 
-                  // Check for provider context
-                  if (parts[inputStartIndex]?.startsWith('provider:')) {
-                    providerContext = parts[inputStartIndex].slice('provider:'.length);
-                    inputStartIndex++;
-                  }
-
-                  // Check for iterative mode
-                  if (parts[inputStartIndex]?.startsWith('iterative:')) {
-                    iterativeMode = parts[inputStartIndex].slice('iterative:'.length) === 'true';
-                    inputStartIndex++;
+                  // Parse all optional flags
+                  while (inputStartIndex < parts.length) {
+                    const part = parts[inputStartIndex];
+                    if (part?.startsWith('provider:')) {
+                      providerContext = part.slice('provider:'.length);
+                      inputStartIndex++;
+                    } else if (part?.startsWith('iterative:')) {
+                      iterativeMode = part.slice('iterative:'.length) === 'true';
+                      inputStartIndex++;
+                    } else if (part?.startsWith('v2:')) {
+                      useV2 = part.slice('v2:'.length) === 'true';
+                      inputStartIndex++;
+                    } else if (part?.startsWith('concurrency:')) {
+                      concurrency = parseInt(part.slice('concurrency:'.length), 10) || 4;
+                      inputStartIndex++;
+                    } else {
+                      break; // No more flags, rest is input
+                    }
                   }
 
                   const input = parts.slice(inputStartIndex).join('|');
@@ -2200,57 +2210,129 @@ async function main() {
                       return;
                     }
 
-                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (iterative mode)`));
+                    const modeLabel = useV2 ? 'V2 - grouped + parallel' : 'sequential';
+                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
                     console.log(chalk.dim(`Provider: ${effectiveProvider}`));
                     console.log(chalk.dim(`Files: ${files.length} total`));
+                    if (useV2) {
+                      console.log(chalk.dim(`Concurrency: ${concurrency}`));
+                    }
                     console.log();
 
                     try {
-                      const iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
-                        providerContext: effectiveProvider,
-                        callbacks: {
-                          onFileStart: (file: string, index: number, total: number) => {
-                            console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
-                          },
-                          onFileComplete: (file: string, _result: string) => {
-                            console.log(chalk.green(`  ✓ ${file}`));
-                          },
-                          onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
-                            console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
-                          },
-                          onBatchComplete: (batchIndex: number, _summary: string) => {
-                            console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
-                          },
-                          onMetaAggregationStart: (batchCount: number) => {
-                            console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
-                          },
-                          onAggregationStart: () => {
-                            console.log(chalk.yellow('\nAggregating results...'));
-                          },
-                          onStepStart: (stepName: string, modelName: string) => {
-                            console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                          },
-                          onStepComplete: (stepName: string, _output: string) => {
-                            console.log(chalk.dim(`    ✓ ${stepName}`));
-                          },
-                          onStepText: (_stepName: string, _text: string) => {
-                            // Don't stream text in iterative mode to reduce noise
-                          },
-                          onError: (stepName: string, error: Error) => {
-                            console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                          },
-                        },
-                        aggregation: {
-                          enabled: true,
-                          role: 'capable',
-                          batchSize: 15,  // Aggregate every 15 files
-                        },
-                      });
+                      // Choose V1 or V2 algorithm
+                      const iterativeResult = useV2
+                        ? await modelMap.executor.executeIterativeV2(pipeline, files, {
+                            providerContext: effectiveProvider,
+                            concurrency,
+                            callbacks: {
+                              onGroupingStart: (totalFiles: number) => {
+                                console.log(chalk.yellow(`  📂 Grouping ${totalFiles} files...`));
+                              },
+                              onGroupingComplete: (groups: import('./model-map/types.js').FileGroup[]) => {
+                                console.log(chalk.green(`  ✓ Created ${groups.length} groups`));
+                                for (const g of groups) {
+                                  console.log(chalk.dim(`    - ${g.name}: ${g.files.length} files`));
+                                }
+                              },
+                              onGroupStart: (group: import('./model-map/types.js').FileGroup, index: number, total: number) => {
+                                console.log(chalk.cyan(`\n  📁 [${index + 1}/${total}] ${group.name} (${group.files.length} files)`));
+                              },
+                              onGroupComplete: (group: import('./model-map/types.js').FileGroup, _summary: string) => {
+                                console.log(chalk.green(`  ✓ ${group.name} summarized`));
+                              },
+                              onFileStart: (file: string, _index: number, _total: number) => {
+                                console.log(chalk.dim(`    ▸ ${file}`));
+                              },
+                              onFileComplete: (_file: string, _result: string) => {
+                                // Minimal output in V2 mode
+                              },
+                              onMetaAggregationStart: (groupCount: number) => {
+                                console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${groupCount} group summaries...`));
+                              },
+                              onAggregationStart: () => {
+                                console.log(chalk.yellow('\nFinalizing results...'));
+                              },
+                              onStepStart: (stepName: string, modelName: string) => {
+                                if (stepName.startsWith('group-') || stepName === 'meta-aggregate') {
+                                  console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                                }
+                              },
+                              onStepComplete: (stepName: string, _output: string) => {
+                                if (stepName.startsWith('group-') || stepName === 'meta-aggregate') {
+                                  console.log(chalk.dim(`    ✓ ${stepName}`));
+                                }
+                              },
+                              onStepText: (_stepName: string, _text: string) => {
+                                // Don't stream text in iterative mode
+                              },
+                              onError: (stepName: string, error: Error) => {
+                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                              },
+                            },
+                            grouping: {
+                              strategy: 'hierarchy',
+                              maxGroupSize: 15,
+                            },
+                            aggregation: {
+                              enabled: true,
+                              role: 'capable',
+                            },
+                          })
+                        : await modelMap.executor.executeIterative(pipeline, files, {
+                            providerContext: effectiveProvider,
+                            callbacks: {
+                              onFileStart: (file: string, index: number, total: number) => {
+                                console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
+                              },
+                              onFileComplete: (file: string, _result: string) => {
+                                console.log(chalk.green(`  ✓ ${file}`));
+                              },
+                              onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
+                                console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
+                              },
+                              onBatchComplete: (batchIndex: number, _summary: string) => {
+                                console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
+                              },
+                              onMetaAggregationStart: (batchCount: number) => {
+                                console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
+                              },
+                              onAggregationStart: () => {
+                                console.log(chalk.yellow('\nAggregating results...'));
+                              },
+                              onStepStart: (stepName: string, modelName: string) => {
+                                console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                              },
+                              onStepComplete: (stepName: string, _output: string) => {
+                                console.log(chalk.dim(`    ✓ ${stepName}`));
+                              },
+                              onStepText: (_stepName: string, _text: string) => {
+                                // Don't stream text in iterative mode
+                              },
+                              onError: (stepName: string, error: Error) => {
+                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                              },
+                            },
+                            aggregation: {
+                              enabled: true,
+                              role: 'capable',
+                              batchSize: 15,
+                            },
+                          });
 
                       console.log(chalk.bold.green('\n\nPipeline complete!'));
                       console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
+
+                      // Show V2-specific info
+                      if (iterativeResult.groups && iterativeResult.groups.length > 0) {
+                        console.log(chalk.dim(`Groups: ${iterativeResult.groups.length}`));
+                      }
                       if (iterativeResult.batchSummaries && iterativeResult.batchSummaries.length > 0) {
                         console.log(chalk.dim(`Batches aggregated: ${iterativeResult.batchSummaries.length}`));
+                      }
+                      if (iterativeResult.timing) {
+                        const t = iterativeResult.timing;
+                        console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
                       }
                       console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
 

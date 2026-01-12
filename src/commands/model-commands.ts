@@ -314,7 +314,7 @@ export const pipelineCommand: Command = {
   name: 'pipeline',
   aliases: ['pipe', 'run-pipeline'],
   description: 'Execute a multi-model pipeline',
-  usage: '/pipeline [--provider <context>] [--all] [name] [input]',
+  usage: '/pipeline [--provider <context>] [--all] [--v2] [--concurrency N] [name] [input]',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const agent = context.agent;
@@ -334,27 +334,51 @@ export const pipelineCommand: Command = {
     // Parse flags
     let providerContext: string | undefined;
     let iterativeMode = false;
+    let useV2 = false;
+    let concurrency = 4;
     let remainingArgs = args.trim();
 
-    // Parse --provider flag
-    const providerMatch = remainingArgs.match(/^--provider\s+(\S+)\s*/);
-    if (providerMatch) {
-      providerContext = providerMatch[1];
-      remainingArgs = remainingArgs.slice(providerMatch[0].length);
-    }
+    // Parse all flags (can appear in any order)
+    let foundFlag = true;
+    while (foundFlag) {
+      foundFlag = false;
 
-    // Parse --all or --iterative flag
-    const allMatch = remainingArgs.match(/^(--all|--iterative)\s*/);
-    if (allMatch) {
-      iterativeMode = true;
-      remainingArgs = remainingArgs.slice(allMatch[0].length);
-    }
+      // Parse --provider flag
+      const providerMatch = remainingArgs.match(/^--provider\s+(\S+)\s*/);
+      if (providerMatch) {
+        providerContext = providerMatch[1];
+        remainingArgs = remainingArgs.slice(providerMatch[0].length);
+        foundFlag = true;
+        continue;
+      }
 
-    // Also check if flag appears after --provider
-    const allMatchLate = remainingArgs.match(/^(--all|--iterative)\s*/);
-    if (allMatchLate) {
-      iterativeMode = true;
-      remainingArgs = remainingArgs.slice(allMatchLate[0].length);
+      // Parse --all or --iterative flag
+      const allMatch = remainingArgs.match(/^(--all|--iterative)\s*/);
+      if (allMatch) {
+        iterativeMode = true;
+        remainingArgs = remainingArgs.slice(allMatch[0].length);
+        foundFlag = true;
+        continue;
+      }
+
+      // Parse --v2 flag (use intelligent grouping + parallel processing)
+      const v2Match = remainingArgs.match(/^--v2\s*/);
+      if (v2Match) {
+        useV2 = true;
+        iterativeMode = true; // V2 implies iterative mode
+        remainingArgs = remainingArgs.slice(v2Match[0].length);
+        foundFlag = true;
+        continue;
+      }
+
+      // Parse --concurrency flag
+      const concurrencyMatch = remainingArgs.match(/^--concurrency\s+(\d+)\s*/);
+      if (concurrencyMatch) {
+        concurrency = parseInt(concurrencyMatch[1], 10);
+        remainingArgs = remainingArgs.slice(concurrencyMatch[0].length);
+        foundFlag = true;
+        continue;
+      }
     }
 
     const parts = remainingArgs.split(/\s+/).filter(p => p);
@@ -407,7 +431,9 @@ export const pipelineCommand: Command = {
     // Execute the pipeline with optional provider context and iterative mode
     const providerPart = providerContext ? `|provider:${providerContext}` : '';
     const iterativePart = iterativeMode ? '|iterative:true' : '';
-    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}|${input}`;
+    const v2Part = useV2 ? '|v2:true' : '';
+    const concurrencyPart = concurrency !== 4 ? `|concurrency:${concurrency}` : '';
+    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${v2Part}${concurrencyPart}|${input}`;
   },
 };
 

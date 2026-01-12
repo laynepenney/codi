@@ -18,7 +18,10 @@ import type {
   IterativeOptions,
   IterativeResult,
   AggregationOptions,
+  FileGroup,
+  GroupingOptions,
 } from './types.js';
+import { groupFiles, processInParallel } from './grouping.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
 import { logger } from '../logger.js';
@@ -312,6 +315,288 @@ export class PipelineExecutor {
       skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
       batchSummaries: useBatching && batchSummaries.length > 0 ? batchSummaries : undefined,
     };
+  }
+
+  /**
+   * Execute a pipeline iteratively with intelligent grouping and parallel processing.
+   *
+   * This is an improved version that:
+   * 1. Groups files by directory hierarchy or AI classification
+   * 2. Processes files in parallel within groups
+   * 3. Aggregates per-group, then meta-aggregates groups
+   *
+   * @param pipeline - The pipeline definition
+   * @param files - Array of file paths to process
+   * @param options - Iterative execution options
+   */
+  async executeIterativeV2(
+    pipeline: PipelineDefinition,
+    files: string[],
+    options?: IterativeOptions
+  ): Promise<IterativeResult> {
+    const startTime = Date.now();
+    const callbacks = options?.callbacks;
+    const providerContext = options?.providerContext || pipeline.provider || 'openai';
+    const concurrency = options?.concurrency ?? 4;
+
+    const fileResults = new Map<string, PipelineResult>();
+    const skippedFiles: Array<{ file: string; reason: string }> = [];
+    const allModelsUsed = new Set<string>();
+    const groupSummaries = new Map<string, string>();
+    let filesProcessed = 0;
+
+    // Phase 1: Group files intelligently
+    callbacks?.onGroupingStart?.(files.length);
+    const groupingStartTime = Date.now();
+
+    const groupingOptions: GroupingOptions = options?.grouping ?? {
+      strategy: 'hierarchy',
+      maxGroupSize: 15,
+    };
+
+    const groupingResult = await groupFiles(
+      files,
+      groupingOptions,
+      this.registry,
+      this.router
+    );
+
+    const groups = groupingResult.groups;
+    const groupingTime = Date.now() - groupingStartTime;
+    callbacks?.onGroupingComplete?.(groups);
+
+    logger.info(`Grouped ${files.length} files into ${groups.length} groups in ${groupingTime}ms`);
+
+    // Phase 2: Process each group (with parallel file processing within groups)
+    const processingStartTime = Date.now();
+
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      const group = groups[groupIndex];
+      callbacks?.onGroupStart?.(group, groupIndex, groups.length);
+
+      // Process files in this group in parallel
+      const groupResults = await processInParallel(
+        group.files,
+        async (file, fileIndex) => {
+          const globalIndex = files.indexOf(file);
+          callbacks?.onFileStart?.(file, globalIndex, files.length);
+
+          try {
+            const content = this.readFileContent(file);
+            if (!content) {
+              skippedFiles.push({ file, reason: 'File not found or empty' });
+              return null;
+            }
+
+            const ext = extname(file).slice(1) || 'txt';
+            const formattedInput = `### File: ${file}\n\`\`\`${ext}\n${content}\n\`\`\``;
+
+            const result = await this.execute(pipeline, formattedInput, {
+              providerContext,
+              callbacks: {
+                onStepStart: callbacks?.onStepStart,
+                onStepComplete: callbacks?.onStepComplete,
+                onStepText: callbacks?.onStepText,
+                onError: callbacks?.onError,
+              },
+            });
+
+            callbacks?.onFileComplete?.(file, result.output);
+            return { file, result };
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            skippedFiles.push({ file, reason });
+            logger.warn(`Skipped file ${file}: ${reason}`);
+            return null;
+          }
+        },
+        concurrency
+      );
+
+      // Collect results from this group
+      const groupFileResults = new Map<string, PipelineResult>();
+      for (const item of groupResults) {
+        if (item) {
+          fileResults.set(item.file, item.result);
+          groupFileResults.set(item.file, item.result);
+          item.result.modelsUsed.forEach(m => allModelsUsed.add(m));
+          filesProcessed++;
+        }
+      }
+
+      // Aggregate this group's results
+      if (groupFileResults.size > 0 && options?.aggregation?.enabled !== false) {
+        try {
+          const groupSummary = await this.aggregateGroup(
+            group,
+            groupFileResults,
+            groupIndex,
+            groups.length,
+            providerContext,
+            options?.aggregation,
+            callbacks
+          );
+          groupSummaries.set(group.name, groupSummary);
+          callbacks?.onGroupComplete?.(group, groupSummary);
+        } catch (error) {
+          logger.error(`Group ${group.name} aggregation failed:`, error instanceof Error ? error : new Error(String(error)));
+          groupSummaries.set(group.name, this.formatConcatenatedResults(groupFileResults));
+        }
+      }
+    }
+
+    const processingTime = Date.now() - processingStartTime;
+
+    // Phase 3: Meta-aggregate group summaries
+    let aggregatedOutput: string | undefined;
+    let aggregationTime = 0;
+
+    if (options?.aggregation?.enabled !== false && groupSummaries.size > 0) {
+      callbacks?.onAggregationStart?.();
+      const aggStartTime = Date.now();
+
+      try {
+        callbacks?.onMetaAggregationStart?.(groupSummaries.size);
+        aggregatedOutput = await this.metaAggregateGroups(
+          groups,
+          groupSummaries,
+          filesProcessed,
+          providerContext,
+          options?.aggregation,
+          callbacks
+        );
+      } catch (error) {
+        logger.error('Meta-aggregation failed:', error instanceof Error ? error : new Error(String(error)));
+        // Fall back to concatenated group summaries
+        aggregatedOutput = Array.from(groupSummaries.entries())
+          .map(([name, summary]) => `## ${name}\n\n${summary}`)
+          .join('\n\n---\n\n');
+      }
+
+      aggregationTime = Date.now() - aggStartTime;
+    } else if (fileResults.size > 0) {
+      aggregatedOutput = this.formatConcatenatedResults(fileResults);
+    }
+
+    const totalTime = Date.now() - startTime;
+
+    return {
+      fileResults,
+      aggregatedOutput,
+      filesProcessed,
+      totalFiles: files.length,
+      modelsUsed: Array.from(allModelsUsed),
+      skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
+      groups,
+      groupSummaries,
+      timing: {
+        total: totalTime,
+        grouping: groupingTime,
+        processing: processingTime,
+        aggregation: aggregationTime,
+      },
+    };
+  }
+
+  /**
+   * Aggregate results for a single group of related files.
+   */
+  private async aggregateGroup(
+    group: FileGroup,
+    groupResults: Map<string, PipelineResult>,
+    groupIndex: number,
+    totalGroups: number,
+    providerContext: ProviderContext,
+    aggregationOpts?: AggregationOptions,
+    callbacks?: IterativeCallbacks
+  ): Promise<string> {
+    const role = aggregationOpts?.role || 'capable';
+
+    const resultsText = Array.from(groupResults.entries())
+      .map(([file, result]) => `### ${file}\n${result.output}`)
+      .join('\n\n---\n\n');
+
+    const prompt = `You are summarizing code review results for the "${group.name}" group (${groupIndex + 1}/${totalGroups}).
+This group contains ${groupResults.size} related files${group.description ? `: ${group.description}` : ''}.
+
+${resultsText}
+
+Provide a focused summary for this group:
+1. **Key Issues** - Most important problems in this group
+2. **Patterns** - Recurring issues specific to this area
+3. **Files Needing Attention** - Priority files
+
+Keep the summary under 800 words.`;
+
+    const modelName = this.resolveAggregationModel(role, providerContext, groupResults);
+    callbacks?.onStepStart?.(`group-${group.name}`, modelName);
+
+    const provider = this.registry.getProvider(modelName);
+    let output = '';
+
+    const response = await provider.streamChat(
+      [{ role: 'user', content: prompt }],
+      undefined,
+      (text: string) => {
+        output += text;
+        callbacks?.onStepText?.(`group-${group.name}`, text);
+      }
+    );
+
+    const finalOutput = output || response.content;
+    callbacks?.onStepComplete?.(`group-${group.name}`, finalOutput);
+
+    return finalOutput;
+  }
+
+  /**
+   * Meta-aggregate group summaries into final report.
+   */
+  private async metaAggregateGroups(
+    groups: FileGroup[],
+    groupSummaries: Map<string, string>,
+    totalFilesProcessed: number,
+    providerContext: ProviderContext,
+    aggregationOpts?: AggregationOptions,
+    callbacks?: IterativeCallbacks
+  ): Promise<string> {
+    const role = aggregationOpts?.role || 'capable';
+
+    const summariesText = groups
+      .filter(g => groupSummaries.has(g.name))
+      .map(g => `## ${g.name} (${g.files.length} files)\n\n${groupSummaries.get(g.name)}`)
+      .join('\n\n---\n\n');
+
+    const prompt = `You received code review summaries from ${groups.length} logical groups covering ${totalFilesProcessed} files.
+
+${summariesText}
+
+Synthesize these into a final comprehensive report:
+1. **Critical Issues** - Most important problems across all groups (prioritized)
+2. **Cross-Cutting Patterns** - Issues that appear in multiple groups
+3. **Top 5 Recommendations** - Most impactful improvements
+4. **Priority Areas** - Which groups/files need immediate attention
+5. **Architecture Assessment** - Overall codebase health summary`;
+
+    const modelName = this.resolveAggregationModel(role, providerContext);
+    callbacks?.onStepStart?.('meta-aggregate', modelName);
+
+    const provider = this.registry.getProvider(modelName);
+    let output = '';
+
+    const response = await provider.streamChat(
+      [{ role: 'user', content: prompt }],
+      undefined,
+      (text: string) => {
+        output += text;
+        callbacks?.onStepText?.('meta-aggregate', text);
+      }
+    );
+
+    const finalOutput = output || response.content;
+    callbacks?.onStepComplete?.('meta-aggregate', finalOutput);
+
+    return finalOutput;
   }
 
   /**

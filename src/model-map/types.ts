@@ -187,6 +187,50 @@ export const DEFAULT_COMMAND_TASKS: Record<string, TaskType> = {
 };
 
 // ============================================================================
+// Intelligent File Grouping Types
+// ============================================================================
+
+/**
+ * A group of related files for batch processing.
+ */
+export interface FileGroup {
+  /** Group name (e.g., "commands", "providers", "tools") */
+  name: string;
+  /** Files in this group */
+  files: string[];
+  /** How the group was determined */
+  source: 'hierarchy' | 'ai-classified' | 'manual';
+  /** Optional description of what this group contains */
+  description?: string;
+}
+
+/**
+ * Options for file grouping.
+ */
+export interface GroupingOptions {
+  /** Strategy for grouping files */
+  strategy: 'hierarchy' | 'ai' | 'hybrid';
+  /** Maximum files per group (default: 15) */
+  maxGroupSize?: number;
+  /** Minimum files to trigger AI classification for flat directories */
+  aiThreshold?: number;
+  /** Provider context for AI classification */
+  providerContext?: ProviderContext;
+}
+
+/**
+ * Result of file grouping operation.
+ */
+export interface GroupingResult {
+  /** Groups of related files */
+  groups: FileGroup[];
+  /** Total files grouped */
+  totalFiles: number;
+  /** How long grouping took (ms) */
+  duration?: number;
+}
+
+// ============================================================================
 // Iterative Pipeline Execution Types
 // ============================================================================
 
@@ -220,6 +264,14 @@ export interface IterativeCallbacks extends PipelineCallbacks {
   onBatchComplete?: (batchIndex: number, summary: string) => void;
   /** Called when meta-aggregation starts (combining batch summaries) */
   onMetaAggregationStart?: (batchCount: number) => void;
+  /** Called when file grouping starts */
+  onGroupingStart?: (totalFiles: number) => void;
+  /** Called when file grouping completes */
+  onGroupingComplete?: (groups: FileGroup[]) => void;
+  /** Called when a group starts processing */
+  onGroupStart?: (group: FileGroup, index: number, total: number) => void;
+  /** Called when a group completes processing */
+  onGroupComplete?: (group: FileGroup, summary: string) => void;
 }
 
 /**
@@ -252,6 +304,10 @@ export interface IterativeOptions {
   aggregation?: AggregationOptions;
   /** Number of files to process in parallel (default: 1) */
   concurrency?: number;
+  /** File grouping configuration */
+  grouping?: GroupingOptions;
+  /** Use two-phase pipeline: fast scan all, deep analysis on flagged only */
+  twoPhase?: boolean;
 }
 
 /**
@@ -272,4 +328,19 @@ export interface IterativeResult {
   skippedFiles?: Array<{ file: string; reason: string }>;
   /** Batch summaries (when batched aggregation is used) */
   batchSummaries?: string[];
+  /** File groups (when intelligent grouping is used) */
+  groups?: FileGroup[];
+  /** Group summaries (when group-based aggregation is used) */
+  groupSummaries?: Map<string, string>;
+  /** Execution timing stats */
+  timing?: {
+    /** Total execution time (ms) */
+    total: number;
+    /** Time spent on grouping (ms) */
+    grouping?: number;
+    /** Time spent on file processing (ms) */
+    processing: number;
+    /** Time spent on aggregation (ms) */
+    aggregation?: number;
+  };
 }

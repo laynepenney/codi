@@ -40,6 +40,15 @@ export {
   type PipelineExecuteOptions,
 } from './executor.js';
 
+// Grouping
+export {
+  groupFiles,
+  groupByHierarchy,
+  groupByAI,
+  groupHybrid,
+  processInParallel,
+} from './grouping.js';
+
 // --- Convenience functions ---
 
 import { loadModelMap, validateModelMap } from './loader.js';
