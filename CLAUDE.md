@@ -605,9 +605,9 @@ codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
 - `src/agent.ts` - `getSummaryProvider()` method
 - `tests/multi-model.test.ts` - Unit tests
 
-#### 18. Model Map (Multi-Model Orchestration) - MOSTLY COMPLETE
+#### 18. Model Map (Multi-Model Orchestration) - COMPLETE
 
-**Status**: Phase 1-3 Complete (Core Infrastructure, Command Routing, Pipelines)
+**Status**: Complete (Phases 1-3 + Model Roles)
 
 **Key Features** (in `src/model-map/`):
 - Docker-compose style configuration for multi-model orchestration
@@ -616,6 +616,7 @@ codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
 - Per-command model overrides
 - Fallback chains for reliability
 - Pipeline definitions for multi-step workflows
+- **Model Roles**: Provider-agnostic role mappings for portable pipelines
 - Lazy provider instantiation with connection pooling
 
 **Config File** (`codi-models.yaml`):
@@ -629,6 +630,12 @@ models:
   sonnet:
     provider: anthropic
     model: claude-sonnet-4-20250514
+  gpt-5-nano:
+    provider: openai
+    model: gpt-5-nano
+  gpt-5:
+    provider: openai
+    model: gpt-5.2
   local:
     provider: ollama
     model: llama3.2
@@ -652,7 +659,19 @@ commands:
 fallbacks:
   primary: [sonnet, haiku, local]
 
+# Model roles map abstract roles to concrete models per provider
+model-roles:
+  fast:
+    anthropic: haiku
+    openai: gpt-5-nano
+    ollama-local: local
+  capable:
+    anthropic: sonnet
+    openai: gpt-5
+    ollama-local: local
+
 pipelines:
+  # Direct model references
   smart-refactor:
     steps:
       - name: analyze
@@ -664,6 +683,33 @@ pipelines:
         prompt: "Implement based on: {analysis}"
         output: result
     result: "{result}"
+
+  # Provider-agnostic pipeline using roles
+  code-review:
+    description: "Multi-step code review"
+    provider: openai  # default provider
+    steps:
+      - name: scan
+        role: fast        # resolves based on --provider
+        prompt: "Quick scan: {input}"
+        output: issues
+      - name: analyze
+        role: capable     # resolves based on --provider
+        prompt: "Deep analysis: {issues}"
+        output: analysis
+    result: "{analysis}"
+```
+
+**Model Roles Usage**:
+```bash
+# Uses default provider (openai) - gpt-5-nano and gpt-5
+/pipeline code-review src/file.ts
+
+# Uses anthropic models - haiku and sonnet
+/pipeline --provider anthropic code-review src/file.ts
+
+# Uses local ollama models
+/pipeline --provider ollama-local code-review src/file.ts
 ```
 
 **Implemented Commands**:
@@ -674,19 +720,20 @@ pipelines:
 | `/modelmap init` | - | Create a new codi-models.yaml file |
 | `/modelmap example` | - | Show example configuration |
 | `/pipeline [name] [input]` | `/pipe` | Execute or list multi-model pipelines |
+| `/pipeline --provider <ctx> [name] [input]` | - | Execute pipeline with specific provider context |
 
 **Architecture**:
 - `ModelMapLoader` - Load/validate YAML config
 - `ModelRegistry` - Lazy provider instantiation with pooling (max 5, 5-min idle)
-- `TaskRouter` - Route tasks/commands to models or pipelines
-- `PipelineExecutor` - Execute multi-step pipelines with variable substitution
+- `TaskRouter` - Route tasks/commands to models or pipelines, resolve roles
+- `PipelineExecutor` - Execute multi-step pipelines with variable substitution and role resolution
 
 **Files**:
-- `src/model-map/types.ts` - Type definitions
+- `src/model-map/types.ts` - Type definitions (including ProviderContext, RoleMapping, ModelRoles)
 - `src/model-map/loader.ts` - YAML loading and validation
 - `src/model-map/registry.ts` - Provider pool management
-- `src/model-map/router.ts` - Task/command routing
-- `src/model-map/executor.ts` - Pipeline execution
+- `src/model-map/router.ts` - Task/command routing and role resolution
+- `src/model-map/executor.ts` - Pipeline execution with role support
 - `src/model-map/index.ts` - Module exports
 - `tests/model-map.test.ts` - 38 unit tests
 
@@ -695,6 +742,8 @@ pipelines:
 - [x] `/pipeline` command for manual pipeline execution
 - [x] Pipeline execution via command routing (commands with `pipeline` config)
 - [x] Task-based model routing (fast, code, complex, summarize)
+- [x] Model roles for provider-agnostic pipelines
+- [x] `--provider` flag for pipeline execution
 
 **Remaining Work (Phase 4)**:
 - [ ] Config hot-reload support (watch file changes)

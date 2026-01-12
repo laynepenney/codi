@@ -172,6 +172,19 @@ Examples:
 - `/profile set preferences.language TypeScript`
 - `/memories react` - Search for memories about React
 
+### Model Map Commands
+
+| Command | Description |
+|---------|-------------|
+| `/modelmap` | Show current model map configuration |
+| `/modelmap init` | Create a new `codi-models.yaml` file |
+| `/modelmap example` | Show example configuration |
+| `/pipeline` | List available pipelines |
+| `/pipeline <name> <input>` | Execute a pipeline |
+| `/pipeline --provider <ctx> <name> <input>` | Execute pipeline with specific provider |
+
+Model Map provides Docker-compose style multi-model orchestration via `codi-models.yaml`. See [Model Map](#model-map-multi-model-orchestration) for details.
+
 ### Import Commands
 
 | Command | Description |
@@ -435,14 +448,117 @@ See [CLAUDE.md](./CLAUDE.md) for detailed feature ideas and contribution guideli
 - ~~**Debug UI**: Spinners and graduated verbosity (--verbose/--debug/--trace)~~ (Implemented!)
 - ~~**Web Search Tool**: Search web via DuckDuckGo~~ (Implemented!)
 - ~~**Multi-Model Orchestration**: Use cheaper models for summarization~~ (Implemented!)
-- **Model Map**: Docker-compose style multi-model config (`codi-models.yaml`) (Phase 1 Complete - `/modelmap` command)
+- ~~**Model Map**: Docker-compose style multi-model config with pipelines and model roles~~ (Implemented!)
 
 ### Planned Features
-- **Model Map Phase 2-4**: Pipeline execution, automatic task routing, hot-reload
 - **Interactive File Selection**: Fuzzy file finder for commands
 - **Parallel Tool Execution**: Run independent tools concurrently
 - **Code Snippets Library**: Save and reuse code snippets
 - **Multi-file Refactoring**: Coordinated changes across files
+
+## Model Map (Multi-Model Orchestration)
+
+Model Map provides Docker-compose style configuration for multi-model workflows. Create a `codi-models.yaml` file in your project root:
+
+```yaml
+version: "1"
+
+# Named model definitions
+models:
+  haiku:
+    provider: anthropic
+    model: claude-3-5-haiku-latest
+  sonnet:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  gpt-5-nano:
+    provider: openai
+    model: gpt-5-nano
+  gpt-5:
+    provider: openai
+    model: gpt-5.2
+  local:
+    provider: ollama
+    model: llama3.2
+
+# Task categories with model assignments
+tasks:
+  fast:
+    model: haiku
+  code:
+    model: sonnet
+  complex:
+    model: sonnet
+
+# Per-command model overrides
+commands:
+  commit:
+    task: fast
+  fix:
+    task: complex
+
+# Fallback chains
+fallbacks:
+  primary: [sonnet, haiku, local]
+
+# Model roles for provider-agnostic pipelines
+model-roles:
+  fast:
+    anthropic: haiku
+    openai: gpt-5-nano
+    ollama-local: local
+  capable:
+    anthropic: sonnet
+    openai: gpt-5
+    ollama-local: local
+
+# Multi-model pipelines
+pipelines:
+  code-review:
+    description: "Multi-step code review"
+    provider: openai  # default provider
+    steps:
+      - name: scan
+        role: fast        # uses role, resolved per provider
+        prompt: "Quick scan for issues: {input}"
+        output: issues
+      - name: analyze
+        role: capable     # uses role, resolved per provider
+        prompt: "Deep analysis based on: {issues}"
+        output: analysis
+    result: "{analysis}"
+```
+
+### Using Model Roles
+
+Model roles allow you to create provider-agnostic pipelines. The same pipeline works with any provider:
+
+```bash
+# Uses openai models (gpt-5-nano for 'fast', gpt-5 for 'capable')
+/pipeline code-review src/file.ts
+
+# Uses anthropic models (haiku for 'fast', sonnet for 'capable')
+/pipeline --provider anthropic code-review src/file.ts
+
+# Uses local ollama models
+/pipeline --provider ollama-local code-review src/file.ts
+```
+
+### Pipeline Commands
+
+```bash
+# List available pipelines
+/pipeline
+
+# Show pipeline details
+/pipeline code-review
+
+# Execute a pipeline
+/pipeline code-review src/agent.ts
+
+# Execute with specific provider
+/pipeline --provider anthropic code-review src/agent.ts
+```
 
 ## Contributing
 
