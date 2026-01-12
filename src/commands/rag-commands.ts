@@ -80,6 +80,7 @@ Examples:
   /index --clear   - Clear and rebuild from scratch
   /index --status  - Show current indexing status`,
 
+  taskType: 'background',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     if (!indexer) {
       return `RAG system is not enabled.
@@ -146,6 +147,7 @@ Examples:
   /rag config    - Show configuration
   /rag files     - List indexed files`,
 
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const action = args.trim().toLowerCase();
 

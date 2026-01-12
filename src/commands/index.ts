@@ -5,6 +5,7 @@ export interface Command {
   aliases?: string[];
   description: string;
   usage: string;
+  taskType?: string; // Task type for model map routing
   execute: (args: string, context: CommandContext) => Promise<string | null>;
 }
 

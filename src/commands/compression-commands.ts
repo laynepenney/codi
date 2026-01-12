@@ -14,6 +14,7 @@ export const compressCommand: Command = {
   aliases: ['compression'],
   description: 'Manage context compression',
   usage: '/compress [on|off|status|--preview]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     if (!context.agent) {
       return 'COMPRESS_ERROR:No agent available';

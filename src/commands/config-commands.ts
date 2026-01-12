@@ -17,6 +17,7 @@ export const configCommand: Command = {
   aliases: ['cfg'],
   description: 'View or initialize workspace configuration',
   usage: '/config [init|show|example]',
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string> => {
     const action = args.trim().split(/\s+/)[0] || 'show';
 

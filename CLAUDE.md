@@ -605,9 +605,9 @@ codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
 - `src/agent.ts` - `getSummaryProvider()` method
 - `tests/multi-model.test.ts` - Unit tests
 
-#### 18. Model Map (Multi-Model Orchestration) - PARTIAL
+#### 18. Model Map (Multi-Model Orchestration) - MOSTLY COMPLETE
 
-**Status**: Phase 1 Complete (Core Infrastructure)
+**Status**: Phase 1-3 Complete (Core Infrastructure, Command Routing, Pipelines)
 
 **Key Features** (in `src/model-map/`):
 - Docker-compose style configuration for multi-model orchestration
@@ -673,12 +673,13 @@ pipelines:
 | `/modelmap` | `/mm` | Show current model map configuration |
 | `/modelmap init` | - | Create a new codi-models.yaml file |
 | `/modelmap example` | - | Show example configuration |
+| `/pipeline [name] [input]` | `/pipe` | Execute or list multi-model pipelines |
 
 **Architecture**:
 - `ModelMapLoader` - Load/validate YAML config
 - `ModelRegistry` - Lazy provider instantiation with pooling (max 5, 5-min idle)
-- `TaskRouter` - Route tasks/commands to models
-- `PipelineExecutor` - Execute multi-step pipelines (infrastructure only)
+- `TaskRouter` - Route tasks/commands to models or pipelines
+- `PipelineExecutor` - Execute multi-step pipelines with variable substitution
 
 **Files**:
 - `src/model-map/types.ts` - Type definitions
@@ -689,11 +690,14 @@ pipelines:
 - `src/model-map/index.ts` - Module exports
 - `tests/model-map.test.ts` - 38 unit tests
 
-**Remaining Work (Phase 2-4)**:
-- [ ] Add `taskType` to Command interface for automatic routing
-- [ ] Implement `/pipeline` command for manual pipeline execution
-- [ ] Wire pipeline execution into agent for automatic use
-- [ ] Config hot-reload support
+**Completed Features**:
+- [x] `taskType` on Command interface for automatic routing
+- [x] `/pipeline` command for manual pipeline execution
+- [x] Pipeline execution via command routing (commands with `pipeline` config)
+- [x] Task-based model routing (fast, code, complex, summarize)
+
+**Remaining Work (Phase 4)**:
+- [ ] Config hot-reload support (watch file changes)
 - [ ] Cost tracking per model/pipeline
 
 #### 15. Code Snippets Library

@@ -5,6 +5,7 @@ export const newCommand: Command = {
   aliases: ['create'],
   description: 'Create a new component, file, or feature',
   usage: '/new <type> <name>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       const types = context.projectInfo?.type === 'node'
@@ -63,6 +64,7 @@ export const scaffoldCommand: Command = {
   aliases: ['init'],
   description: 'Scaffold a new feature with multiple files',
   usage: '/scaffold <feature_name>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Usage: /scaffold <feature_name>\n\nExample: /scaffold user-authentication';
@@ -102,6 +104,7 @@ export const migrateCommand: Command = {
   name: 'migrate',
   description: 'Help migrate code between patterns or versions',
   usage: '/migrate <from> <to> [file_path]',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return `Usage: /migrate <from> <to> [file_path]
@@ -139,6 +142,7 @@ export const debugCommand: Command = {
   aliases: ['investigate'],
   description: 'Help debug an issue',
   usage: '/debug <description>',
+  taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please describe the issue: /debug <description>\n\nExample: /debug "TypeError: Cannot read property x of undefined in UserList component"';
@@ -163,6 +167,7 @@ export const setupCommand: Command = {
   name: 'setup',
   description: 'Help set up or configure project tooling',
   usage: '/setup <tool>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return `Usage: /setup <tool>

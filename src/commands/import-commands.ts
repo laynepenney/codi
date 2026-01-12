@@ -41,6 +41,7 @@ Examples:
   /import conversations.json all --summary
   /import conversations.json 0
   /import conversations.json 1,5,12 --summary`,
+  taskType: 'complex',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const parts = args.trim().split(/\s+/);
 

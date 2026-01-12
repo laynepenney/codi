@@ -20,14 +20,14 @@ models:
     provider: ollama-native
     model: qwen3-coder:480b-cloud
     description: Cloud coder
-  gpt-5-pro:
+  gpt-4o-mini:
     provider: openai
-    model: gpt-5.2-pro-2025-12-11
-    description: pro
-  gpt-5-codex-max:
+    model: gpt-4o-mini
+    description: Fast, cheap OpenAI model
+  gpt-4o:
     provider: openai
-    model: gpt-5.1-codex-max
-    description: codex max
+    model: gpt-4o
+    description: Capable OpenAI model
   qwen3-lite:
     provider: ollama-native
     model: qwen3:8b
@@ -40,7 +40,7 @@ tasks:
     model: coder
     description: Standard coding tasks
   complex:
-    model: gpt-5-codex-max
+    model: gpt-4o
     description: Architecture, debugging
   summarize:
     model: llama3
@@ -64,19 +64,19 @@ pipelines:
     description: Analyze, plan, implement, review
     steps:
       - name: analyze
-        model: haiku
+        model: gpt-4o-mini
         prompt: 'Analyze refactoring opportunities: {input}'
         output: analysis
       - name: plan
-        model: sonnet
+        model: gpt-4o
         prompt: 'Create refactoring plan based on: {analysis}'
         output: plan
       - name: implement
-        model: sonnet
+        model: gpt-4o
         prompt: 'Implement the plan: {plan}'
         output: implementation
       - name: review
-        model: haiku
+        model: gpt-4o-mini
         prompt: 'Quick review: {implementation}'
         output: review
     result: |-

@@ -21,6 +21,7 @@ export const usageCommand: Command = {
   aliases: ['cost', 'tokens'],
   description: 'Show API usage and cost statistics',
   usage: '/usage [session|today|week|month|all|reset|clear]',
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string> => {
     const trimmed = args.trim().toLowerCase();
 

@@ -206,6 +206,26 @@ export class Agent {
     return this.modelMap;
   }
 
+  /**
+   * Get the provider to use for a chat, potentially routing via model map.
+   * @param taskType - Optional task type for routing (e.g., 'fast', 'code', 'complex')
+   */
+  private getProviderForChat(taskType?: string): BaseProvider {
+    if (taskType && this.modelMap) {
+      try {
+        const result = this.modelMap.router.routeTask(taskType);
+        if (result.type === 'model') {
+          const provider = this.modelMap.registry.getProvider(result.model.name);
+          logger.debug(`Using ${provider.getName()} (${provider.getModel()}) for task type "${taskType}"`);
+          return provider;
+        }
+      } catch (error) {
+        logger.debug(`Failed to route task type "${taskType}", using primary provider: ${error}`);
+      }
+    }
+    return this.provider;
+  }
+
   private getDefaultSystemPrompt(): string {
     return `You are a helpful AI coding assistant. You have access to tools that allow you to read and write files, and execute bash commands.
 
@@ -329,10 +349,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
   /**
    * Process a user message and return the final assistant response.
    * This runs the full agentic loop until the model stops calling tools.
+   *
+   * @param userMessage - The user's message
+   * @param options - Optional settings including taskType for model routing
    */
-  async chat(userMessage: string): Promise<string> {
+  async chat(userMessage: string, options?: { taskType?: string }): Promise<string> {
     // Store original task for continuation prompts
     const originalTask = userMessage;
+
+    // Determine which provider to use for this chat
+    const chatProvider = this.getProviderForChat(options?.taskType);
 
     // Add user message to history
     this.messages.push({
@@ -351,7 +377,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       iterations++;
 
       // Get tool definitions if provider supports them and tools are enabled
-      const tools = (this.useTools && this.provider.supportsToolUse())
+      const tools = (this.useTools && chatProvider.supportsToolUse())
         ? this.toolRegistry.getDefinitions()
         : undefined;
 
@@ -382,12 +408,12 @@ Always use tools to interact with the filesystem rather than asking the user to 
       }
 
       // Log API request at appropriate level
-      logger.apiRequest(this.provider.getModel(), messagesToSend.length, !!tools);
-      logger.apiRequestFull(this.provider.getModel(), messagesToSend, tools, systemContext);
+      logger.apiRequest(chatProvider.getModel(), messagesToSend.length, !!tools);
+      logger.apiRequestFull(chatProvider.getModel(), messagesToSend, tools, systemContext);
 
       // Call the model with streaming (using native system prompt support)
       const apiStartTime = Date.now();
-      const response = await this.provider.streamChat(
+      const response = await chatProvider.streamChat(
         messagesToSend,
         tools,
         this.callbacks.onText,
@@ -412,7 +438,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // Record usage for cost tracking
       if (response.usage) {
-        recordUsage(this.provider.getName(), this.provider.getModel(), response.usage);
+        recordUsage(chatProvider.getName(), chatProvider.getModel(), response.usage);
       }
 
       // Call reasoning callback if reasoning content is present (e.g., from DeepSeek-R1)

@@ -5,6 +5,7 @@ export const explainCommand: Command = {
   aliases: ['e'],
   description: 'Explain code from a file or selection',
   usage: '/explain <file_path> [function_name]',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /explain <file_path> [function_name]';
@@ -33,6 +34,7 @@ export const refactorCommand: Command = {
   aliases: ['r'],
   description: 'Suggest refactoring improvements for code',
   usage: '/refactor <file_path> [focus_area]',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /refactor <file_path> [focus_area]';
@@ -67,6 +69,7 @@ export const fixCommand: Command = {
   aliases: ['f'],
   description: 'Fix bugs or issues in code',
   usage: '/fix <file_path> <issue_description>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path and issue: /fix <file_path> <issue_description>';
@@ -97,6 +100,7 @@ export const testCommand: Command = {
   aliases: ['t'],
   description: 'Generate tests for code',
   usage: '/test <file_path> [function_name]',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /test <file_path> [function_name]';
@@ -138,6 +142,7 @@ export const reviewCommand: Command = {
   aliases: ['cr'],
   description: 'Code review for a file',
   usage: '/review <file_path>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /review <file_path>';
@@ -164,6 +169,7 @@ export const docCommand: Command = {
   aliases: ['d'],
   description: 'Generate documentation for code',
   usage: '/doc <file_path_or_pattern>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /doc <file_path>';
@@ -222,6 +228,7 @@ export const optimizeCommand: Command = {
   aliases: ['opt'],
   description: 'Optimize code for performance',
   usage: '/optimize <file_path>',
+  taskType: 'code',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     if (!args.trim()) {
       return 'Please provide a file path: /optimize <file_path>';

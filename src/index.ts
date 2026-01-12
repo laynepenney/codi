@@ -1053,6 +1053,75 @@ function handleModelMapOutput(output: string): void {
 }
 
 /**
+ * Handle pipeline command output messages.
+ * Note: __PIPELINE_EXECUTE__ is handled separately in the main loop.
+ */
+function handlePipelineOutput(output: string): void {
+  const lines = output.split('\n');
+  const firstLine = lines[0];
+
+  if (firstLine.startsWith('__PIPELINE_ERROR__|')) {
+    const error = firstLine.slice('__PIPELINE_ERROR__|'.length);
+    console.log(chalk.red(`\nPipeline error: ${error}`));
+    return;
+  }
+
+  if (firstLine === '__PIPELINE_LIST__') {
+    console.log(chalk.bold('\nAvailable Pipelines:'));
+    console.log();
+
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split('|');
+      if (parts[0] === 'pipeline') {
+        const [, name, stepCount, models, desc] = parts;
+        console.log(`  ${chalk.magenta.bold(name)}`);
+        console.log(chalk.dim(`    ${stepCount} steps using: ${models}`));
+        if (desc) {
+          console.log(chalk.dim(`    ${desc}`));
+        }
+        console.log();
+      }
+    }
+
+    console.log(chalk.dim('Run a pipeline with: /pipeline <name> <input>'));
+    return;
+  }
+
+  if (firstLine.startsWith('__PIPELINE_INFO__|')) {
+    const name = firstLine.slice('__PIPELINE_INFO__|'.length);
+    console.log(chalk.bold.magenta(`\nPipeline: ${name}`));
+    console.log();
+
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split('|');
+      const type = parts[0];
+
+      switch (type) {
+        case 'description':
+          console.log(chalk.dim(`Description: ${parts[1]}`));
+          break;
+        case 'steps':
+          console.log(chalk.bold(`\nSteps (${parts[1]}):`));
+          break;
+        case 'step':
+          console.log(`  ${chalk.cyan(parts[1])} → model: ${chalk.yellow(parts[2])}, output: ${chalk.green(parts[3])}`);
+          break;
+        case 'result':
+          console.log(chalk.dim(`\nResult template: ${parts[1]}`));
+          break;
+        case 'usage':
+          console.log(chalk.dim(`\n${parts[1]}`));
+          break;
+      }
+    }
+    return;
+  }
+
+  // Fallback
+  console.log(output);
+}
+
+/**
  * Handle import command output messages.
  */
 function handleImportOutput(output: string): void {
@@ -1866,6 +1935,65 @@ async function main() {
                 rl.prompt();
                 return;
               }
+              // Handle pipeline command outputs
+              if (result.startsWith('__PIPELINE_')) {
+                // Special case: actually execute the pipeline
+                if (result.startsWith('__PIPELINE_EXECUTE__|')) {
+                  const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
+                  const pipelineName = parts[0];
+                  const input = parts.slice(1).join('|');
+                  const modelMap = agent.getModelMap();
+
+                  if (!modelMap) {
+                    console.log(chalk.red('\nPipeline error: No model map loaded'));
+                    rl.prompt();
+                    return;
+                  }
+
+                  const pipeline = modelMap.config.pipelines?.[pipelineName];
+                  if (!pipeline) {
+                    console.log(chalk.red(`\nPipeline error: Unknown pipeline "${pipelineName}"`));
+                    rl.prompt();
+                    return;
+                  }
+
+                  console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
+                  console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
+                  console.log();
+
+                  try {
+                    const pipelineResult = await modelMap.executor.execute(pipeline, input, {
+                      onStepStart: (stepName: string, modelName: string) => {
+                        console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
+                      },
+                      onStepComplete: (stepName: string, _output: string) => {
+                        console.log(chalk.green(`  ✓ ${stepName} complete`));
+                      },
+                      onStepText: (_stepName: string, text: string) => {
+                        process.stdout.write(chalk.dim(text));
+                      },
+                      onError: (stepName: string, error: Error) => {
+                        console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                      },
+                    });
+
+                    console.log(chalk.bold.green('\n\nPipeline complete!'));
+                    console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')}`));
+                    console.log(chalk.bold('\nResult:'));
+                    console.log(pipelineResult.output);
+                  } catch (error) {
+                    console.log(chalk.red(`\nPipeline execution failed: ${error instanceof Error ? error.message : String(error)}`));
+                  }
+
+                  rl.prompt();
+                  return;
+                }
+
+                // Other pipeline outputs (list, info, error)
+                handlePipelineOutput(result);
+                rl.prompt();
+                return;
+              }
               // Handle import command outputs
               if (result.startsWith('__IMPORT_')) {
                 handleImportOutput(result);
@@ -1886,12 +2014,54 @@ async function main() {
               }
               // Clear history for slash commands - they should start fresh
               agent.clearHistory();
+
+              // Check if command has a pipeline override in model map
+              const modelMap = agent.getModelMap();
+              if (modelMap) {
+                try {
+                  const routing = modelMap.router.routeCommand(command.name);
+                  if (routing.type === 'pipeline') {
+                    // Execute pipeline instead of sending to agent
+                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${routing.pipelineName}`));
+                    console.log(chalk.dim(`Input: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`));
+                    console.log();
+
+                    const startTime = Date.now();
+                    const pipelineResult = await modelMap.executor.execute(routing.pipeline, result, {
+                      onStepStart: (stepName: string, modelName: string) => {
+                        console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
+                      },
+                      onStepComplete: (stepName: string, _output: string) => {
+                        console.log(chalk.green(`  ✓ ${stepName} complete`));
+                      },
+                      onStepText: (_stepName: string, text: string) => {
+                        process.stdout.write(chalk.dim(text));
+                      },
+                      onError: (stepName: string, error: Error) => {
+                        console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                      },
+                    });
+
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                    console.log(chalk.bold.green('\n\nPipeline complete!'));
+                    console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')} (${elapsed}s)`));
+                    console.log(chalk.bold('\nResult:'));
+                    console.log(pipelineResult.output);
+                    rl.prompt();
+                    return;
+                  }
+                } catch (routingError) {
+                  // Routing failed, fall through to normal chat
+                  logger.debug(`Command routing failed: ${routingError instanceof Error ? routingError.message : String(routingError)}`);
+                }
+              }
+
               // Command returned a prompt - send to agent
               console.log(chalk.bold.magenta('\nAssistant: '));
               isStreaming = false;
               spinner.thinking();
               const startTime = Date.now();
-              await agent.chat(result);
+              await agent.chat(result, { taskType: command.taskType });
               const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
               console.log(chalk.dim(`\n(${elapsed}s)`));
             }

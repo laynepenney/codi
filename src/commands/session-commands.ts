@@ -36,6 +36,7 @@ export const saveCommand: Command = {
   name: 'save',
   description: 'Save current conversation to a session',
   usage: '/save [name]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     if (!context.agent) {
       return null; // Will show error message in index.ts
@@ -68,6 +69,7 @@ export const loadCommand: Command = {
   name: 'load',
   description: 'Load a saved conversation session',
   usage: '/load <name>',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     if (!context.agent) {
       return null;
@@ -123,6 +125,7 @@ export const sessionsCommand: Command = {
   aliases: ['session'],
   description: 'List or manage saved sessions',
   usage: '/sessions [list|delete <name>|info <name>|clear]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     const parts = args.trim().split(/\s+/);
     const action = parts[0]?.toLowerCase() || 'list';

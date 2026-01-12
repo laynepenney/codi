@@ -5,6 +5,7 @@ export const commitCommand: Command = {
   aliases: ['ci'],
   description: 'Generate a commit message and create a commit',
   usage: '/commit [type]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const commitType = args.trim().toLowerCase();
 
@@ -50,6 +51,7 @@ export const branchCommand: Command = {
   aliases: ['br'],
   description: 'Create, switch, or manage git branches',
   usage: '/branch [action] [name]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const parts = args.trim().split(/\s+/);
     const action = parts[0]?.toLowerCase() || 'list';
@@ -132,6 +134,7 @@ export const diffCommand: Command = {
   name: 'diff',
   description: 'Show and explain git differences',
   usage: '/diff [file|branch|commit]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const target = args.trim();
 
@@ -179,6 +182,7 @@ export const prCommand: Command = {
   aliases: ['pull-request'],
   description: 'Help create a pull request',
   usage: '/pr [base-branch]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const baseBranch = args.trim() || 'main';
 
@@ -223,6 +227,7 @@ export const stashCommand: Command = {
   name: 'stash',
   description: 'Manage git stash',
   usage: '/stash [action] [name]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const parts = args.trim().split(/\s+/);
     const action = parts[0]?.toLowerCase() || 'save';
@@ -302,6 +307,7 @@ export const logCommand: Command = {
   aliases: ['history'],
   description: 'Show and explain git history',
   usage: '/log [file|branch|options]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const target = args.trim();
 
@@ -347,6 +353,7 @@ export const statusCommand: Command = {
   aliases: ['gs'],
   description: 'Show detailed git status with explanations',
   usage: '/gitstatus',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     return `Show a detailed git status with explanations.
 
@@ -370,6 +377,7 @@ export const undoCommand: Command = {
   aliases: ['revert'],
   description: 'Help undo git changes safely',
   usage: '/undo [what]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const what = args.trim().toLowerCase();
 
@@ -473,6 +481,7 @@ export const mergeCommand: Command = {
   name: 'merge',
   description: 'Help merge branches',
   usage: '/merge <branch>',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const branch = args.trim();
 
@@ -513,6 +522,7 @@ export const rebaseCommand: Command = {
   name: 'rebase',
   description: 'Help rebase branches',
   usage: '/rebase <branch>',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const branch = args.trim() || 'main';
 

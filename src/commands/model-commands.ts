@@ -23,6 +23,7 @@ export const modelsCommand: Command = {
   aliases: ['model', 'list-models'],
   description: 'List available models for each provider',
   usage: '/models [provider] [--local]',
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string> => {
     const parts = args.trim().toLowerCase().split(/\s+/).filter(p => p);
     const providerFilter = parts.find(p => !p.startsWith('--'));
@@ -65,6 +66,7 @@ export const switchCommand: Command = {
   aliases: ['use', 'model-switch'],
   description: 'Switch to a different model during a session',
   usage: '/switch <provider> [model]  or  /switch <model> (for current provider)',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const parts = args.trim().split(/\s+/).filter(p => p);
 
@@ -200,6 +202,7 @@ export const modelMapCommand: Command = {
   aliases: ['mm', 'models-map'],
   description: 'Show and manage model map configuration (codi-models.yaml)',
   usage: '/modelmap [init|show|example]',
+  taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const action = args.trim().toLowerCase() || 'show';
 
@@ -305,10 +308,78 @@ function formatModelMapOutput(config: ModelMapConfig, configPath: string | null)
 }
 
 /**
+ * /pipeline command - Execute a multi-model pipeline.
+ */
+export const pipelineCommand: Command = {
+  name: 'pipeline',
+  aliases: ['pipe', 'run-pipeline'],
+  description: 'Execute a multi-model pipeline',
+  usage: '/pipeline [name] [input]',
+  taskType: 'complex',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    const agent = context.agent;
+    const modelMap = agent?.getModelMap();
+
+    if (!modelMap) {
+      return '__PIPELINE_ERROR__|No model map loaded. Create a codi-models.yaml file with pipelines defined.';
+    }
+
+    const pipelines = modelMap.config.pipelines || {};
+    const pipelineNames = Object.keys(pipelines);
+
+    if (pipelineNames.length === 0) {
+      return '__PIPELINE_ERROR__|No pipelines defined in codi-models.yaml. Add a "pipelines" section.';
+    }
+
+    const parts = args.trim().split(/\s+/);
+    const pipelineName = parts[0];
+
+    if (!pipelineName) {
+      // List available pipelines
+      const lines: string[] = ['__PIPELINE_LIST__'];
+      for (const [name, pipeline] of Object.entries(pipelines)) {
+        const stepCount = pipeline.steps.length;
+        const models = [...new Set(pipeline.steps.map(s => s.model))].join(', ');
+        const desc = pipeline.description || '';
+        lines.push(`pipeline|${name}|${stepCount}|${models}|${desc}`);
+      }
+      return lines.join('\n');
+    }
+
+    // Execute specified pipeline
+    const pipeline = pipelines[pipelineName];
+    if (!pipeline) {
+      return `__PIPELINE_ERROR__|Unknown pipeline: "${pipelineName}". Available: ${pipelineNames.join(', ')}`;
+    }
+
+    const input = parts.slice(1).join(' ') || '';
+    if (!input) {
+      // Show pipeline info
+      const lines: string[] = [`__PIPELINE_INFO__|${pipelineName}`];
+      lines.push(`description|${pipeline.description || 'No description'}`);
+      lines.push(`steps|${pipeline.steps.length}`);
+      for (const step of pipeline.steps) {
+        const cond = step.condition ? ` (if ${step.condition})` : '';
+        lines.push(`step|${step.name}|${step.model}|${step.output}${cond}`);
+      }
+      if (pipeline.result) {
+        lines.push(`result|${pipeline.result}`);
+      }
+      lines.push('usage|Provide input after pipeline name: /pipeline ' + pipelineName + ' <input>');
+      return lines.join('\n');
+    }
+
+    // Execute the pipeline
+    return `__PIPELINE_EXECUTE__|${pipelineName}|${input}`;
+  },
+};
+
+/**
  * Register all model commands.
  */
 export function registerModelCommands(): void {
   registerCommand(modelsCommand);
   registerCommand(switchCommand);
   registerCommand(modelMapCommand);
+  registerCommand(pipelineCommand);
 }

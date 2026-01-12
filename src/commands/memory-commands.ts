@@ -109,6 +109,7 @@ Examples:
   /remember project: Uses pnpm instead of npm
   /remember style: Likes functional programming
   /remember avoid: Don't use class components`,
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const input = args.trim();
 
@@ -144,6 +145,7 @@ export const forgetCommand: Command = {
 Examples:
   /forget TypeScript
   /forget all (clears all memories)`,
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const pattern = args.trim();
 
@@ -179,6 +181,7 @@ Examples:
   /memories           - List all memories
   /memories react     - Search for memories about React
   /memories consolidate - Merge session notes into memories`,
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const query = args.trim();
 
@@ -225,6 +228,7 @@ Examples:
   /profile set preferences.language TypeScript
   /profile set expertise React
   /profile set avoid class components`,
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const parts = args.trim().split(/\s+/);
 

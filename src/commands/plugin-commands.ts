@@ -12,6 +12,7 @@ export const pluginsCommand: Command = {
   aliases: ['plugin'],
   description: 'List loaded plugins and plugin information',
   usage: '/plugins [info <name>]',
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const trimmed = args.trim();
     const parts = trimmed.split(/\s+/);

@@ -23,6 +23,7 @@ export const undoCommand: Command = {
   aliases: ['fu'],
   description: 'Undo the last file change made by Codi',
   usage: '/fileundo',
+  taskType: 'fast',
   execute: async (_args: string, _context: CommandContext): Promise<string> => {
     const entry = undoChange();
 
@@ -43,6 +44,7 @@ export const redoCommand: Command = {
   aliases: [],
   description: 'Redo an undone file change',
   usage: '/redo',
+  taskType: 'fast',
   execute: async (_args: string, _context: CommandContext): Promise<string> => {
     const entry = redoChange();
 
@@ -63,6 +65,7 @@ export const historyCommand: Command = {
   aliases: ['fh'],
   description: 'Show file change history',
   usage: '/filehistory [file] | /filehistory clear',
+  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string> => {
     const trimmed = args.trim();
 
