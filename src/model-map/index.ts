@@ -40,6 +40,16 @@ export {
   type PipelineExecuteOptions,
 } from './executor.js';
 
+// V3 Types (re-exported from types.ts)
+export type {
+  V3Options,
+  V3Callbacks,
+  TriageOptions,
+  TriageResult,
+  FileScore,
+  RiskLevel,
+} from './types.js';
+
 // Grouping
 export {
   groupFiles,
@@ -48,6 +58,13 @@ export {
   groupHybrid,
   processInParallel,
 } from './grouping.js';
+
+// Triage (V3)
+export {
+  triageFiles,
+  getSuggestedModel,
+  formatTriageResult,
+} from './triage.js';
 
 // --- Convenience functions ---
 

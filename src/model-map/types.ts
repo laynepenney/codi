@@ -82,6 +82,14 @@ export interface PipelineStep {
   output: string;
   /** Optional condition expression */
   condition?: string;
+
+  // Agentic capabilities (V3)
+  /** Tool names this step can use (enables agentic execution) */
+  tools?: string[];
+  /** Maximum tool loop iterations (default: 5) */
+  maxIterations?: number;
+  /** Enable tool use for this step (default: false) */
+  allowToolUse?: boolean;
 }
 
 /**
@@ -342,5 +350,106 @@ export interface IterativeResult {
     processing: number;
     /** Time spent on aggregation (ms) */
     aggregation?: number;
+    /** Time spent on triage (ms) */
+    triage?: number;
   };
+  /** Triage results (when triage is enabled) */
+  triageResult?: TriageResult;
+}
+
+// ============================================================================
+// File Triage Types (V3)
+// ============================================================================
+
+/**
+ * Risk level for a file based on triage analysis.
+ */
+export type RiskLevel = 'critical' | 'high' | 'medium' | 'low';
+
+/**
+ * Score for a single file from triage analysis.
+ */
+export interface FileScore {
+  /** File path */
+  file: string;
+  /** Risk level based on security sensitivity, data handling, etc. */
+  risk: RiskLevel;
+  /** Complexity score (1-10) based on size, logic complexity */
+  complexity: number;
+  /** Importance score (1-10) based on core functionality, entry points */
+  importance: number;
+  /** Brief explanation of the scores */
+  reasoning: string;
+  /** Suggested model role for this file ('fast', 'capable', 'reasoning') */
+  suggestedModel?: string;
+  /** Combined priority score for sorting (calculated) */
+  priority?: number;
+}
+
+/**
+ * Result from file triage analysis.
+ */
+export interface TriageResult {
+  /** Scores for all files */
+  scores: FileScore[];
+  /** Summary of codebase structure and patterns */
+  summary: string;
+  /** Files that need deep analysis (critical/high risk or high importance) */
+  criticalPaths: string[];
+  /** Files to scan with standard analysis (medium priority) */
+  normalPaths: string[];
+  /** Files to quick scan or skip (low priority) */
+  skipPaths: string[];
+  /** Time spent on triage (ms) */
+  duration?: number;
+}
+
+/**
+ * Options for file triage.
+ */
+export interface TriageOptions {
+  /** Model role for triage (default: 'fast') */
+  role?: string;
+  /** Custom scoring criteria to include in prompt */
+  criteria?: string[];
+  /** Minimum priority score for deep analysis (default: 6) */
+  deepThreshold?: number;
+  /** Maximum priority score for quick scan (default: 3) */
+  skipThreshold?: number;
+  /** Provider context for role resolution */
+  providerContext?: ProviderContext;
+  /** Include git history in scoring (default: false) */
+  useGitHistory?: boolean;
+}
+
+/**
+ * Extended callbacks for V3 iterative pipeline with triage.
+ */
+export interface V3Callbacks extends IterativeCallbacks {
+  /** Called when triage phase starts */
+  onTriageStart?: (totalFiles: number) => void;
+  /** Called when triage phase completes */
+  onTriageComplete?: (result: TriageResult) => void;
+  /** Called when a tool is about to be used in agentic step */
+  onToolCall?: (stepName: string, toolName: string, input: unknown) => void;
+  /** Called when a tool completes in agentic step */
+  onToolResult?: (stepName: string, toolName: string, result: string) => void;
+  /** Called to confirm destructive tool use (return true to allow) */
+  onToolConfirm?: (toolCall: { name: string; input: unknown }) => Promise<boolean>;
+}
+
+/**
+ * Extended options for V3 iterative pipeline.
+ */
+export interface V3Options extends IterativeOptions {
+  /** Triage configuration */
+  triage?: TriageOptions;
+  /** Whether to enable triage phase (default: true for V3) */
+  enableTriage?: boolean;
+  /** Enable agentic steps with tool access for critical files */
+  enableAgenticSteps?: boolean;
+  /** Override callbacks with V3 callbacks */
+  callbacks?: V3Callbacks;
+  /** Dynamic model override based on triage (file -> role mapping) */
+  modelOverrides?: Map<string, string>;
 }

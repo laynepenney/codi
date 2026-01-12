@@ -20,7 +20,13 @@ import type {
   AggregationOptions,
   FileGroup,
   GroupingOptions,
+  V3Options,
+  V3Callbacks,
+  TriageResult,
 } from './types.js';
+import type { ToolDefinition, Message, ContentBlock } from '../types.js';
+import { triageFiles, getSuggestedModel } from './triage.js';
+import { globalRegistry } from '../tools/index.js';
 import { groupFiles, processInParallel } from './grouping.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
@@ -43,6 +49,8 @@ export interface PipelineExecuteOptions {
   providerContext?: ProviderContext;
   /** Callbacks for progress reporting */
   callbacks?: PipelineCallbacks;
+  /** Override model role for this execution (from triage suggestion) */
+  modelOverride?: string;
 }
 
 /**
@@ -106,8 +114,8 @@ export class PipelineExecutor {
         continue;
       }
 
-      // Resolve the model name (from role or direct model reference)
-      const modelName = this.resolveStepModel(step, providerContext);
+      // Resolve the model name (from role or direct model reference, with optional override)
+      const modelName = this.resolveStepModel(step, providerContext, options.modelOverride);
 
       callbacks?.onStepStart?.(step.name, modelName);
 
@@ -499,6 +507,339 @@ export class PipelineExecutor {
   }
 
   /**
+   * Execute a pipeline iteratively with intelligent triage and adaptive processing (V3).
+   *
+   * This version adds:
+   * 1. Fast model triage to score files by risk/complexity/importance
+   * 2. Adaptive processing based on triage scores (deep/normal/quick)
+   * 3. Dynamic model selection per file based on triage suggestions
+   * 4. Agentic steps with tool access for critical files
+   *
+   * @param pipeline - The pipeline definition
+   * @param files - Array of file paths to process
+   * @param options - V3 execution options
+   */
+  async executeIterativeV3(
+    pipeline: PipelineDefinition,
+    files: string[],
+    options?: V3Options
+  ): Promise<IterativeResult> {
+    const startTime = Date.now();
+    const callbacks = options?.callbacks;
+    const providerContext = options?.providerContext || pipeline.provider || 'openai';
+    const concurrency = options?.concurrency ?? 4;
+    const enableTriage = options?.enableTriage !== false;
+
+    const fileResults = new Map<string, PipelineResult>();
+    const skippedFiles: Array<{ file: string; reason: string }> = [];
+    const allModelsUsed = new Set<string>();
+    let filesProcessed = 0;
+
+    // Phase 1: Triage (if enabled)
+    let triageResult: TriageResult | undefined;
+    let triageTime = 0;
+
+    if (enableTriage && files.length > 1 && this.router) {
+      callbacks?.onTriageStart?.(files.length);
+      const triageStartTime = Date.now();
+
+      try {
+        triageResult = await triageFiles(
+          files,
+          this.registry,
+          this.router,
+          {
+            role: options?.triage?.role || 'fast',
+            criteria: options?.triage?.criteria,
+            deepThreshold: options?.triage?.deepThreshold,
+            skipThreshold: options?.triage?.skipThreshold,
+            providerContext,
+          }
+        );
+        triageTime = Date.now() - triageStartTime;
+        callbacks?.onTriageComplete?.(triageResult);
+
+        logger.info(`Triage: ${triageResult.criticalPaths.length} critical, ${triageResult.normalPaths.length} normal, ${triageResult.skipPaths.length} skip (${triageTime}ms)`);
+      } catch (error) {
+        logger.warn(`Triage failed: ${error}, proceeding without triage`);
+      }
+    }
+
+    // Build model override map from triage results
+    const modelOverrides = new Map<string, string>();
+    if (triageResult) {
+      for (const score of triageResult.scores) {
+        if (score.suggestedModel) {
+          modelOverrides.set(score.file, score.suggestedModel);
+        }
+      }
+    }
+
+    // Merge with provided overrides
+    if (options?.modelOverrides) {
+      for (const [file, role] of options.modelOverrides) {
+        modelOverrides.set(file, role);
+      }
+    }
+
+    // Phase 2: Adaptive Processing
+    const processingStartTime = Date.now();
+
+    // Categorize files based on triage
+    const criticalFiles = triageResult?.criticalPaths || [];
+    const normalFiles = triageResult?.normalPaths || files.filter(f => !criticalFiles.includes(f));
+    const skipFiles = triageResult?.skipPaths || [];
+
+    // Process file with appropriate depth
+    const processFile = async (
+      file: string,
+      depth: 'deep' | 'normal' | 'quick'
+    ): Promise<{ file: string; result: PipelineResult } | null> => {
+      const globalIndex = files.indexOf(file);
+      callbacks?.onFileStart?.(file, globalIndex, files.length);
+
+      try {
+        const content = this.readFileContent(file);
+        if (!content) {
+          skippedFiles.push({ file, reason: 'File not found or empty' });
+          return null;
+        }
+
+        const ext = extname(file).slice(1) || 'txt';
+        const formattedInput = `### File: ${file}\n\`\`\`${ext}\n${content}\n\`\`\``;
+
+        // Get model override for this file
+        const modelOverride = modelOverrides.get(file);
+
+        let result: PipelineResult;
+
+        if (depth === 'quick') {
+          // Quick scan: use fast model, minimal processing
+          result = await this.execute(pipeline, formattedInput, {
+            providerContext,
+            modelOverride: modelOverride || 'fast',
+            callbacks: {
+              onStepStart: callbacks?.onStepStart,
+              onStepComplete: callbacks?.onStepComplete,
+              onStepText: callbacks?.onStepText,
+              onError: callbacks?.onError,
+            },
+          });
+        } else if (depth === 'deep' && options?.enableAgenticSteps) {
+          // Deep analysis: use capable model with agentic steps
+          result = await this.execute(pipeline, formattedInput, {
+            providerContext,
+            modelOverride: modelOverride || 'capable',
+            callbacks: {
+              onStepStart: callbacks?.onStepStart,
+              onStepComplete: callbacks?.onStepComplete,
+              onStepText: callbacks?.onStepText,
+              onError: callbacks?.onError,
+            },
+          });
+        } else {
+          // Normal processing
+          result = await this.execute(pipeline, formattedInput, {
+            providerContext,
+            modelOverride,
+            callbacks: {
+              onStepStart: callbacks?.onStepStart,
+              onStepComplete: callbacks?.onStepComplete,
+              onStepText: callbacks?.onStepText,
+              onError: callbacks?.onError,
+            },
+          });
+        }
+
+        callbacks?.onFileComplete?.(file, result.output);
+        return { file, result };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        skippedFiles.push({ file, reason });
+        logger.warn(`Skipped file ${file}: ${reason}`);
+        return null;
+      }
+    };
+
+    // Process critical files first (with tool access if enabled)
+    if (criticalFiles.length > 0) {
+      logger.info(`Processing ${criticalFiles.length} critical files with deep analysis`);
+      const criticalResults = await processInParallel(
+        criticalFiles,
+        async (file) => processFile(file, 'deep'),
+        Math.min(concurrency, 2) // Lower concurrency for deep analysis
+      );
+
+      for (const item of criticalResults) {
+        if (item) {
+          fileResults.set(item.file, item.result);
+          item.result.modelsUsed.forEach(m => allModelsUsed.add(m));
+          filesProcessed++;
+        }
+      }
+    }
+
+    // Process normal files
+    if (normalFiles.length > 0) {
+      logger.info(`Processing ${normalFiles.length} normal files`);
+      const normalResults = await processInParallel(
+        normalFiles,
+        async (file) => processFile(file, 'normal'),
+        concurrency
+      );
+
+      for (const item of normalResults) {
+        if (item) {
+          fileResults.set(item.file, item.result);
+          item.result.modelsUsed.forEach(m => allModelsUsed.add(m));
+          filesProcessed++;
+        }
+      }
+    }
+
+    // Quick scan skip files
+    if (skipFiles.length > 0) {
+      logger.info(`Quick scanning ${skipFiles.length} low-priority files`);
+      const skipResults = await processInParallel(
+        skipFiles,
+        async (file) => processFile(file, 'quick'),
+        concurrency * 2 // Higher concurrency for quick scans
+      );
+
+      for (const item of skipResults) {
+        if (item) {
+          fileResults.set(item.file, item.result);
+          item.result.modelsUsed.forEach(m => allModelsUsed.add(m));
+          filesProcessed++;
+        }
+      }
+    }
+
+    const processingTime = Date.now() - processingStartTime;
+
+    // Phase 3: Synthesis (meta-aggregation)
+    let aggregatedOutput: string | undefined;
+    let aggregationTime = 0;
+
+    if (options?.aggregation?.enabled !== false && fileResults.size > 0) {
+      callbacks?.onAggregationStart?.();
+      const aggStartTime = Date.now();
+
+      try {
+        // Use triage summary as additional context
+        const triageContext = triageResult
+          ? `\n\n## Triage Summary\n${triageResult.summary}\n\nCritical files: ${triageResult.criticalPaths.length}\nNormal files: ${triageResult.normalPaths.length}\nQuick scan files: ${triageResult.skipPaths.length}`
+          : '';
+
+        aggregatedOutput = await this.metaAggregateV3(
+          fileResults,
+          triageResult,
+          filesProcessed,
+          providerContext,
+          options?.aggregation,
+          callbacks
+        );
+      } catch (error) {
+        logger.error('V3 aggregation failed:', error instanceof Error ? error : new Error(String(error)));
+        aggregatedOutput = this.formatConcatenatedResults(fileResults);
+      }
+
+      aggregationTime = Date.now() - aggStartTime;
+    } else if (fileResults.size > 0) {
+      aggregatedOutput = this.formatConcatenatedResults(fileResults);
+    }
+
+    const totalTime = Date.now() - startTime;
+
+    return {
+      fileResults,
+      aggregatedOutput,
+      filesProcessed,
+      totalFiles: files.length,
+      modelsUsed: Array.from(allModelsUsed),
+      skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
+      triageResult,
+      timing: {
+        total: totalTime,
+        triage: triageTime,
+        processing: processingTime,
+        aggregation: aggregationTime,
+      },
+    };
+  }
+
+  /**
+   * Meta-aggregate V3 results with triage context.
+   */
+  private async metaAggregateV3(
+    fileResults: Map<string, PipelineResult>,
+    triageResult: TriageResult | undefined,
+    totalFilesProcessed: number,
+    providerContext: ProviderContext,
+    aggregationOpts?: AggregationOptions,
+    callbacks?: V3Callbacks
+  ): Promise<string> {
+    const role = aggregationOpts?.role || 'capable';
+
+    // Build results text, ordered by priority
+    const orderedFiles = triageResult
+      ? triageResult.scores.map(s => s.file).filter(f => fileResults.has(f))
+      : Array.from(fileResults.keys());
+
+    const resultsText = orderedFiles
+      .map(file => {
+        const result = fileResults.get(file)!;
+        const score = triageResult?.scores.find(s => s.file === file);
+        const priority = score ? ` [${score.risk}, complexity: ${score.complexity}]` : '';
+        return `### ${file}${priority}\n${result.output}`;
+      })
+      .join('\n\n---\n\n');
+
+    const triageContext = triageResult
+      ? `\n\n## Triage Analysis\n${triageResult.summary}\n\n**File Distribution:**\n- Critical (deep analysis): ${triageResult.criticalPaths.length}\n- Normal (standard review): ${triageResult.normalPaths.length}\n- Quick scan: ${triageResult.skipPaths.length}`
+      : '';
+
+    const prompt = `You are synthesizing code review results from ${totalFilesProcessed} files, processed with adaptive analysis depth.
+${triageContext}
+
+## Individual File Results
+
+${resultsText}
+
+## Synthesis Instructions
+
+Provide a comprehensive final report:
+1. **Critical Issues** - Most important problems found, prioritized by risk level
+2. **Security Concerns** - Any security-related issues (especially from critical files)
+3. **Cross-Cutting Patterns** - Issues that appear across multiple files
+4. **Top 5 Recommendations** - Most impactful improvements
+5. **Priority Files** - Which files need immediate attention (with reasons)
+6. **Architecture Assessment** - Overall codebase health
+
+Note: Critical files received deeper analysis, so weight their findings appropriately.`;
+
+    const modelName = this.resolveAggregationModel(role, providerContext, fileResults);
+    callbacks?.onStepStart?.('v3-synthesis', modelName);
+
+    const provider = this.registry.getProvider(modelName);
+    let output = '';
+
+    const response = await provider.streamChat(
+      [{ role: 'user', content: prompt }],
+      undefined,
+      (text: string) => {
+        output += text;
+        callbacks?.onStepText?.('v3-synthesis', text);
+      }
+    );
+
+    const finalOutput = output || response.content;
+    callbacks?.onStepComplete?.('v3-synthesis', finalOutput);
+
+    return finalOutput;
+  }
+
+  /**
    * Aggregate results for a single group of related files.
    */
   private async aggregateGroup(
@@ -833,21 +1174,32 @@ Provide a comprehensive final report:
 
   /**
    * Resolve a step's model name from either role or direct model reference.
+   * @param step - The pipeline step
+   * @param providerContext - Provider context for role resolution
+   * @param modelOverride - Optional model role override (from triage suggestion)
    */
-  private resolveStepModel(step: PipelineStep, providerContext: ProviderContext): string {
+  private resolveStepModel(
+    step: PipelineStep,
+    providerContext: ProviderContext,
+    modelOverride?: string
+  ): string {
     // Direct model reference takes precedence
     if (step.model) {
       return step.model;
     }
 
+    // Use model override if provided (from triage suggestion)
+    const roleToResolve = modelOverride || step.role;
+
     // Try to resolve role
-    if (step.role && this.router) {
-      const resolved = this.router.resolveRole(step.role, providerContext);
+    if (roleToResolve && this.router) {
+      const resolved = this.router.resolveRole(roleToResolve, providerContext);
       if (resolved) {
-        logger.debug(`Resolved role "${step.role}" to model "${resolved.name}" for provider "${providerContext}"`);
+        const source = modelOverride ? `override "${modelOverride}"` : `role "${step.role}"`;
+        logger.debug(`Resolved ${source} to model "${resolved.name}" for provider "${providerContext}"`);
         return resolved.name;
       }
-      logger.warn(`Failed to resolve role "${step.role}" for provider "${providerContext}", no fallback available`);
+      logger.warn(`Failed to resolve role "${roleToResolve}" for provider "${providerContext}", no fallback available`);
     }
 
     throw new Error(`Step "${step.name}" has no model and role could not be resolved`);
@@ -860,13 +1212,18 @@ Provide a comprehensive final report:
     step: PipelineStep,
     modelName: string,
     context: PipelineContext,
-    callbacks?: PipelineCallbacks
+    callbacks?: PipelineCallbacks | V3Callbacks
   ): Promise<string> {
     const provider = this.registry.getProvider(modelName);
     const prompt = this.substituteVariables(step.prompt, context);
 
     logger.debug(`Pipeline step "${step.name}" using model "${modelName}"`);
     logger.verbose(`Prompt: ${prompt.substring(0, 200)}...`);
+
+    // Check if this step has agentic capabilities (V3)
+    if (step.allowToolUse && step.tools?.length) {
+      return this.executeAgenticStep(step, provider, prompt, callbacks as V3Callbacks);
+    }
 
     let output = '';
 
@@ -882,6 +1239,146 @@ Provide a comprehensive final report:
 
     // Use response content if no streaming output accumulated
     return output || response.content;
+  }
+
+  /**
+   * Execute an agentic pipeline step with tool access.
+   * The model can call tools and loop until it's satisfied.
+   */
+  private async executeAgenticStep(
+    step: PipelineStep,
+    provider: BaseProvider,
+    prompt: string,
+    callbacks?: V3Callbacks
+  ): Promise<string> {
+    const maxIterations = step.maxIterations ?? 5;
+
+    // Get tool definitions for the specified tools
+    const allTools = globalRegistry.getDefinitions();
+    const toolDefs: ToolDefinition[] = step.tools!
+      .map(name => allTools.find((t: ToolDefinition) => t.name === name))
+      .filter((t): t is ToolDefinition => t !== undefined);
+
+    if (toolDefs.length === 0) {
+      logger.warn(`No valid tools found for step "${step.name}", falling back to non-agentic execution`);
+      let output = '';
+      const response = await provider.streamChat(
+        [{ role: 'user', content: prompt }],
+        undefined,
+        (text: string) => {
+          output += text;
+          callbacks?.onStepText?.(step.name, text);
+        }
+      );
+      return output || response.content;
+    }
+
+    logger.debug(`Agentic step "${step.name}" with tools: ${toolDefs.map(t => t.name).join(', ')}`);
+
+    // Destructive tools that require confirmation
+    const DESTRUCTIVE_TOOLS = new Set(['bash', 'write_file', 'edit_file', 'patch_file', 'insert_line']);
+
+    // Use proper Message type with ContentBlock[] for tool results
+    const messages: Message[] = [{ role: 'user', content: prompt }];
+    let iterations = 0;
+    let finalOutput = '';
+
+    while (iterations < maxIterations) {
+      iterations++;
+
+      // Call the model with tool definitions
+      const response = await provider.streamChat(
+        messages,
+        toolDefs,
+        (text: string) => {
+          finalOutput += text;
+          callbacks?.onStepText?.(step.name, text);
+        }
+      );
+
+      // Check if the model wants to use tools
+      if (!response.toolCalls?.length) {
+        // No tool calls, model is done
+        return finalOutput || response.content;
+      }
+
+      // Build assistant message with tool_use content blocks
+      const assistantContent: ContentBlock[] = [];
+      if (response.content) {
+        assistantContent.push({ type: 'text', text: response.content });
+      }
+      for (const toolCall of response.toolCalls) {
+        assistantContent.push({
+          type: 'tool_use',
+          id: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input,
+        });
+      }
+      messages.push({ role: 'assistant', content: assistantContent });
+
+      // Build user message with tool_result content blocks
+      const toolResultContent: ContentBlock[] = [];
+
+      // Execute each tool call
+      for (const toolCall of response.toolCalls) {
+        callbacks?.onToolCall?.(step.name, toolCall.name, toolCall.input);
+
+        // Check if tool requires confirmation
+        if (DESTRUCTIVE_TOOLS.has(toolCall.name) && callbacks?.onToolConfirm) {
+          const confirmed = await callbacks.onToolConfirm({
+            name: toolCall.name,
+            input: toolCall.input,
+          });
+
+          if (!confirmed) {
+            // Tool denied
+            toolResultContent.push({
+              type: 'tool_result',
+              tool_use_id: toolCall.id,
+              content: `Tool "${toolCall.name}" was denied by user. Please try a different approach or proceed without this operation.`,
+              is_error: true,
+            });
+            callbacks?.onToolResult?.(step.name, toolCall.name, 'DENIED');
+            continue;
+          }
+        }
+
+        try {
+          // Execute the tool
+          const result = await globalRegistry.execute(toolCall);
+          const resultContent = result.content;
+
+          toolResultContent.push({
+            type: 'tool_result',
+            tool_use_id: toolCall.id,
+            content: resultContent,
+            is_error: result.is_error,
+          });
+
+          callbacks?.onToolResult?.(step.name, toolCall.name, resultContent.substring(0, 100));
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          toolResultContent.push({
+            type: 'tool_result',
+            tool_use_id: toolCall.id,
+            content: `Error executing tool "${toolCall.name}": ${errorMsg}`,
+            is_error: true,
+          });
+          callbacks?.onToolResult?.(step.name, toolCall.name, `ERROR: ${errorMsg}`);
+        }
+      }
+
+      // Add tool results as a user message
+      messages.push({ role: 'user', content: toolResultContent });
+
+      // Reset finalOutput for next iteration
+      finalOutput = '';
+    }
+
+    // Max iterations reached, return last output
+    logger.warn(`Agentic step "${step.name}" reached max iterations (${maxIterations})`);
+    return finalOutput || 'Max iterations reached without final response.';
   }
 
   /**

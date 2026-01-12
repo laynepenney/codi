@@ -314,7 +314,7 @@ export const pipelineCommand: Command = {
   name: 'pipeline',
   aliases: ['pipe', 'run-pipeline'],
   description: 'Execute a multi-model pipeline',
-  usage: '/pipeline [--provider <context>] [--all] [--v2] [--concurrency N] [name] [input]',
+  usage: '/pipeline [--provider <context>] [--all] [--v2] [--v3] [--triage] [--concurrency N] [name] [input]',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const agent = context.agent;
@@ -335,6 +335,9 @@ export const pipelineCommand: Command = {
     let providerContext: string | undefined;
     let iterativeMode = false;
     let useV2 = false;
+    let useV3 = false;
+    let useTriage = false;
+    let triageOnly = false;
     let concurrency = 4;
     let remainingArgs = args.trim();
 
@@ -367,6 +370,35 @@ export const pipelineCommand: Command = {
         useV2 = true;
         iterativeMode = true; // V2 implies iterative mode
         remainingArgs = remainingArgs.slice(v2Match[0].length);
+        foundFlag = true;
+        continue;
+      }
+
+      // Parse --v3 flag (triage + adaptive processing + agentic steps)
+      const v3Match = remainingArgs.match(/^--v3\s*/);
+      if (v3Match) {
+        useV3 = true;
+        iterativeMode = true; // V3 implies iterative mode
+        remainingArgs = remainingArgs.slice(v3Match[0].length);
+        foundFlag = true;
+        continue;
+      }
+
+      // Parse --triage flag (enable triage, works with V2 or V3)
+      const triageMatch = remainingArgs.match(/^--triage\s*/);
+      if (triageMatch) {
+        useTriage = true;
+        remainingArgs = remainingArgs.slice(triageMatch[0].length);
+        foundFlag = true;
+        continue;
+      }
+
+      // Parse --triage-only flag (show triage scores without running pipeline)
+      const triageOnlyMatch = remainingArgs.match(/^--triage-only\s*/);
+      if (triageOnlyMatch) {
+        triageOnly = true;
+        useTriage = true;
+        remainingArgs = remainingArgs.slice(triageOnlyMatch[0].length);
         foundFlag = true;
         continue;
       }
@@ -432,8 +464,11 @@ export const pipelineCommand: Command = {
     const providerPart = providerContext ? `|provider:${providerContext}` : '';
     const iterativePart = iterativeMode ? '|iterative:true' : '';
     const v2Part = useV2 ? '|v2:true' : '';
+    const v3Part = useV3 ? '|v3:true' : '';
+    const triagePart = useTriage ? '|triage:true' : '';
+    const triageOnlyPart = triageOnly ? '|triageOnly:true' : '';
     const concurrencyPart = concurrency !== 4 ? `|concurrency:${concurrency}` : '';
-    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${v2Part}${concurrencyPart}|${input}`;
+    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${v2Part}${v3Part}${triagePart}${triageOnlyPart}${concurrencyPart}|${input}`;
   },
 };
 

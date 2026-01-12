@@ -2159,6 +2159,9 @@ async function main() {
                   let providerContext: string | undefined;
                   let iterativeMode = false;
                   let useV2 = false;
+                  let useV3 = false;
+                  let useTriage = false;
+                  let triageOnly = false;
                   let concurrency = 4;
                   let inputStartIndex = 1;
 
@@ -2173,6 +2176,15 @@ async function main() {
                       inputStartIndex++;
                     } else if (part?.startsWith('v2:')) {
                       useV2 = part.slice('v2:'.length) === 'true';
+                      inputStartIndex++;
+                    } else if (part?.startsWith('v3:')) {
+                      useV3 = part.slice('v3:'.length) === 'true';
+                      inputStartIndex++;
+                    } else if (part?.startsWith('triage:')) {
+                      useTriage = part.slice('triage:'.length) === 'true';
+                      inputStartIndex++;
+                    } else if (part?.startsWith('triageOnly:')) {
+                      triageOnly = part.slice('triageOnly:'.length) === 'true';
                       inputStartIndex++;
                     } else if (part?.startsWith('concurrency:')) {
                       concurrency = parseInt(part.slice('concurrency:'.length), 10) || 4;
@@ -2210,118 +2222,233 @@ async function main() {
                       return;
                     }
 
-                    const modeLabel = useV2 ? 'V2 - grouped + parallel' : 'sequential';
+                    const modeLabel = useV3 ? 'V3 - triage + adaptive' : useV2 ? 'V2 - grouped + parallel' : 'sequential';
                     console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
                     console.log(chalk.dim(`Provider: ${effectiveProvider}`));
                     console.log(chalk.dim(`Files: ${files.length} total`));
-                    if (useV2) {
+                    if (useV2 || useV3) {
                       console.log(chalk.dim(`Concurrency: ${concurrency}`));
+                    }
+                    if (useV3 || useTriage) {
+                      console.log(chalk.dim(`Triage: enabled`));
                     }
                     console.log();
 
                     try {
-                      // Choose V1 or V2 algorithm
-                      const iterativeResult = useV2
-                        ? await modelMap.executor.executeIterativeV2(pipeline, files, {
-                            providerContext: effectiveProvider,
-                            concurrency,
-                            callbacks: {
-                              onGroupingStart: (totalFiles: number) => {
-                                console.log(chalk.yellow(`  📂 Grouping ${totalFiles} files...`));
-                              },
-                              onGroupingComplete: (groups: import('./model-map/types.js').FileGroup[]) => {
-                                console.log(chalk.green(`  ✓ Created ${groups.length} groups`));
-                                for (const g of groups) {
-                                  console.log(chalk.dim(`    - ${g.name}: ${g.files.length} files`));
-                                }
-                              },
-                              onGroupStart: (group: import('./model-map/types.js').FileGroup, index: number, total: number) => {
-                                console.log(chalk.cyan(`\n  📁 [${index + 1}/${total}] ${group.name} (${group.files.length} files)`));
-                              },
-                              onGroupComplete: (group: import('./model-map/types.js').FileGroup, _summary: string) => {
-                                console.log(chalk.green(`  ✓ ${group.name} summarized`));
-                              },
-                              onFileStart: (file: string, _index: number, _total: number) => {
-                                console.log(chalk.dim(`    ▸ ${file}`));
-                              },
-                              onFileComplete: (_file: string, _result: string) => {
-                                // Minimal output in V2 mode
-                              },
-                              onMetaAggregationStart: (groupCount: number) => {
-                                console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${groupCount} group summaries...`));
-                              },
-                              onAggregationStart: () => {
-                                console.log(chalk.yellow('\nFinalizing results...'));
-                              },
-                              onStepStart: (stepName: string, modelName: string) => {
-                                if (stepName.startsWith('group-') || stepName === 'meta-aggregate') {
-                                  console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                                }
-                              },
-                              onStepComplete: (stepName: string, _output: string) => {
-                                if (stepName.startsWith('group-') || stepName === 'meta-aggregate') {
-                                  console.log(chalk.dim(`    ✓ ${stepName}`));
-                                }
-                              },
-                              onStepText: (_stepName: string, _text: string) => {
-                                // Don't stream text in iterative mode
-                              },
-                              onError: (stepName: string, error: Error) => {
-                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                              },
+                      // Choose V1, V2, or V3 algorithm
+                      let iterativeResult: import('./model-map/types.js').IterativeResult;
+
+                      if (useV3 || triageOnly) {
+                        // V3: triage + adaptive processing
+                        iterativeResult = await modelMap.executor.executeIterativeV3(pipeline, files, {
+                          providerContext: effectiveProvider,
+                          concurrency,
+                          enableTriage: true,
+                          triage: {
+                            role: 'fast',
+                            deepThreshold: 6,
+                            skipThreshold: 3,
+                          },
+                          callbacks: {
+                            onTriageStart: (totalFiles: number) => {
+                              console.log(chalk.yellow(`  🔍 Triaging ${totalFiles} files...`));
                             },
-                            grouping: {
-                              strategy: 'hierarchy',
-                              maxGroupSize: 15,
+                            onTriageComplete: (triageResult: import('./model-map/types.js').TriageResult) => {
+                              console.log(chalk.green(`  ✓ Triage complete`));
+                              console.log(chalk.dim(`    Critical: ${triageResult.criticalPaths.length} files`));
+                              console.log(chalk.dim(`    Normal: ${triageResult.normalPaths.length} files`));
+                              console.log(chalk.dim(`    Quick scan: ${triageResult.skipPaths.length} files`));
+                              if (triageResult.duration) {
+                                console.log(chalk.dim(`    Time: ${(triageResult.duration / 1000).toFixed(1)}s`));
+                              }
+                              // Show top critical files
+                              if (triageResult.criticalPaths.length > 0) {
+                                console.log(chalk.yellow(`\n  Critical files:`));
+                                for (const file of triageResult.criticalPaths.slice(0, 5)) {
+                                  const score = triageResult.scores.find(s => s.file === file);
+                                  if (score) {
+                                    console.log(chalk.dim(`    - ${file} [${score.risk}] ${score.reasoning}`));
+                                  }
+                                }
+                                if (triageResult.criticalPaths.length > 5) {
+                                  console.log(chalk.dim(`    ... and ${triageResult.criticalPaths.length - 5} more`));
+                                }
+                              }
+
+                              // If triage-only mode, stop here
+                              if (triageOnly) {
+                                console.log(chalk.bold('\n## Full Triage Results\n'));
+                                console.log(chalk.bold(`Summary: ${triageResult.summary}\n`));
+                                for (const score of triageResult.scores) {
+                                  const risk = score.risk === 'critical' ? chalk.red(score.risk) :
+                                              score.risk === 'high' ? chalk.yellow(score.risk) :
+                                              score.risk === 'medium' ? chalk.cyan(score.risk) :
+                                              chalk.dim(score.risk);
+                                  console.log(`${risk.padEnd(12)} ${score.file}`);
+                                  console.log(chalk.dim(`  complexity: ${score.complexity}, importance: ${score.importance}`));
+                                  console.log(chalk.dim(`  ${score.reasoning}`));
+                                  console.log();
+                                }
+                              }
                             },
-                            aggregation: {
-                              enabled: true,
-                              role: 'capable',
+                            onFileStart: (file: string, index: number, total: number) => {
+                              if (!triageOnly) {
+                                console.log(chalk.dim(`    ▸ [${index + 1}/${total}] ${file}`));
+                              }
                             },
-                          })
-                        : await modelMap.executor.executeIterative(pipeline, files, {
-                            providerContext: effectiveProvider,
-                            callbacks: {
-                              onFileStart: (file: string, index: number, total: number) => {
-                                console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
-                              },
-                              onFileComplete: (file: string, _result: string) => {
-                                console.log(chalk.green(`  ✓ ${file}`));
-                              },
-                              onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
-                                console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
-                              },
-                              onBatchComplete: (batchIndex: number, _summary: string) => {
-                                console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
-                              },
-                              onMetaAggregationStart: (batchCount: number) => {
-                                console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
-                              },
-                              onAggregationStart: () => {
-                                console.log(chalk.yellow('\nAggregating results...'));
-                              },
-                              onStepStart: (stepName: string, modelName: string) => {
+                            onFileComplete: (_file: string, _result: string) => {
+                              // Minimal output
+                            },
+                            onAggregationStart: () => {
+                              if (!triageOnly) {
+                                console.log(chalk.yellow('\n  🔗 Synthesizing results...'));
+                              }
+                            },
+                            onStepStart: (stepName: string, modelName: string) => {
+                              if (!triageOnly && stepName === 'v3-synthesis') {
                                 console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                              },
-                              onStepComplete: (stepName: string, _output: string) => {
+                              }
+                            },
+                            onStepComplete: (stepName: string, _output: string) => {
+                              if (!triageOnly && stepName === 'v3-synthesis') {
                                 console.log(chalk.dim(`    ✓ ${stepName}`));
-                              },
-                              onStepText: (_stepName: string, _text: string) => {
-                                // Don't stream text in iterative mode
-                              },
-                              onError: (stepName: string, error: Error) => {
-                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                              },
+                              }
                             },
-                            aggregation: {
-                              enabled: true,
-                              role: 'capable',
-                              batchSize: 15,
+                            onStepText: (_stepName: string, _text: string) => {
+                              // Don't stream in iterative mode
                             },
-                          });
+                            onError: (stepName: string, error: Error) => {
+                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                            },
+                            onToolCall: (stepName: string, toolName: string, _input: unknown) => {
+                              console.log(chalk.dim(`    🔧 ${stepName} calling ${toolName}`));
+                            },
+                            onToolResult: (stepName: string, toolName: string, result: string) => {
+                              console.log(chalk.dim(`    ✓ ${stepName}/${toolName}: ${result.substring(0, 50)}...`));
+                            },
+                          },
+                          aggregation: {
+                            enabled: !triageOnly,
+                            role: 'capable',
+                          },
+                        });
+
+                        // If triage-only, we're done
+                        if (triageOnly) {
+                          rl.prompt();
+                          return;
+                        }
+                      } else if (useV2) {
+                        // V2: intelligent grouping + parallel processing
+                        iterativeResult = await modelMap.executor.executeIterativeV2(pipeline, files, {
+                          providerContext: effectiveProvider,
+                          concurrency,
+                          callbacks: {
+                            onGroupingStart: (totalFiles: number) => {
+                              console.log(chalk.yellow(`  📂 Grouping ${totalFiles} files...`));
+                            },
+                            onGroupingComplete: (groups: import('./model-map/types.js').FileGroup[]) => {
+                              console.log(chalk.green(`  ✓ Created ${groups.length} groups`));
+                              for (const g of groups) {
+                                console.log(chalk.dim(`    - ${g.name}: ${g.files.length} files`));
+                              }
+                            },
+                            onGroupStart: (group: import('./model-map/types.js').FileGroup, index: number, total: number) => {
+                              console.log(chalk.cyan(`\n  📁 [${index + 1}/${total}] ${group.name} (${group.files.length} files)`));
+                            },
+                            onGroupComplete: (group: import('./model-map/types.js').FileGroup, _summary: string) => {
+                              console.log(chalk.green(`  ✓ ${group.name} summarized`));
+                            },
+                            onFileStart: (file: string, _index: number, _total: number) => {
+                              console.log(chalk.dim(`    ▸ ${file}`));
+                            },
+                            onFileComplete: (_file: string, _result: string) => {
+                              // Minimal output in V2 mode
+                            },
+                            onMetaAggregationStart: (groupCount: number) => {
+                              console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${groupCount} group summaries...`));
+                            },
+                            onAggregationStart: () => {
+                              console.log(chalk.yellow('\nFinalizing results...'));
+                            },
+                            onStepStart: (stepName: string, modelName: string) => {
+                              if (stepName.startsWith('group-') || stepName === 'meta-aggregate') {
+                                console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                              }
+                            },
+                            onStepComplete: (stepName: string, _output: string) => {
+                              if (stepName.startsWith('group-') || stepName === 'meta-aggregate') {
+                                console.log(chalk.dim(`    ✓ ${stepName}`));
+                              }
+                            },
+                            onStepText: (_stepName: string, _text: string) => {
+                              // Don't stream text in iterative mode
+                            },
+                            onError: (stepName: string, error: Error) => {
+                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                            },
+                          },
+                          grouping: {
+                            strategy: 'hierarchy',
+                            maxGroupSize: 15,
+                          },
+                          aggregation: {
+                            enabled: true,
+                            role: 'capable',
+                          },
+                        });
+                      } else {
+                        // V1: sequential with batched aggregation
+                        iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
+                          providerContext: effectiveProvider,
+                          callbacks: {
+                            onFileStart: (file: string, index: number, total: number) => {
+                              console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
+                            },
+                            onFileComplete: (file: string, _result: string) => {
+                              console.log(chalk.green(`  ✓ ${file}`));
+                            },
+                            onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
+                              console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
+                            },
+                            onBatchComplete: (batchIndex: number, _summary: string) => {
+                              console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
+                            },
+                            onMetaAggregationStart: (batchCount: number) => {
+                              console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
+                            },
+                            onAggregationStart: () => {
+                              console.log(chalk.yellow('\nAggregating results...'));
+                            },
+                            onStepStart: (stepName: string, modelName: string) => {
+                              console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                            },
+                            onStepComplete: (stepName: string, _output: string) => {
+                              console.log(chalk.dim(`    ✓ ${stepName}`));
+                            },
+                            onStepText: (_stepName: string, _text: string) => {
+                              // Don't stream text in iterative mode
+                            },
+                            onError: (stepName: string, error: Error) => {
+                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                            },
+                          },
+                          aggregation: {
+                            enabled: true,
+                            role: 'capable',
+                            batchSize: 15,
+                          },
+                        });
+                      }
 
                       console.log(chalk.bold.green('\n\nPipeline complete!'));
                       console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
+
+                      // Show V3-specific info (triage results)
+                      if (iterativeResult.triageResult) {
+                        const tr = iterativeResult.triageResult;
+                        console.log(chalk.dim(`Triage: ${tr.criticalPaths.length} critical, ${tr.normalPaths.length} normal, ${tr.skipPaths.length} quick`));
+                      }
 
                       // Show V2-specific info
                       if (iterativeResult.groups && iterativeResult.groups.length > 0) {
@@ -2332,7 +2459,8 @@ async function main() {
                       }
                       if (iterativeResult.timing) {
                         const t = iterativeResult.timing;
-                        console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
+                        const triageStr = t.triage ? `${(t.triage / 1000).toFixed(1)}s triage, ` : '';
+                        console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${triageStr}${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
                       }
                       console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
 
