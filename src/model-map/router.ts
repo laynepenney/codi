@@ -11,6 +11,7 @@ import type {
   ResolvedModel,
   CommandConfig,
   PipelineDefinition,
+  ProviderContext,
 } from './types.js';
 import { DEFAULT_COMMAND_TASKS } from './types.js';
 import type { ModelRegistry } from './registry.js';
@@ -153,6 +154,55 @@ export class TaskRouter {
 
     // Check defaults
     return DEFAULT_COMMAND_TASKS[commandName];
+  }
+
+  /**
+   * Resolve a role to a model name based on provider context.
+   * @param role - The role name (e.g., 'fast', 'capable', 'reasoning')
+   * @param providerContext - The provider context (e.g., 'anthropic', 'openai', 'ollama-local')
+   * @returns The resolved model or undefined if not found
+   */
+  resolveRole(role: string, providerContext: ProviderContext): ResolvedModel | undefined {
+    const roles = this.config['model-roles'];
+    if (!roles) {
+      return undefined;
+    }
+
+    const roleMapping = roles[role];
+    if (!roleMapping) {
+      return undefined;
+    }
+
+    const modelName = roleMapping[providerContext];
+    if (!modelName) {
+      return undefined;
+    }
+
+    try {
+      return this.registry.resolveModel(modelName);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Get available provider contexts for a role.
+   * @param role - The role name
+   * @returns Array of available provider contexts
+   */
+  getRoleProviders(role: string): ProviderContext[] {
+    const roles = this.config['model-roles'];
+    if (!roles || !roles[role]) {
+      return [];
+    }
+    return Object.keys(roles[role]) as ProviderContext[];
+  }
+
+  /**
+   * Get all defined roles.
+   */
+  getRoles(): string[] {
+    return Object.keys(this.config['model-roles'] || {});
   }
 
   /**

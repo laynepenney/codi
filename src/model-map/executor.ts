@@ -10,8 +10,10 @@ import type {
   PipelineStep,
   PipelineContext,
   PipelineResult,
+  ProviderContext,
 } from './types.js';
 import type { ModelRegistry } from './registry.js';
+import type { TaskRouter } from './router.js';
 import { logger } from '../logger.js';
 
 /**
@@ -29,6 +31,16 @@ export interface PipelineCallbacks {
 }
 
 /**
+ * Options for pipeline execution.
+ */
+export interface PipelineExecuteOptions {
+  /** Provider context for role resolution (e.g., 'anthropic', 'openai', 'ollama-local') */
+  providerContext?: ProviderContext;
+  /** Callbacks for progress reporting */
+  callbacks?: PipelineCallbacks;
+}
+
+/**
  * Pipeline Executor for running multi-model workflows.
  *
  * Features:
@@ -36,22 +48,44 @@ export interface PipelineCallbacks {
  * - Variable substitution between steps
  * - Conditional step execution (optional)
  * - Result aggregation
+ * - Role-based model resolution for provider-agnostic pipelines
  */
 export class PipelineExecutor {
   private registry: ModelRegistry;
+  private router?: TaskRouter;
 
-  constructor(registry: ModelRegistry) {
+  constructor(registry: ModelRegistry, router?: TaskRouter) {
     this.registry = registry;
+    this.router = router;
+  }
+
+  /**
+   * Set the router for role resolution.
+   */
+  setRouter(router: TaskRouter): void {
+    this.router = router;
   }
 
   /**
    * Execute a pipeline with the given input.
+   * @param pipeline - The pipeline definition
+   * @param input - The input string
+   * @param optionsOrCallbacks - Either PipelineExecuteOptions or legacy PipelineCallbacks
    */
   async execute(
     pipeline: PipelineDefinition,
     input: string,
-    callbacks?: PipelineCallbacks
+    optionsOrCallbacks?: PipelineExecuteOptions | PipelineCallbacks
   ): Promise<PipelineResult> {
+    // Handle legacy callback-only signature
+    const options: PipelineExecuteOptions = optionsOrCallbacks && 'onStepStart' in optionsOrCallbacks
+      ? { callbacks: optionsOrCallbacks }
+      : (optionsOrCallbacks as PipelineExecuteOptions) || {};
+
+    const { callbacks } = options;
+    // Use provided context, pipeline default, or 'openai' as fallback
+    const providerContext = options.providerContext || pipeline.provider || 'openai';
+
     const context: PipelineContext = {
       input,
       variables: { input },
@@ -67,17 +101,20 @@ export class PipelineExecutor {
         continue;
       }
 
-      callbacks?.onStepStart?.(step.name, step.model);
+      // Resolve the model name (from role or direct model reference)
+      const modelName = this.resolveStepModel(step, providerContext);
+
+      callbacks?.onStepStart?.(step.name, modelName);
 
       try {
-        const output = await this.executeStep(step, context, callbacks);
+        const output = await this.executeStep(step, modelName, context, callbacks);
 
         // Store output in context
         context.variables[step.output] = output;
         stepOutputs[step.name] = output;
 
-        if (!modelsUsed.includes(step.model)) {
-          modelsUsed.push(step.model);
+        if (!modelsUsed.includes(modelName)) {
+          modelsUsed.push(modelName);
         }
 
         callbacks?.onStepComplete?.(step.name, output);
@@ -101,17 +138,40 @@ export class PipelineExecutor {
   }
 
   /**
+   * Resolve a step's model name from either role or direct model reference.
+   */
+  private resolveStepModel(step: PipelineStep, providerContext: ProviderContext): string {
+    // Direct model reference takes precedence
+    if (step.model) {
+      return step.model;
+    }
+
+    // Try to resolve role
+    if (step.role && this.router) {
+      const resolved = this.router.resolveRole(step.role, providerContext);
+      if (resolved) {
+        logger.debug(`Resolved role "${step.role}" to model "${resolved.name}" for provider "${providerContext}"`);
+        return resolved.name;
+      }
+      logger.warn(`Failed to resolve role "${step.role}" for provider "${providerContext}", no fallback available`);
+    }
+
+    throw new Error(`Step "${step.name}" has no model and role could not be resolved`);
+  }
+
+  /**
    * Execute a single pipeline step.
    */
   private async executeStep(
     step: PipelineStep,
+    modelName: string,
     context: PipelineContext,
     callbacks?: PipelineCallbacks
   ): Promise<string> {
-    const provider = this.registry.getProvider(step.model);
+    const provider = this.registry.getProvider(modelName);
     const prompt = this.substituteVariables(step.prompt, context);
 
-    logger.debug(`Pipeline step "${step.name}" using model "${step.model}"`);
+    logger.debug(`Pipeline step "${step.name}" using model "${modelName}"`);
     logger.verbose(`Prompt: ${prompt.substring(0, 200)}...`);
 
     let output = '';
@@ -164,6 +224,6 @@ export class PipelineExecutor {
 /**
  * Create a pipeline executor.
  */
-export function createPipelineExecutor(registry: ModelRegistry): PipelineExecutor {
-  return new PipelineExecutor(registry);
+export function createPipelineExecutor(registry: ModelRegistry, router?: TaskRouter): PipelineExecutor {
+  return new PipelineExecutor(registry, router);
 }

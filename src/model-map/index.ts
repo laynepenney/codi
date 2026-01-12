@@ -37,6 +37,7 @@ export {
   PipelineExecutor,
   createPipelineExecutor,
   type PipelineCallbacks,
+  type PipelineExecuteOptions,
 } from './executor.js';
 
 // --- Convenience functions ---
@@ -99,7 +100,7 @@ export function initModelMap(cwd: string = process.cwd()): ModelMap | null {
   // Create components
   const registry = createModelRegistry(config);
   const router = createTaskRouter(config, registry);
-  const executor = createPipelineExecutor(registry);
+  const executor = createPipelineExecutor(registry, router);
 
   const reload = (): boolean => {
     const result = loadModelMap(cwd);

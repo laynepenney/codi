@@ -14,6 +14,7 @@ import type {
   CommandConfig,
   PipelineDefinition,
   PipelineStep,
+  ModelRoles,
 } from './types.js';
 
 /** Config file name */
@@ -70,6 +71,7 @@ export function loadModelMap(cwd: string = process.cwd()): {
     // Set defaults
     if (!config.version) config.version = '1';
     if (!config.models) config.models = {};
+    if (!config['model-roles']) config['model-roles'] = {};
     if (!config.tasks) config.tasks = {};
     if (!config.commands) config.commands = {};
     if (!config.fallbacks) config.fallbacks = {};
@@ -107,6 +109,34 @@ export function validateModelMap(config: ModelMapConfig): ValidationResult {
       }
       if (model.temperature !== undefined && (model.temperature < 0 || model.temperature > 1)) {
         warnings.push(`Model "${name}" has temperature outside 0-1 range: ${model.temperature}`);
+      }
+    }
+  }
+
+  // Validate model-roles section
+  const validRoles = new Set<string>();
+  if (config['model-roles']) {
+    for (const [roleName, mapping] of Object.entries(config['model-roles'])) {
+      validRoles.add(roleName);
+      if (typeof mapping !== 'object' || mapping === null) {
+        errors.push(
+          new ModelMapValidationError(
+            `Role "${roleName}" must be an object mapping providers to models`,
+            `model-roles.${roleName}`
+          )
+        );
+        continue;
+      }
+      // Validate that each mapped model exists
+      for (const [providerContext, modelName] of Object.entries(mapping)) {
+        if (!config.models[modelName]) {
+          errors.push(
+            new ModelMapValidationError(
+              `Role "${roleName}" provider "${providerContext}" references unknown model "${modelName}"`,
+              `model-roles.${roleName}.${providerContext}`
+            )
+          );
+        }
       }
     }
   }
@@ -227,18 +257,37 @@ export function validateModelMap(config: ModelMapConfig): ValidationResult {
           );
         }
 
-        if (!step.model) {
+        // Step must have either model or role (not both, not neither)
+        const hasModel = !!step.model;
+        const hasRole = !!step.role;
+
+        if (!hasModel && !hasRole) {
           errors.push(
             new ModelMapValidationError(
-              `Pipeline "${name}" step "${step.name || i + 1}" is missing model`,
-              `pipelines.${name}.steps[${i}].model`
+              `Pipeline "${name}" step "${step.name || i + 1}" must have either model or role`,
+              `pipelines.${name}.steps[${i}]`
             )
           );
-        } else if (!config.models[step.model]) {
+        } else if (hasModel && hasRole) {
+          warnings.push(
+            `Pipeline "${name}" step "${step.name}" has both model and role; model will be used`
+          );
+        }
+
+        if (hasModel && !config.models[step.model!]) {
           errors.push(
             new ModelMapValidationError(
               `Pipeline "${name}" step "${step.name || i + 1}" references unknown model "${step.model}"`,
               `pipelines.${name}.steps[${i}].model`
+            )
+          );
+        }
+
+        if (hasRole && !hasModel && !validRoles.has(step.role!)) {
+          errors.push(
+            new ModelMapValidationError(
+              `Pipeline "${name}" step "${step.name || i + 1}" references unknown role "${step.role}"`,
+              `pipelines.${name}.steps[${i}].role`
             )
           );
         }
@@ -352,10 +401,37 @@ export function getExampleModelMap(): string {
         model: 'claude-opus-4-20250514',
         description: 'Most capable for complex reasoning',
       },
+      'gpt-5-nano': {
+        provider: 'openai',
+        model: 'gpt-5-nano',
+        description: 'Fast, cheap OpenAI model',
+      },
+      'gpt-5': {
+        provider: 'openai',
+        model: 'gpt-5.2',
+        description: 'Latest GPT-5, best for coding',
+      },
       local: {
         provider: 'ollama',
         model: 'llama3.2',
         description: 'Free local model',
+      },
+    },
+    'model-roles': {
+      fast: {
+        anthropic: 'haiku',
+        openai: 'gpt-5-nano',
+        'ollama-local': 'local',
+      },
+      capable: {
+        anthropic: 'sonnet',
+        openai: 'gpt-5',
+        'ollama-local': 'local',
+      },
+      reasoning: {
+        anthropic: 'opus',
+        openai: 'gpt-5',
+        'ollama-local': 'local',
       },
     },
     tasks: {
@@ -386,28 +462,29 @@ export function getExampleModelMap(): string {
     pipelines: {
       'smart-refactor': {
         description: 'Analyze, plan, implement, review',
+        provider: 'anthropic', // default provider context
         steps: [
           {
             name: 'analyze',
-            model: 'haiku',
+            role: 'fast', // uses haiku for anthropic, gpt-5-nano for openai
             prompt: 'Analyze refactoring opportunities: {input}',
             output: 'analysis',
           },
           {
             name: 'plan',
-            model: 'sonnet',
+            role: 'capable',
             prompt: 'Create refactoring plan based on: {analysis}',
             output: 'plan',
           },
           {
             name: 'implement',
-            model: 'sonnet',
+            role: 'capable',
             prompt: 'Implement the plan: {plan}',
             output: 'implementation',
           },
           {
             name: 'review',
-            model: 'haiku',
+            role: 'fast',
             prompt: 'Quick review: {implementation}',
             output: 'review',
           },

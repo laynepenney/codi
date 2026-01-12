@@ -314,7 +314,7 @@ export const pipelineCommand: Command = {
   name: 'pipeline',
   aliases: ['pipe', 'run-pipeline'],
   description: 'Execute a multi-model pipeline',
-  usage: '/pipeline [name] [input]',
+  usage: '/pipeline [--provider <context>] [name] [input]',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const agent = context.agent;
@@ -331,17 +331,33 @@ export const pipelineCommand: Command = {
       return '__PIPELINE_ERROR__|No pipelines defined in codi-models.yaml. Add a "pipelines" section.';
     }
 
-    const parts = args.trim().split(/\s+/);
+    // Parse --provider flag
+    let providerContext: string | undefined;
+    let remainingArgs = args.trim();
+
+    const providerMatch = remainingArgs.match(/^--provider\s+(\S+)\s*/);
+    if (providerMatch) {
+      providerContext = providerMatch[1];
+      remainingArgs = remainingArgs.slice(providerMatch[0].length);
+    }
+
+    const parts = remainingArgs.split(/\s+/).filter(p => p);
     const pipelineName = parts[0];
 
     if (!pipelineName) {
       // List available pipelines
       const lines: string[] = ['__PIPELINE_LIST__'];
+      const roles = modelMap.router.getRoles();
       for (const [name, pipeline] of Object.entries(pipelines)) {
         const stepCount = pipeline.steps.length;
-        const models = [...new Set(pipeline.steps.map(s => s.model))].join(', ');
+        // Show models or roles
+        const modelsOrRoles = [...new Set(pipeline.steps.map(s => s.role || s.model))].filter(Boolean).join(', ');
         const desc = pipeline.description || '';
-        lines.push(`pipeline|${name}|${stepCount}|${models}|${desc}`);
+        const defaultProvider = pipeline.provider || 'openai';
+        lines.push(`pipeline|${name}|${stepCount}|${modelsOrRoles}|${desc}|${defaultProvider}`);
+      }
+      if (roles.length > 0) {
+        lines.push(`roles|${roles.join(', ')}`);
       }
       return lines.join('\n');
     }
@@ -357,20 +373,24 @@ export const pipelineCommand: Command = {
       // Show pipeline info
       const lines: string[] = [`__PIPELINE_INFO__|${pipelineName}`];
       lines.push(`description|${pipeline.description || 'No description'}`);
+      lines.push(`provider|${pipeline.provider || 'openai (default)'}`);
       lines.push(`steps|${pipeline.steps.length}`);
       for (const step of pipeline.steps) {
         const cond = step.condition ? ` (if ${step.condition})` : '';
-        lines.push(`step|${step.name}|${step.model}|${step.output}${cond}`);
+        const modelOrRole = step.role ? `role:${step.role}` : step.model;
+        lines.push(`step|${step.name}|${modelOrRole}|${step.output}${cond}`);
       }
       if (pipeline.result) {
         lines.push(`result|${pipeline.result}`);
       }
-      lines.push('usage|Provide input after pipeline name: /pipeline ' + pipelineName + ' <input>');
+      lines.push('usage|/pipeline ' + pipelineName + ' <input>');
+      lines.push('usage|/pipeline --provider anthropic ' + pipelineName + ' <input>');
       return lines.join('\n');
     }
 
-    // Execute the pipeline
-    return `__PIPELINE_EXECUTE__|${pipelineName}|${input}`;
+    // Execute the pipeline with optional provider context
+    const providerPart = providerContext ? `|provider:${providerContext}` : '';
+    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}|${input}`;
   },
 };
 

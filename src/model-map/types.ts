@@ -45,13 +45,37 @@ export interface CommandConfig {
 }
 
 /**
+ * Provider context for role resolution.
+ * Allows distinguishing between local and cloud Ollama instances.
+ */
+export type ProviderContext =
+  | 'anthropic'
+  | 'openai'
+  | 'ollama-local'
+  | 'ollama-cloud'
+  | string;
+
+/**
+ * Role definition mapping provider contexts to model names.
+ * Enables provider-agnostic pipeline definitions.
+ */
+export type RoleMapping = Record<ProviderContext, string>;
+
+/**
+ * Collection of named roles with their provider mappings.
+ */
+export type ModelRoles = Record<string, RoleMapping>;
+
+/**
  * Single step in a multi-model pipeline.
  */
 export interface PipelineStep {
   /** Step name (for variable reference) */
   name: string;
-  /** Model name reference */
-  model: string;
+  /** Model name reference (mutually exclusive with role) */
+  model?: string;
+  /** Role reference for provider-agnostic steps (mutually exclusive with model) */
+  role?: string;
   /** Prompt template with variable substitution */
   prompt: string;
   /** Output variable name */
@@ -66,6 +90,8 @@ export interface PipelineStep {
 export interface PipelineDefinition {
   /** Human-readable description */
   description?: string;
+  /** Default provider context for role resolution (e.g., 'anthropic', 'openai', 'ollama-local') */
+  provider?: string;
   /** Ordered list of steps */
   steps: PipelineStep[];
   /** Result template with variable substitution */
@@ -80,6 +106,8 @@ export interface ModelMapConfig {
   version: string;
   /** Named model definitions */
   models: Record<string, ModelDefinition>;
+  /** Role mappings for provider-agnostic pipelines */
+  'model-roles'?: ModelRoles;
   /** Task categories */
   tasks?: Record<string, TaskDefinition>;
   /** Per-command overrides */

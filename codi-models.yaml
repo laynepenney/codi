@@ -59,6 +59,26 @@ fallbacks:
     - sonnet
     - haiku
     - llama3
+
+# Model roles map abstract roles to concrete models per provider context
+# Use with: /pipeline --provider anthropic <pipeline-name>
+model-roles:
+  fast:
+    anthropic: haiku
+    openai: gpt-5-nano
+    ollama-local: llama3
+    ollama-cloud: qwen3-lite
+  capable:
+    anthropic: sonnet
+    openai: gpt-5
+    ollama-local: llama3
+    ollama-cloud: coder
+  reasoning:
+    anthropic: opus
+    openai: gpt-5
+    ollama-local: llama3
+    ollama-cloud: coder
+
 pipelines:
   smart-refactor:
     description: Analyze, plan, implement, review
@@ -84,3 +104,34 @@ pipelines:
 
       ## Review
       {review}
+
+  # Provider-agnostic pipeline using roles instead of direct model references
+  # Use with: /pipeline --provider anthropic code-review <file>
+  #       or: /pipeline --provider openai code-review <file>
+  code-review:
+    description: Multi-step code review using roles
+    provider: openai  # Default provider if --provider not specified
+    steps:
+      - name: quick-scan
+        role: fast
+        prompt: 'Quick scan for obvious issues: {input}'
+        output: quick_issues
+      - name: deep-analysis
+        role: capable
+        prompt: 'Deep analysis of code quality, architecture, and best practices: {input}\n\nQuick scan found: {quick_issues}'
+        output: analysis
+      - name: suggestions
+        role: fast
+        prompt: 'Summarize actionable suggestions from: {analysis}'
+        output: suggestions
+    result: |-
+      ## Code Review
+
+      ### Quick Scan
+      {quick_issues}
+
+      ### Analysis
+      {analysis}
+
+      ### Suggestions
+      {suggestions}

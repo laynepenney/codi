@@ -1073,17 +1073,23 @@ function handlePipelineOutput(output: string): void {
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split('|');
       if (parts[0] === 'pipeline') {
-        const [, name, stepCount, models, desc] = parts;
+        const [, name, stepCount, modelsOrRoles, desc, defaultProvider] = parts;
         console.log(`  ${chalk.magenta.bold(name)}`);
-        console.log(chalk.dim(`    ${stepCount} steps using: ${models}`));
+        console.log(chalk.dim(`    ${stepCount} steps using: ${modelsOrRoles}`));
+        if (defaultProvider) {
+          console.log(chalk.dim(`    Default provider: ${defaultProvider}`));
+        }
         if (desc) {
           console.log(chalk.dim(`    ${desc}`));
         }
         console.log();
+      } else if (parts[0] === 'roles') {
+        console.log(chalk.dim(`Available roles: ${parts[1]}`));
       }
     }
 
     console.log(chalk.dim('Run a pipeline with: /pipeline <name> <input>'));
+    console.log(chalk.dim('Override provider with: /pipeline --provider <context> <name> <input>'));
     return;
   }
 
@@ -1100,12 +1106,20 @@ function handlePipelineOutput(output: string): void {
         case 'description':
           console.log(chalk.dim(`Description: ${parts[1]}`));
           break;
+        case 'provider':
+          console.log(chalk.dim(`Default provider: ${parts[1]}`));
+          break;
         case 'steps':
           console.log(chalk.bold(`\nSteps (${parts[1]}):`));
           break;
-        case 'step':
-          console.log(`  ${chalk.cyan(parts[1])} → model: ${chalk.yellow(parts[2])}, output: ${chalk.green(parts[3])}`);
+        case 'step': {
+          const modelOrRole = parts[2];
+          const isRole = modelOrRole.startsWith('role:');
+          const label = isRole ? 'role' : 'model';
+          const value = isRole ? modelOrRole.slice(5) : modelOrRole;
+          console.log(`  ${chalk.cyan(parts[1])} → ${label}: ${chalk.yellow(value)}, output: ${chalk.green(parts[3])}`);
           break;
+        }
         case 'result':
           console.log(chalk.dim(`\nResult template: ${parts[1]}`));
           break;
@@ -1941,7 +1955,17 @@ async function main() {
                 if (result.startsWith('__PIPELINE_EXECUTE__|')) {
                   const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
                   const pipelineName = parts[0];
-                  const input = parts.slice(1).join('|');
+
+                  // Check for provider context in parts[1]
+                  let providerContext: string | undefined;
+                  let inputStartIndex = 1;
+
+                  if (parts[1]?.startsWith('provider:')) {
+                    providerContext = parts[1].slice('provider:'.length);
+                    inputStartIndex = 2;
+                  }
+
+                  const input = parts.slice(inputStartIndex).join('|');
                   const modelMap = agent.getModelMap();
 
                   if (!modelMap) {
@@ -1957,23 +1981,28 @@ async function main() {
                     return;
                   }
 
+                  const effectiveProvider = providerContext || pipeline.provider || 'openai';
                   console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
+                  console.log(chalk.dim(`Provider: ${effectiveProvider}`));
                   console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
                   console.log();
 
                   try {
                     const pipelineResult = await modelMap.executor.execute(pipeline, input, {
-                      onStepStart: (stepName: string, modelName: string) => {
-                        console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
-                      },
-                      onStepComplete: (stepName: string, _output: string) => {
-                        console.log(chalk.green(`  ✓ ${stepName} complete`));
-                      },
-                      onStepText: (_stepName: string, text: string) => {
-                        process.stdout.write(chalk.dim(text));
-                      },
-                      onError: (stepName: string, error: Error) => {
-                        console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                      providerContext: effectiveProvider,
+                      callbacks: {
+                        onStepStart: (stepName: string, modelName: string) => {
+                          console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
+                        },
+                        onStepComplete: (stepName: string, _output: string) => {
+                          console.log(chalk.green(`  ✓ ${stepName} complete`));
+                        },
+                        onStepText: (_stepName: string, text: string) => {
+                          process.stdout.write(chalk.dim(text));
+                        },
+                        onError: (stepName: string, error: Error) => {
+                          console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                        },
                       },
                     });
 
