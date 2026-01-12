@@ -5,6 +5,7 @@
 
 import { BaseProvider } from './base.js';
 import { createProviderResponse } from './response-parser.js';
+import { withRetry, type RetryOptions } from './retry.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 
 /** Ollama message format */
@@ -72,8 +73,10 @@ export class OllamaNativeProvider extends BaseProvider {
   private readonly model: string;
   private readonly temperature: number;
   private readonly maxTokens: number | undefined;
+  private readonly retryOptions: RetryOptions;
+  private retryCallback?: (attempt: number, error: Error, delayMs: number) => void;
 
-  constructor(config: ProviderConfig = {}) {
+  constructor(config: ProviderConfig & { retry?: RetryOptions } = {}) {
     super(config);
 
     // Default to localhost:11434 which is Ollama's default
@@ -81,6 +84,22 @@ export class OllamaNativeProvider extends BaseProvider {
     this.model = config.model || 'llama3.2';
     this.temperature = config.temperature ?? 0.7;
     this.maxTokens = config.maxTokens;
+    // Default retry options: 3 retries with exponential backoff starting at 2s
+    this.retryOptions = {
+      maxRetries: 3,
+      initialDelayMs: 2000,
+      maxDelayMs: 30000,
+      backoffMultiplier: 2,
+      jitter: true,
+      ...config.retry,
+    };
+  }
+
+  /**
+   * Set a callback to be notified when retries occur.
+   */
+  setRetryCallback(callback: (attempt: number, error: Error, delayMs: number) => void): void {
+    this.retryCallback = callback;
   }
 
   getName(): string {
@@ -168,37 +187,41 @@ export class OllamaNativeProvider extends BaseProvider {
       },
     };
 
-    try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+    return withRetry(
+      async () => {
+        const response = await fetch(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-      if (!response.ok) {
-        throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
+        if (!response.ok) {
+          throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
+        }
+
+        const responseData: OllamaChatResponse = await response.json();
+
+        // Extract tool calls from response if tools were provided
+        let toolCalls: ToolCall[] = [];
+        if (tools && tools.length > 0) {
+          toolCalls = this.extractToolCalls(responseData.message.content, tools);
+        }
+
+        return createProviderResponse({
+          content: responseData.message.content,
+          toolCalls,
+          stopReason: responseData.done_reason,
+          inputTokens: responseData.prompt_eval_count,
+          outputTokens: responseData.eval_count,
+        });
+      },
+      {
+        ...this.retryOptions,
+        onRetry: this.retryCallback,
       }
-
-      const responseData: OllamaChatResponse = await response.json();
-
-      // Extract tool calls from response if tools were provided
-      let toolCalls: ToolCall[] = [];
-      if (tools && tools.length > 0) {
-        toolCalls = this.extractToolCalls(responseData.message.content, tools);
-      }
-
-      return createProviderResponse({
-        content: responseData.message.content,
-        toolCalls,
-        stopReason: responseData.done_reason,
-        inputTokens: responseData.prompt_eval_count,
-        outputTokens: responseData.eval_count,
-      });
-    } catch (error) {
-      throw new Error(`Failed to generate completion with Ollama: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    );
   }
 
   async streamChat(
@@ -219,77 +242,81 @@ export class OllamaNativeProvider extends BaseProvider {
       },
     };
 
-    try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+    return withRetry(
+      async () => {
+        const response = await fetch(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-      if (!response.ok) {
-        throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
-      }
+        if (!response.ok) {
+          throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
+        }
 
-      if (!response.body) {
-        throw new Error('Response body is undefined');
-      }
+        if (!response.body) {
+          throw new Error('Response body is undefined');
+        }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let fullText = '';
-      let inputTokens: number | undefined;
-      let outputTokens: number | undefined;
-      let stopReason: string | undefined;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let inputTokens: number | undefined;
+        let outputTokens: number | undefined;
+        let stopReason: string | undefined;
 
-      // Process streamed chunks
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        // Process streamed chunks
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim());
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n').filter(line => line.trim());
 
-        for (const line of lines) {
-          try {
-            const data: OllamaChatResponse = JSON.parse(line);
+          for (const line of lines) {
+            try {
+              const data: OllamaChatResponse = JSON.parse(line);
 
-            if (data.message?.content) {
-              const content = data.message.content;
-              fullText += content;
-              if (onChunk) onChunk(content);
+              if (data.message?.content) {
+                const content = data.message.content;
+                fullText += content;
+                if (onChunk) onChunk(content);
+              }
+
+              // Capture token counts and stop reason from final chunk
+              if (data.done) {
+                inputTokens = data.prompt_eval_count;
+                outputTokens = data.eval_count;
+                stopReason = data.done_reason;
+              }
+            } catch {
+              // Not valid JSON, skip
+              continue;
             }
-
-            // Capture token counts and stop reason from final chunk
-            if (data.done) {
-              inputTokens = data.prompt_eval_count;
-              outputTokens = data.eval_count;
-              stopReason = data.done_reason;
-            }
-          } catch {
-            // Not valid JSON, skip
-            continue;
           }
         }
-      }
 
-      // Extract tool calls if tools were provided
-      let toolCalls: ToolCall[] = [];
-      if (tools && tools.length > 0) {
-        toolCalls = this.extractToolCalls(fullText, tools);
-      }
+        // Extract tool calls if tools were provided
+        let toolCalls: ToolCall[] = [];
+        if (tools && tools.length > 0) {
+          toolCalls = this.extractToolCalls(fullText, tools);
+        }
 
-      return createProviderResponse({
-        content: fullText,
-        toolCalls,
-        stopReason: stopReason || 'stop',
-        inputTokens,
-        outputTokens,
-      });
-    } catch (error) {
-      throw new Error(`Failed to stream completion with Ollama: ${error instanceof Error ? error.message : String(error)}`);
-    }
+        return createProviderResponse({
+          content: fullText,
+          toolCalls,
+          stopReason: stopReason || 'stop',
+          inputTokens,
+          outputTokens,
+        });
+      },
+      {
+        ...this.retryOptions,
+        onRetry: this.retryCallback,
+      }
+    );
   }
 
   async listModels(): Promise<OllamaModelInfo[]> {

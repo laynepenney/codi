@@ -1041,6 +1041,8 @@ The V4 algorithm adds **Phase 0 Symbolication** - a codebase structure analysis 
 
 ### Test Results (Ollama-Cloud)
 
+#### Test 1: Concurrency=6 (Initial)
+
 | Metric | Value |
 |--------|-------|
 | **Files total** | 94 |
@@ -1053,6 +1055,29 @@ The V4 algorithm adds **Phase 0 Symbolication** - a codebase structure analysis 
 | **Aggregation time** | 30.6 seconds |
 | **Concurrency** | 6 parallel files |
 | **Models used** | gemini-3-flash-preview (triage), gpt-oss (deep), coder (suggestions) |
+
+#### Test 2: Concurrency=4 (With Retry)
+
+After implementing retry with exponential backoff:
+
+| Metric | Value |
+|--------|-------|
+| **Files total** | 95 |
+| **Files processed** | 26 |
+| **Files skipped** | 69 (rate limits after 3 retries) |
+| **Total time** | 8.2 minutes |
+| **Symbolication time** | 1.4 seconds |
+| **Triage time** | 45.1 seconds |
+| **Processing time** | 7.5 minutes |
+| **Aggregation time** | 32.5 seconds |
+| **Concurrency** | 4 parallel files |
+| **Retry config** | 3 retries, 2s initial delay, 2x backoff |
+| **Models used** | gemini-3-flash-preview (triage), gpt-oss (deep), coder (suggestions) |
+
+**Key findings:**
+- Lower concurrency (4 vs 6) allows more files to complete before rate limiting
+- Retry with backoff adds time but allows some rate-limited requests to succeed
+- The Ollama cloud endpoint has very strict rate limits (~1 request/second)
 
 ### Symbolication Results
 
@@ -1117,10 +1142,37 @@ The triage phase now uses connectivity metrics to boost importance:
 
 ### Rate Limiting Impact
 
-The Ollama cloud endpoint was heavily rate-limited during this test:
-- 73 of 94 files skipped with "Ollama API error"
+The Ollama cloud endpoint was heavily rate-limited during testing:
+- Initial test: 73 of 94 files skipped with "Ollama API error"
+- With retry: 69 of 95 files skipped after 3 retries each
 - V4 algorithm handled this gracefully, continuing with available files
-- Final aggregation still produced useful output from 21 processed files
+- Final aggregation still produced useful output from processed files
+
+### Retry with Backoff (commit pending)
+
+Added exponential backoff retry to the Ollama provider (`src/providers/ollama-native.ts`):
+
+**New file:** `src/providers/retry.ts`
+- `withRetry()` - Execute a function with retry logic
+- `isRetryableError()` - Detect rate limits, network errors, server errors
+- Configurable: maxRetries, initialDelayMs, maxDelayMs, backoffMultiplier, jitter
+
+**Default configuration:**
+```typescript
+{
+  maxRetries: 3,
+  initialDelayMs: 2000,
+  maxDelayMs: 30000,
+  backoffMultiplier: 2,
+  jitter: true  // 0-25% random variation
+}
+```
+
+**Retryable errors detected:**
+- Rate limits (429, "too many requests", "quota exceeded")
+- Network errors (ECONNREFUSED, ECONNRESET, ETIMEDOUT)
+- Server errors (500, 502, 503, 504)
+- Ollama-specific ("model is loading", "try again")
 
 ---
 
@@ -1166,9 +1218,10 @@ The V4 pipeline introduces **codebase symbolication** that provides structural c
 ### Future Work
 1. **Agentic Pipeline Steps** - Give models tool access during analysis
 2. **Budget-Aware Selection** - Track costs and switch models dynamically
-3. **Retry with Backoff** - Handle rate limits with automatic retry
+3. ~~**Retry with Backoff**~~ - ✅ Implemented (commit pending)
 4. **Cost Tracking per Pipeline** - Detailed cost breakdown by phase
 5. **Incremental Symbolication** - Cache structure, update only changed files
+6. **Adaptive Concurrency** - Auto-reduce concurrency on rate limit detection
 
 The pipeline is now fully functional for **full codebase code review** with intelligent triage, adaptive processing, and structural awareness.
 
@@ -1179,3 +1232,4 @@ The pipeline is now fully functional for **full codebase code review** with inte
 *Updated with V2 algorithm results on January 12, 2025*
 *Updated with V3 algorithm results on January 12, 2025*
 *Updated with V4 algorithm results on January 12, 2025*
+*Updated with retry with backoff feature on January 12, 2025*
