@@ -2215,6 +2215,15 @@ async function main() {
                           onFileComplete: (file: string, _result: string) => {
                             console.log(chalk.green(`  ✓ ${file}`));
                           },
+                          onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
+                            console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
+                          },
+                          onBatchComplete: (batchIndex: number, _summary: string) => {
+                            console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
+                          },
+                          onMetaAggregationStart: (batchCount: number) => {
+                            console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
+                          },
                           onAggregationStart: () => {
                             console.log(chalk.yellow('\nAggregating results...'));
                           },
@@ -2234,11 +2243,15 @@ async function main() {
                         aggregation: {
                           enabled: true,
                           role: 'capable',
+                          batchSize: 15,  // Aggregate every 15 files
                         },
                       });
 
                       console.log(chalk.bold.green('\n\nPipeline complete!'));
                       console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
+                      if (iterativeResult.batchSummaries && iterativeResult.batchSummaries.length > 0) {
+                        console.log(chalk.dim(`Batches aggregated: ${iterativeResult.batchSummaries.length}`));
+                      }
                       console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
 
                       if (iterativeResult.skippedFiles && iterativeResult.skippedFiles.length > 0) {

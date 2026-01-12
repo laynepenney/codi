@@ -214,6 +214,12 @@ export interface IterativeCallbacks extends PipelineCallbacks {
   onFileComplete?: (file: string, result: string) => void;
   /** Called when aggregation phase begins */
   onAggregationStart?: () => void;
+  /** Called when a batch aggregation starts */
+  onBatchStart?: (batchIndex: number, totalBatches: number, filesInBatch: number) => void;
+  /** Called when a batch aggregation completes */
+  onBatchComplete?: (batchIndex: number, summary: string) => void;
+  /** Called when meta-aggregation starts (combining batch summaries) */
+  onMetaAggregationStart?: (batchCount: number) => void;
 }
 
 /**
@@ -226,6 +232,12 @@ export interface AggregationOptions {
   role?: string;
   /** Custom aggregation prompt template */
   prompt?: string;
+  /** Batch size for batched aggregation (default: 15, 0 = no batching) */
+  batchSize?: number;
+  /** Custom batch aggregation prompt template */
+  batchPrompt?: string;
+  /** Custom meta-aggregation prompt template (for combining batch summaries) */
+  metaPrompt?: string;
 }
 
 /**
@@ -258,4 +270,6 @@ export interface IterativeResult {
   modelsUsed: string[];
   /** Files that were skipped (with reasons) */
   skippedFiles?: Array<{ file: string; reason: string }>;
+  /** Batch summaries (when batched aggregation is used) */
+  batchSummaries?: string[];
 }

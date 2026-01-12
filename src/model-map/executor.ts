@@ -17,6 +17,7 @@ import type {
   IterativeCallbacks,
   IterativeOptions,
   IterativeResult,
+  AggregationOptions,
 } from './types.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
@@ -24,6 +25,9 @@ import { logger } from '../logger.js';
 
 /** Maximum file size for iterative processing (50KB) */
 const MAX_FILE_SIZE = 50000;
+
+/** Default batch size for batched aggregation */
+const DEFAULT_BATCH_SIZE = 15;
 
 // Re-export PipelineCallbacks from types for backwards compatibility
 export type { PipelineCallbacks } from './types.js';
@@ -138,6 +142,7 @@ export class PipelineExecutor {
   /**
    * Execute a pipeline iteratively over multiple files.
    * Processes each file individually and aggregates results.
+   * Supports batched aggregation to handle large file sets within token limits.
    *
    * @param pipeline - The pipeline definition
    * @param files - Array of file paths to process
@@ -150,11 +155,19 @@ export class PipelineExecutor {
   ): Promise<IterativeResult> {
     const callbacks = options?.callbacks;
     const providerContext = options?.providerContext || pipeline.provider || 'openai';
+    const batchSize = options?.aggregation?.batchSize ?? DEFAULT_BATCH_SIZE;
+    const useBatching = batchSize > 0 && files.length > batchSize;
 
     const fileResults = new Map<string, PipelineResult>();
     const skippedFiles: Array<{ file: string; reason: string }> = [];
     const allModelsUsed = new Set<string>();
+    const batchSummaries: string[] = [];
     let filesProcessed = 0;
+
+    // Track current batch for batched aggregation
+    let currentBatchFiles: string[] = [];
+    let currentBatchResults = new Map<string, PipelineResult>();
+    const totalBatches = useBatching ? Math.ceil(files.length / batchSize) : 1;
 
     // Process each file
     for (let i = 0; i < files.length; i++) {
@@ -189,7 +202,40 @@ export class PipelineExecutor {
         result.modelsUsed.forEach((m) => allModelsUsed.add(m));
         filesProcessed++;
 
+        // Track for batch aggregation
+        if (useBatching) {
+          currentBatchFiles.push(file);
+          currentBatchResults.set(file, result);
+        }
+
         callbacks?.onFileComplete?.(file, result.output);
+
+        // Check if we've completed a batch
+        if (useBatching && currentBatchResults.size >= batchSize) {
+          const batchIndex = batchSummaries.length;
+          callbacks?.onBatchStart?.(batchIndex, totalBatches, currentBatchResults.size);
+
+          try {
+            const batchSummary = await this.aggregateBatch(
+              currentBatchResults,
+              batchIndex,
+              totalBatches,
+              providerContext,
+              options?.aggregation,
+              callbacks
+            );
+            batchSummaries.push(batchSummary);
+            callbacks?.onBatchComplete?.(batchIndex, batchSummary);
+          } catch (error) {
+            logger.error(`Batch ${batchIndex + 1} aggregation failed:`, error instanceof Error ? error : new Error(String(error)));
+            // Store concatenated results as fallback
+            batchSummaries.push(this.formatConcatenatedResults(currentBatchResults));
+          }
+
+          // Reset batch tracking
+          currentBatchFiles = [];
+          currentBatchResults = new Map();
+        }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         skippedFiles.push({ file, reason });
@@ -197,23 +243,60 @@ export class PipelineExecutor {
       }
     }
 
-    // Aggregate results if enabled
+    // Handle remaining files in the last batch
+    if (useBatching && currentBatchResults.size > 0) {
+      const batchIndex = batchSummaries.length;
+      callbacks?.onBatchStart?.(batchIndex, totalBatches, currentBatchResults.size);
+
+      try {
+        const batchSummary = await this.aggregateBatch(
+          currentBatchResults,
+          batchIndex,
+          totalBatches,
+          providerContext,
+          options?.aggregation,
+          callbacks
+        );
+        batchSummaries.push(batchSummary);
+        callbacks?.onBatchComplete?.(batchIndex, batchSummary);
+      } catch (error) {
+        logger.error(`Batch ${batchIndex + 1} aggregation failed:`, error instanceof Error ? error : new Error(String(error)));
+        batchSummaries.push(this.formatConcatenatedResults(currentBatchResults));
+      }
+    }
+
+    // Aggregate results
     let aggregatedOutput: string | undefined;
 
     if (options?.aggregation?.enabled !== false && fileResults.size > 0) {
       callbacks?.onAggregationStart?.();
 
       try {
-        aggregatedOutput = await this.aggregateResults(
-          fileResults,
-          providerContext,
-          options?.aggregation,
-          callbacks
-        );
+        if (useBatching && batchSummaries.length > 0) {
+          // Meta-aggregate batch summaries
+          callbacks?.onMetaAggregationStart?.(batchSummaries.length);
+          aggregatedOutput = await this.metaAggregate(
+            batchSummaries,
+            filesProcessed,
+            providerContext,
+            options?.aggregation,
+            callbacks
+          );
+        } else {
+          // Standard aggregation for small file sets
+          aggregatedOutput = await this.aggregateResults(
+            fileResults,
+            providerContext,
+            options?.aggregation,
+            callbacks
+          );
+        }
       } catch (error) {
         logger.error('Aggregation failed:', error instanceof Error ? error : new Error(String(error)));
-        // Fall back to concatenated results
-        aggregatedOutput = this.formatConcatenatedResults(fileResults);
+        // Fall back to concatenated results or batch summaries
+        aggregatedOutput = useBatching && batchSummaries.length > 0
+          ? batchSummaries.join('\n\n---\n\n')
+          : this.formatConcatenatedResults(fileResults);
       }
     } else if (fileResults.size > 0) {
       // No aggregation, just concatenate
@@ -227,6 +310,7 @@ export class PipelineExecutor {
       totalFiles: files.length,
       modelsUsed: Array.from(allModelsUsed),
       skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
+      batchSummaries: useBatching && batchSummaries.length > 0 ? batchSummaries : undefined,
     };
   }
 
@@ -256,11 +340,12 @@ export class PipelineExecutor {
 
   /**
    * Aggregate results from multiple files using a model.
+   * Used for small file sets that don't require batching.
    */
   private async aggregateResults(
     fileResults: Map<string, PipelineResult>,
     providerContext: ProviderContext,
-    aggregationOpts?: { role?: string; prompt?: string },
+    aggregationOpts?: AggregationOptions,
     callbacks?: IterativeCallbacks
   ): Promise<string> {
     const role = aggregationOpts?.role || 'capable';
@@ -288,18 +373,7 @@ Provide:
       : defaultPrompt;
 
     // Resolve the aggregation model
-    let modelName: string;
-    if (this.router) {
-      const resolved = this.router.resolveRole(role, providerContext);
-      if (resolved) {
-        modelName = resolved.name;
-      } else {
-        // Fallback to first available model
-        modelName = Array.from(fileResults.values())[0]?.modelsUsed[0] || 'default';
-      }
-    } else {
-      modelName = Array.from(fileResults.values())[0]?.modelsUsed[0] || 'default';
-    }
+    const modelName = this.resolveAggregationModel(role, providerContext, fileResults);
 
     callbacks?.onStepStart?.('aggregate', modelName);
 
@@ -319,6 +393,147 @@ Provide:
     callbacks?.onStepComplete?.('aggregate', finalOutput);
 
     return finalOutput;
+  }
+
+  /**
+   * Aggregate a single batch of results.
+   */
+  private async aggregateBatch(
+    batchResults: Map<string, PipelineResult>,
+    batchIndex: number,
+    totalBatches: number,
+    providerContext: ProviderContext,
+    aggregationOpts?: AggregationOptions,
+    callbacks?: IterativeCallbacks
+  ): Promise<string> {
+    const role = aggregationOpts?.role || 'capable';
+
+    // Build batch aggregation prompt
+    const resultsText = Array.from(batchResults.entries())
+      .map(([file, result]) => `### ${file}\n${result.output}`)
+      .join('\n\n---\n\n');
+
+    const defaultBatchPrompt = `You are summarizing batch ${batchIndex + 1} of ${totalBatches} from a code review.
+This batch contains ${batchResults.size} files.
+
+${resultsText}
+
+Provide a concise summary of this batch:
+1. **Key Issues Found** - Most important problems in this batch
+2. **Patterns** - Any recurring issues
+3. **Files Needing Attention** - Which files have the most critical issues
+
+Keep the summary focused and under 1000 words - this will be combined with other batch summaries.`;
+
+    const prompt = aggregationOpts?.batchPrompt
+      ? aggregationOpts.batchPrompt
+          .replace('{results}', resultsText)
+          .replace('{fileCount}', String(batchResults.size))
+          .replace('{batchIndex}', String(batchIndex + 1))
+          .replace('{totalBatches}', String(totalBatches))
+      : defaultBatchPrompt;
+
+    // Resolve the aggregation model
+    const modelName = this.resolveAggregationModel(role, providerContext, batchResults);
+
+    callbacks?.onStepStart?.(`batch-${batchIndex + 1}`, modelName);
+
+    const provider = this.registry.getProvider(modelName);
+    let output = '';
+
+    const response = await provider.streamChat(
+      [{ role: 'user', content: prompt }],
+      undefined,
+      (text: string) => {
+        output += text;
+        callbacks?.onStepText?.(`batch-${batchIndex + 1}`, text);
+      }
+    );
+
+    const finalOutput = output || response.content;
+    callbacks?.onStepComplete?.(`batch-${batchIndex + 1}`, finalOutput);
+
+    return finalOutput;
+  }
+
+  /**
+   * Meta-aggregate batch summaries into a final report.
+   */
+  private async metaAggregate(
+    batchSummaries: string[],
+    totalFilesProcessed: number,
+    providerContext: ProviderContext,
+    aggregationOpts?: AggregationOptions,
+    callbacks?: IterativeCallbacks
+  ): Promise<string> {
+    const role = aggregationOpts?.role || 'capable';
+
+    // Build meta-aggregation prompt
+    const summariesText = batchSummaries
+      .map((summary, i) => `## Batch ${i + 1} Summary\n\n${summary}`)
+      .join('\n\n---\n\n');
+
+    const defaultMetaPrompt = `You received ${batchSummaries.length} batch summaries from a code review of ${totalFilesProcessed} files.
+Synthesize these batch summaries into a final consolidated report.
+
+${summariesText}
+
+Provide a comprehensive final report:
+1. **Critical Issues** - Most important problems found across all batches (prioritized)
+2. **Common Patterns** - Recurring issues or anti-patterns across the codebase
+3. **Top Recommendations** - 5 most impactful improvements
+4. **Files Requiring Immediate Attention** - Which files need immediate work
+5. **Overall Assessment** - Brief summary of codebase health`;
+
+    const prompt = aggregationOpts?.metaPrompt
+      ? aggregationOpts.metaPrompt
+          .replace('{summaries}', summariesText)
+          .replace('{batchCount}', String(batchSummaries.length))
+          .replace('{fileCount}', String(totalFilesProcessed))
+      : defaultMetaPrompt;
+
+    // Resolve the aggregation model
+    const modelName = this.resolveAggregationModel(role, providerContext);
+
+    callbacks?.onStepStart?.('meta-aggregate', modelName);
+
+    const provider = this.registry.getProvider(modelName);
+    let output = '';
+
+    const response = await provider.streamChat(
+      [{ role: 'user', content: prompt }],
+      undefined,
+      (text: string) => {
+        output += text;
+        callbacks?.onStepText?.('meta-aggregate', text);
+      }
+    );
+
+    const finalOutput = output || response.content;
+    callbacks?.onStepComplete?.('meta-aggregate', finalOutput);
+
+    return finalOutput;
+  }
+
+  /**
+   * Resolve the model to use for aggregation.
+   */
+  private resolveAggregationModel(
+    role: string,
+    providerContext: ProviderContext,
+    fallbackResults?: Map<string, PipelineResult>
+  ): string {
+    if (this.router) {
+      const resolved = this.router.resolveRole(role, providerContext);
+      if (resolved) {
+        return resolved.name;
+      }
+    }
+    // Fallback to first available model from results
+    if (fallbackResults) {
+      return Array.from(fallbackResults.values())[0]?.modelsUsed[0] || 'default';
+    }
+    return 'default';
   }
 
   /**
