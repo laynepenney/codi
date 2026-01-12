@@ -22,12 +22,22 @@ import type {
   GroupingOptions,
   V3Options,
   V3Callbacks,
+  V4Options,
+  V4Callbacks,
   TriageResult,
+  CodebaseStructure,
+  SymbolicationResult,
 } from './types.js';
 import type { ToolDefinition, Message, ContentBlock } from '../types.js';
 import { triageFiles, getSuggestedModel } from './triage.js';
 import { globalRegistry } from '../tools/index.js';
 import { groupFiles, processInParallel } from './grouping.js';
+import {
+  Phase0Symbolication,
+  buildFileAnalysisPrompt,
+  buildNavigationContext,
+  compressFileContext,
+} from './symbols/index.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
 import { logger } from '../logger.js';
@@ -1409,6 +1419,385 @@ Provide a comprehensive final report:
     const result = !!value && value.trim().length > 0;
 
     return negated ? !result : result;
+  }
+
+  // ============================================================================
+  // V4 Execution with Symbolication
+  // ============================================================================
+
+  /**
+   * Execute pipeline iteratively over multiple files with V4 symbolication.
+   * Adds Phase 0 symbolication before triage for enhanced context.
+   */
+  async executeIterativeV4(
+    pipelineName: string,
+    files: string[],
+    options: V4Options = {}
+  ): Promise<IterativeResult> {
+    const startTime = Date.now();
+    const v4Callbacks = options.callbacks as V4Callbacks | undefined;
+
+    // Phase 0: Build codebase structure (symbolication)
+    let structure: CodebaseStructure | undefined = options.structure;
+    let symbolicationTime = 0;
+
+    if (options.enableSymbolication !== false && !structure) {
+      const symbolicationStart = Date.now();
+      v4Callbacks?.onSymbolicationStart?.(files.length);
+
+      const phase0 = new Phase0Symbolication({
+        projectRoot: options.symbolicationOptions?.projectRoot,
+      });
+
+      const result = await phase0.buildStructure({
+        files,
+        criticalFiles: phase0.selectCriticalFiles(files),
+        buildDependencyGraph: true,
+        resolveBarrels: true,
+        onProgress: (processed, total, file) => {
+          v4Callbacks?.onSymbolicationProgress?.(processed, total, file);
+        },
+        ...options.symbolicationOptions,
+      });
+
+      structure = result.structure;
+      symbolicationTime = Date.now() - symbolicationStart;
+      v4Callbacks?.onSymbolicationComplete?.(result);
+    }
+
+    // Continue with V3 execution, passing structure for context enhancement
+    const v3Options: V3Options = {
+      ...options,
+      callbacks: options.callbacks,
+    };
+
+    // Execute V3 with structure context
+    const v3Result = await this.executeIterativeV3WithContext(
+      pipelineName,
+      files,
+      v3Options,
+      structure
+    );
+
+    // Add symbolication timing to result
+    if (v3Result.timing) {
+      v3Result.timing.total = Date.now() - startTime;
+      (v3Result.timing as { symbolication?: number }).symbolication = symbolicationTime;
+    }
+
+    return v3Result;
+  }
+
+  /**
+   * Execute V3 pipeline with optional codebase structure context.
+   * When structure is provided, enhances triage and file prompts.
+   */
+  private async executeIterativeV3WithContext(
+    pipelineName: string,
+    files: string[],
+    options: V3Options,
+    structure?: CodebaseStructure
+  ): Promise<IterativeResult> {
+    const startTime = Date.now();
+    const callbacks = options.callbacks;
+
+    // Get pipeline definition from router
+    if (!this.router) {
+      throw new Error('Router is required for V4 execution');
+    }
+    const pipeline = this.router.getPipeline(pipelineName);
+
+    if (!pipeline) {
+      throw new Error(`Pipeline not found: ${pipelineName}`);
+    }
+
+    // Phase 1: Enhanced Triage (with connectivity if structure available)
+    let triageResult: TriageResult | undefined;
+    let triageTime = 0;
+
+    if (options.enableTriage !== false && this.router) {
+      const triageStart = Date.now();
+      callbacks?.onTriageStart?.(files.length);
+
+      triageResult = await triageFiles(files, this.registry, this.router, {
+        role: options.triage?.role || 'fast',
+        providerContext: options.providerContext,
+        criteria: options.triage?.criteria,
+        deepThreshold: options.triage?.deepThreshold,
+        skipThreshold: options.triage?.skipThreshold,
+      });
+
+      // Enhance triage with connectivity if structure available
+      if (structure) {
+        triageResult = this.enhanceTriageWithConnectivity(triageResult, structure);
+      }
+
+      triageTime = Date.now() - triageStart;
+      callbacks?.onTriageComplete?.(triageResult);
+    }
+
+    // Determine files to process based on triage
+    const filesToProcess = triageResult
+      ? [...triageResult.criticalPaths, ...triageResult.normalPaths]
+      : files;
+
+    const skippedFiles = triageResult
+      ? triageResult.skipPaths.map((f) => ({ file: f, reason: 'low priority' }))
+      : [];
+
+    // Phase 2: Process files with enhanced context
+    const processStart = Date.now();
+    const fileResults = new Map<string, PipelineResult>();
+    const modelsUsed = new Set<string>();
+
+    for (let i = 0; i < filesToProcess.length; i++) {
+      const file = filesToProcess[i];
+      callbacks?.onFileStart?.(file, i, filesToProcess.length);
+
+      try {
+        // Build enhanced prompt with structure context
+        let enhancedInput: string;
+        const v4Opts = options as V4Options;
+        if (structure && v4Opts.includeNavigationContext !== false) {
+          enhancedInput = this.formatFileInput(file, structure, v4Opts);
+        } else {
+          enhancedInput = file;
+        }
+
+        // Execute pipeline for this file
+        const result = await this.execute(pipeline, enhancedInput, {
+          providerContext: options.providerContext,
+        });
+
+        fileResults.set(file, result);
+        result.modelsUsed.forEach((m) => modelsUsed.add(m));
+        callbacks?.onFileComplete?.(file, result.output);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        skippedFiles.push({ file, reason: errorMsg });
+        callbacks?.onError?.(file, error as Error);
+      }
+    }
+
+    const processTime = Date.now() - processStart;
+
+    // Phase 3: Aggregation
+    let aggregatedOutput: string | undefined;
+    let aggregationTime = 0;
+
+    if (options.aggregation?.enabled !== false && fileResults.size > 0) {
+      const aggStart = Date.now();
+      callbacks?.onAggregationStart?.();
+
+      aggregatedOutput = await this.metaAggregateV4(
+        fileResults,
+        structure,
+        options
+      );
+
+      aggregationTime = Date.now() - aggStart;
+    }
+
+    return {
+      fileResults,
+      aggregatedOutput,
+      filesProcessed: fileResults.size,
+      totalFiles: files.length,
+      modelsUsed: Array.from(modelsUsed),
+      skippedFiles,
+      triageResult,
+      timing: {
+        total: Date.now() - startTime,
+        triage: triageTime,
+        processing: processTime,
+        aggregation: aggregationTime,
+      },
+    };
+  }
+
+  /**
+   * Enhance triage scores with connectivity metrics from structure.
+   */
+  private enhanceTriageWithConnectivity(
+    triageResult: TriageResult,
+    structure: CodebaseStructure
+  ): TriageResult {
+    const enhancedScores = triageResult.scores.map((score) => {
+      const connectivity = structure.connectivity.get(score.file);
+      if (!connectivity) return score;
+
+      // Boost importance for high-connectivity files
+      let importanceBoost = 0;
+
+      // Files imported by many others are more important
+      if (connectivity.inDegree >= 5) {
+        importanceBoost += 2;
+      } else if (connectivity.inDegree >= 2) {
+        importanceBoost += 1;
+      }
+
+      // Entry points are critical
+      if (structure.dependencyGraph.entryPoints.includes(score.file)) {
+        importanceBoost += 2;
+      }
+
+      // High transitive reach = high importance
+      if (connectivity.transitiveImporters >= 10) {
+        importanceBoost += 1;
+      }
+
+      // Boost complexity for files in cycles
+      const inCycle = structure.dependencyGraph.cycles.some((cycle) =>
+        cycle.includes(score.file)
+      );
+      const complexityBoost = inCycle ? 1 : 0;
+
+      const newImportance = Math.min(10, score.importance + importanceBoost);
+      const newComplexity = Math.min(10, score.complexity + complexityBoost);
+      const newPriority = (newImportance + newComplexity + (score.risk === 'critical' ? 10 : score.risk === 'high' ? 7 : score.risk === 'medium' ? 4 : 1)) / 3;
+
+      return {
+        ...score,
+        importance: newImportance,
+        complexity: newComplexity,
+        priority: newPriority,
+        reasoning: `${score.reasoning} [Connectivity: in=${connectivity.inDegree}, out=${connectivity.outDegree}${inCycle ? ', in-cycle' : ''}]`,
+      };
+    });
+
+    // Re-sort by priority
+    enhancedScores.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+    // Re-categorize based on new priorities
+    const deepThreshold = 6;
+    const skipThreshold = 3;
+
+    const criticalPaths = enhancedScores
+      .filter((s) => (s.priority || 0) >= deepThreshold)
+      .map((s) => s.file);
+
+    const normalPaths = enhancedScores
+      .filter((s) => {
+        const p = s.priority || 0;
+        return p < deepThreshold && p > skipThreshold;
+      })
+      .map((s) => s.file);
+
+    const skipPaths = enhancedScores
+      .filter((s) => (s.priority || 0) <= skipThreshold)
+      .map((s) => s.file);
+
+    return {
+      ...triageResult,
+      scores: enhancedScores,
+      criticalPaths,
+      normalPaths,
+      skipPaths,
+    };
+  }
+
+  /**
+   * Aggregate results with structure context for V4.
+   */
+  private async metaAggregateV4(
+    fileResults: Map<string, PipelineResult>,
+    structure: CodebaseStructure | undefined,
+    options: V3Options
+  ): Promise<string> {
+    const resultSummaries: string[] = [];
+
+    for (const [file, result] of fileResults) {
+      resultSummaries.push(`### ${file}\n${result.output}`);
+    }
+
+    // Build aggregation prompt
+    let aggregationPrompt = options.aggregation?.prompt ||
+      'Synthesize these file analysis results into a coherent summary:\n\n{results}';
+
+    // Add structure context if available
+    let structureContext = '';
+    if (structure) {
+      const entryPoints = structure.dependencyGraph.entryPoints.slice(0, 5);
+      const cycleCount = structure.dependencyGraph.cycles.length;
+
+      structureContext = `
+Codebase Structure:
+- Total files: ${structure.metadata.totalFiles}
+- Entry points: ${entryPoints.join(', ')}
+- Circular dependencies: ${cycleCount}
+
+`;
+    }
+
+    aggregationPrompt = aggregationPrompt.replace(
+      '{results}',
+      structureContext + resultSummaries.join('\n\n')
+    );
+
+    // Get aggregation model - use router for role resolution if available
+    let modelName: string;
+    const roleName = options.aggregation?.role || 'capable';
+
+    if (this.router) {
+      const resolved = this.router.resolveRole(roleName, options.providerContext || 'anthropic');
+      if (resolved) {
+        modelName = resolved.name;
+      } else {
+        // Fallback to first available model
+        const modelNames = this.registry.getModelNames();
+        if (modelNames.length === 0) {
+          throw new Error(`No models available for aggregation`);
+        }
+        modelName = modelNames[0];
+      }
+    } else {
+      // No router, use first available model
+      const modelNames = this.registry.getModelNames();
+      if (modelNames.length === 0) {
+        throw new Error(`No models available for aggregation`);
+      }
+      modelName = modelNames[0];
+    }
+
+    // Execute aggregation
+    const provider = this.registry.getProvider(modelName);
+    const response = await provider.chat([
+      { role: 'user', content: aggregationPrompt },
+    ]);
+
+    return typeof response.content === 'string'
+      ? response.content
+      : (response.content as ContentBlock[]).map((b) => (b.type === 'text' ? b.text : '')).join('');
+  }
+
+  /**
+   * Format file input with structure context.
+   */
+  private formatFileInput(
+    file: string,
+    structure: CodebaseStructure,
+    options: V4Options
+  ): string {
+    const parts: string[] = [file];
+
+    // Add navigation context
+    if (options.includeNavigationContext !== false) {
+      const navContext = buildNavigationContext(file, structure);
+      if (navContext) {
+        parts.push(`\n[Navigation: ${navContext}]`);
+      }
+    }
+
+    // Add compressed file context
+    if (options.includeRelatedContext !== false) {
+      const compressed = compressFileContext(file, structure);
+      if (compressed.exports.length > 0 || compressed.dependencies.length > 0) {
+        parts.push(`\n[Exports: ${compressed.exports.slice(0, 5).join(', ')}]`);
+        parts.push(`[Dependencies: ${compressed.dependencies.slice(0, 5).join(', ')}]`);
+      }
+    }
+
+    return parts.join('');
   }
 }
 

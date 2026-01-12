@@ -314,7 +314,7 @@ export const pipelineCommand: Command = {
   name: 'pipeline',
   aliases: ['pipe', 'run-pipeline'],
   description: 'Execute a multi-model pipeline',
-  usage: '/pipeline [--provider <context>] [--all] [--v2] [--v3] [--triage] [--concurrency N] [name] [input]',
+  usage: '/pipeline [--provider <context>] [--all] [--v2] [--v3] [--v4] [--triage] [--concurrency N] [name] [input]',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const agent = context.agent;
@@ -336,6 +336,7 @@ export const pipelineCommand: Command = {
     let iterativeMode = false;
     let useV2 = false;
     let useV3 = false;
+    let useV4 = false;
     let useTriage = false;
     let triageOnly = false;
     let concurrency = 4;
@@ -380,6 +381,16 @@ export const pipelineCommand: Command = {
         useV3 = true;
         iterativeMode = true; // V3 implies iterative mode
         remainingArgs = remainingArgs.slice(v3Match[0].length);
+        foundFlag = true;
+        continue;
+      }
+
+      // Parse --v4 flag (symbolication + enhanced triage + contextual processing)
+      const v4Match = remainingArgs.match(/^--v4\s*/);
+      if (v4Match) {
+        useV4 = true;
+        iterativeMode = true; // V4 implies iterative mode
+        remainingArgs = remainingArgs.slice(v4Match[0].length);
         foundFlag = true;
         continue;
       }
@@ -465,10 +476,11 @@ export const pipelineCommand: Command = {
     const iterativePart = iterativeMode ? '|iterative:true' : '';
     const v2Part = useV2 ? '|v2:true' : '';
     const v3Part = useV3 ? '|v3:true' : '';
+    const v4Part = useV4 ? '|v4:true' : '';
     const triagePart = useTriage ? '|triage:true' : '';
     const triageOnlyPart = triageOnly ? '|triageOnly:true' : '';
     const concurrencyPart = concurrency !== 4 ? `|concurrency:${concurrency}` : '';
-    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${v2Part}${v3Part}${triagePart}${triageOnlyPart}${concurrencyPart}|${input}`;
+    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${v2Part}${v3Part}${v4Part}${triagePart}${triageOnlyPart}${concurrencyPart}|${input}`;
   },
 };
 

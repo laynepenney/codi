@@ -50,6 +50,39 @@ export type {
   RiskLevel,
 } from './types.js';
 
+// V4 Types (re-exported from types.ts)
+export type {
+  V4Options,
+  V4Callbacks,
+  CodebaseStructure,
+  SymbolicationOptions,
+  SymbolicationResult,
+} from './types.js';
+
+// V4 Symbolication
+export {
+  Phase0Symbolication,
+  buildCodebaseStructure,
+  formatSymbolicationResult,
+  compressFileContext,
+  formatContextForPrompt,
+  buildFileAnalysisPrompt,
+  buildNavigationContext,
+  formatFullNavigationContext,
+  getDepthFromEntry,
+} from './symbols/index.js';
+
+export type {
+  FileSymbolInfo,
+  CodeSymbol,
+  ImportStatement,
+  ExportStatement,
+  DependencyGraph,
+  DependencyEdge,
+  FileConnectivity,
+  CompressedSymbolContext,
+} from './symbols/types.js';
+
 // Grouping
 export {
   groupFiles,

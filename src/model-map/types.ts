@@ -453,3 +453,46 @@ export interface V3Options extends IterativeOptions {
   /** Dynamic model override based on triage (file -> role mapping) */
   modelOverrides?: Map<string, string>;
 }
+
+// ============================================================================
+// V4 Symbolication Types
+// ============================================================================
+
+// Import symbolication types (re-exported for convenience)
+import type {
+  CodebaseStructure,
+  SymbolicationOptions,
+  SymbolicationResult,
+} from './symbols/types.js';
+
+export type { CodebaseStructure, SymbolicationOptions, SymbolicationResult };
+
+/**
+ * Extended callbacks for V4 iterative pipeline with symbolication.
+ */
+export interface V4Callbacks extends V3Callbacks {
+  /** Called when Phase 0 symbolication starts */
+  onSymbolicationStart?: (totalFiles: number) => void;
+  /** Called when Phase 0 symbolication completes */
+  onSymbolicationComplete?: (result: SymbolicationResult) => void;
+  /** Called for each file during symbolication */
+  onSymbolicationProgress?: (processed: number, total: number, file: string) => void;
+}
+
+/**
+ * Extended options for V4 iterative pipeline with symbolication.
+ */
+export interface V4Options extends V3Options {
+  /** Enable Phase 0 symbolication (default: true for V4) */
+  enableSymbolication?: boolean;
+  /** Symbolication configuration */
+  symbolicationOptions?: Partial<SymbolicationOptions>;
+  /** Pre-built codebase structure (skip Phase 0 if provided) */
+  structure?: CodebaseStructure;
+  /** Include navigation context in file analysis prompts */
+  includeNavigationContext?: boolean;
+  /** Include related file context in analysis prompts */
+  includeRelatedContext?: boolean;
+  /** Override callbacks with V4 callbacks */
+  callbacks?: V4Callbacks;
+}

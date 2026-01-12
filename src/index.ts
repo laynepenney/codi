@@ -2160,6 +2160,7 @@ async function main() {
                   let iterativeMode = false;
                   let useV2 = false;
                   let useV3 = false;
+                  let useV4 = false;
                   let useTriage = false;
                   let triageOnly = false;
                   let concurrency = 4;
@@ -2179,6 +2180,9 @@ async function main() {
                       inputStartIndex++;
                     } else if (part?.startsWith('v3:')) {
                       useV3 = part.slice('v3:'.length) === 'true';
+                      inputStartIndex++;
+                    } else if (part?.startsWith('v4:')) {
+                      useV4 = part.slice('v4:'.length) === 'true';
                       inputStartIndex++;
                     } else if (part?.startsWith('triage:')) {
                       useTriage = part.slice('triage:'.length) === 'true';
@@ -2222,23 +2226,99 @@ async function main() {
                       return;
                     }
 
-                    const modeLabel = useV3 ? 'V3 - triage + adaptive' : useV2 ? 'V2 - grouped + parallel' : 'sequential';
+                    const modeLabel = useV4 ? 'V4 - symbolication + triage + contextual' : useV3 ? 'V3 - triage + adaptive' : useV2 ? 'V2 - grouped + parallel' : 'sequential';
                     console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
                     console.log(chalk.dim(`Provider: ${effectiveProvider}`));
                     console.log(chalk.dim(`Files: ${files.length} total`));
-                    if (useV2 || useV3) {
+                    if (useV2 || useV3 || useV4) {
                       console.log(chalk.dim(`Concurrency: ${concurrency}`));
                     }
-                    if (useV3 || useTriage) {
+                    if (useV3 || useV4 || useTriage) {
                       console.log(chalk.dim(`Triage: enabled`));
+                    }
+                    if (useV4) {
+                      console.log(chalk.dim(`Symbolication: enabled`));
                     }
                     console.log();
 
                     try {
-                      // Choose V1, V2, or V3 algorithm
+                      // Choose V1, V2, V3, or V4 algorithm
                       let iterativeResult: import('./model-map/types.js').IterativeResult;
 
-                      if (useV3 || triageOnly) {
+                      if (useV4) {
+                        // V4: symbolication + triage + contextual processing
+                        iterativeResult = await modelMap.executor.executeIterativeV4(pipelineName, files, {
+                          providerContext: effectiveProvider,
+                          concurrency,
+                          enableTriage: true,
+                          enableSymbolication: true,
+                          includeNavigationContext: true,
+                          includeRelatedContext: true,
+                          triage: {
+                            role: 'fast',
+                            deepThreshold: 6,
+                            skipThreshold: 3,
+                          },
+                          callbacks: {
+                            onSymbolicationStart: (totalFiles: number) => {
+                              console.log(chalk.yellow(`  📊 Symbolicating ${totalFiles} files...`));
+                            },
+                            onSymbolicationProgress: (processed: number, total: number, file: string) => {
+                              if (processed % 10 === 0 || processed === total) {
+                                console.log(chalk.dim(`    ${processed}/${total} ${file}`));
+                              }
+                            },
+                            onSymbolicationComplete: (result: import('./model-map/types.js').SymbolicationResult) => {
+                              const meta = result.structure.metadata;
+                              console.log(chalk.green(`  ✓ Symbolication complete`));
+                              console.log(chalk.dim(`    Files: ${meta.totalFiles}, Symbols: ${meta.totalSymbols}`));
+                              console.log(chalk.dim(`    Entry points: ${result.structure.dependencyGraph.entryPoints.length}`));
+                              console.log(chalk.dim(`    Barrel files: ${result.structure.barrelFiles.length}`));
+                              if (result.structure.dependencyGraph.cycles.length > 0) {
+                                console.log(chalk.yellow(`    Circular deps: ${result.structure.dependencyGraph.cycles.length}`));
+                              }
+                              console.log(chalk.dim(`    Time: ${(result.duration / 1000).toFixed(1)}s`));
+                            },
+                            onTriageStart: (totalFiles: number) => {
+                              console.log(chalk.yellow(`\n  🔍 Triaging ${totalFiles} files (with connectivity)...`));
+                            },
+                            onTriageComplete: (triageResult: import('./model-map/types.js').TriageResult) => {
+                              console.log(chalk.green(`  ✓ Triage complete`));
+                              console.log(chalk.dim(`    Critical: ${triageResult.criticalPaths.length} files`));
+                              console.log(chalk.dim(`    Normal: ${triageResult.normalPaths.length} files`));
+                              console.log(chalk.dim(`    Quick scan: ${triageResult.skipPaths.length} files`));
+                              if (triageResult.duration) {
+                                console.log(chalk.dim(`    Time: ${(triageResult.duration / 1000).toFixed(1)}s`));
+                              }
+                            },
+                            onFileStart: (file: string, index: number, total: number) => {
+                              console.log(chalk.dim(`    ▸ [${index + 1}/${total}] ${file}`));
+                            },
+                            onFileComplete: (_file: string, _result: string) => {
+                              // Minimal output
+                            },
+                            onAggregationStart: () => {
+                              console.log(chalk.yellow('\n  🔗 Synthesizing results with structure context...'));
+                            },
+                            onStepStart: (stepName: string, modelName: string) => {
+                              console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                            },
+                            onStepComplete: (stepName: string, _output: string) => {
+                              console.log(chalk.dim(`    ✓ ${stepName}`));
+                            },
+                            onStepText: (_stepName: string, _text: string) => {
+                              // Don't stream in iterative mode
+                            },
+                            onError: (stepName: string, error: Error) => {
+                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                            },
+                          },
+                          aggregation: {
+                            enabled: true,
+                            role: 'capable',
+                          },
+                        });
+                      } else if (useV3 || triageOnly) {
                         // V3: triage + adaptive processing
                         iterativeResult = await modelMap.executor.executeIterativeV3(pipeline, files, {
                           providerContext: effectiveProvider,
