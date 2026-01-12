@@ -14,6 +14,7 @@ import type {
   TriageOptions,
   ProviderContext,
   RiskLevel,
+  CodebaseStructure,
 } from './types.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
@@ -423,7 +424,13 @@ export async function triageFiles(
     logger.debug(`Triaging ${files.length} files with ${resolved.name}`);
 
     const response = await provider.chat([{ role: 'user', content: prompt }]);
-    const result = parseTriageResponse(response.content, files, options);
+    let result = parseTriageResponse(response.content, files, options);
+
+    // Enhance with connectivity if structure is provided
+    if (options.structure) {
+      result = enhanceWithConnectivity(result, options.structure, options);
+    }
+
     result.duration = Date.now() - startTime;
 
     logger.info(`Triage complete: ${result.criticalPaths.length} critical, ${result.normalPaths.length} normal, ${result.skipPaths.length} skip`);
@@ -431,10 +438,103 @@ export async function triageFiles(
     return result;
   } catch (error) {
     logger.warn(`Triage failed: ${error}, using heuristics`);
-    const result = createFallbackResult(files, options);
+    let result = createFallbackResult(files, options);
+
+    // Enhance with connectivity if structure is provided
+    if (options.structure) {
+      result = enhanceWithConnectivity(result, options.structure, options);
+    }
+
     result.duration = Date.now() - startTime;
     return result;
   }
+}
+
+/**
+ * Enhance triage scores with codebase connectivity metrics.
+ * Files with high connectivity get boosted importance.
+ */
+function enhanceWithConnectivity(
+  result: TriageResult,
+  structure: CodebaseStructure,
+  options: TriageOptions
+): TriageResult {
+  const deepThreshold = options.deepThreshold ?? DEFAULT_DEEP_THRESHOLD;
+  const skipThreshold = options.skipThreshold ?? DEFAULT_SKIP_THRESHOLD;
+
+  const enhancedScores = result.scores.map((score) => {
+    const connectivity = structure.connectivity.get(score.file);
+    if (!connectivity) return score;
+
+    // Boost importance for high-connectivity files
+    let importanceBoost = 0;
+
+    // Files imported by many others are more important
+    if (connectivity.inDegree >= 5) {
+      importanceBoost += 2;
+    } else if (connectivity.inDegree >= 2) {
+      importanceBoost += 1;
+    }
+
+    // Entry points are critical
+    if (structure.dependencyGraph.entryPoints.includes(score.file)) {
+      importanceBoost += 2;
+    }
+
+    // High transitive reach = high importance
+    if (connectivity.transitiveImporters >= 10) {
+      importanceBoost += 1;
+    }
+
+    // Boost complexity for files in cycles
+    const inCycle = structure.dependencyGraph.cycles.some((cycle) =>
+      cycle.includes(score.file)
+    );
+    const complexityBoost = inCycle ? 1 : 0;
+
+    const newImportance = Math.min(10, score.importance + importanceBoost);
+    const newComplexity = Math.min(10, score.complexity + complexityBoost);
+    const riskWeight = RISK_WEIGHTS[score.risk];
+    const newPriority = (newImportance + newComplexity + riskWeight) / 3;
+
+    const connectivityNote = `[in=${connectivity.inDegree}, out=${connectivity.outDegree}${inCycle ? ', cycle' : ''}]`;
+
+    return {
+      ...score,
+      importance: newImportance,
+      complexity: newComplexity,
+      priority: newPriority,
+      reasoning: score.reasoning.includes('[in=') ? score.reasoning : `${score.reasoning} ${connectivityNote}`,
+    };
+  });
+
+  // Re-sort by priority
+  enhancedScores.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+  // Re-categorize based on new priorities
+  const criticalPaths = enhancedScores
+    .filter((s) => (s.priority || 0) >= deepThreshold)
+    .map((s) => s.file);
+
+  const normalPaths = enhancedScores
+    .filter((s) => {
+      const p = s.priority || 0;
+      return p < deepThreshold && p > skipThreshold;
+    })
+    .map((s) => s.file);
+
+  const skipPaths = enhancedScores
+    .filter((s) => (s.priority || 0) <= skipThreshold)
+    .map((s) => s.file);
+
+  return {
+    ...result,
+    scores: enhancedScores,
+    criticalPaths,
+    normalPaths,
+    skipPaths,
+    summary: result.summary + ' (enhanced with connectivity)',
+  };
 }
 
 /**

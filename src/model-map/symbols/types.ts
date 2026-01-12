@@ -208,6 +208,8 @@ export interface SymbolicationOptions {
   files: string[];
   /** Files to use AST extraction on (others use regex) */
   criticalFiles?: string[];
+  /** Whether to use AST for critical files (default: true) */
+  useAstForCritical?: boolean;
   /** Whether to build full dependency graph */
   buildDependencyGraph?: boolean;
   /** Whether to resolve barrel files */

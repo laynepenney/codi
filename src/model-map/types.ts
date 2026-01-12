@@ -420,6 +420,8 @@ export interface TriageOptions {
   providerContext?: ProviderContext;
   /** Include git history in scoring (default: false) */
   useGitHistory?: boolean;
+  /** Optional codebase structure for connectivity-enhanced scoring */
+  structure?: CodebaseStructure;
 }
 
 /**

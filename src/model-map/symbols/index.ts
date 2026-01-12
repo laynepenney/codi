@@ -12,14 +12,17 @@ import type {
   FileSymbolInfo,
   SymbolicationOptions,
   SymbolicationResult,
+  SymbolExtractor,
 } from './types.js';
 import { RegexSymbolExtractor } from './regex-extractor.js';
+import { AstSymbolExtractor } from './ast-extractor.js';
 import { DependencyGraphBuilder } from './graph.js';
 
 // Re-export types and utilities
 export * from './types.js';
 export { compressFileContext, formatContextForPrompt, buildFileAnalysisPrompt } from './context.js';
 export { buildNavigationContext, formatFullNavigationContext, getDepthFromEntry } from './navigation.js';
+export { AstSymbolExtractor, createAstExtractor } from './ast-extractor.js';
 
 /**
  * Entry point patterns for critical file detection
@@ -42,10 +45,15 @@ const HIGH_RISK_PATTERNS = [/auth/i, /security/i, /crypto/i, /permission/i, /tok
  */
 export class Phase0Symbolication {
   private regexExtractor: RegexSymbolExtractor;
+  private astExtractor: AstSymbolExtractor | null = null;
   private projectRoot: string;
 
-  constructor(options?: { projectRoot?: string }) {
+  constructor(options?: { projectRoot?: string; useAst?: boolean }) {
     this.regexExtractor = new RegexSymbolExtractor();
+    // Only create AST extractor if explicitly enabled (it's heavier)
+    if (options?.useAst) {
+      this.astExtractor = new AstSymbolExtractor();
+    }
     this.projectRoot = options?.projectRoot || process.cwd();
   }
 
@@ -61,6 +69,15 @@ export class Phase0Symbolication {
     let regexCount = 0;
     let astCount = 0;
 
+    // Create AST extractor on-demand if we have critical files
+    const useAstForCritical = options.useAstForCritical !== false && criticalSet.size > 0;
+    let astExtractor: AstSymbolExtractor | null = null;
+    if (useAstForCritical && !this.astExtractor) {
+      astExtractor = new AstSymbolExtractor();
+    } else {
+      astExtractor = this.astExtractor;
+    }
+
     // Phase 0a: Extract symbols from all files
     const concurrency = options.astConcurrency ?? 8;
     const batches = this.chunk(options.files, concurrency);
@@ -74,10 +91,17 @@ export class Phase0Symbolication {
 
           try {
             const content = await readFile(file, 'utf-8');
+            const isCritical = criticalSet.has(file);
 
-            // Use regex extraction for all files (AST would go here for critical files)
-            const info = this.regexExtractor.extract(content, file);
-            regexCount++;
+            // Use AST extraction for critical files if available
+            let info: FileSymbolInfo;
+            if (isCritical && astExtractor && this.isTypeScriptOrJavaScript(file)) {
+              info = astExtractor.extract(content, file);
+              astCount++;
+            } else {
+              info = this.regexExtractor.extract(content, file);
+              regexCount++;
+            }
 
             return { file, info, error: null };
           } catch (error) {
@@ -93,6 +117,11 @@ export class Phase0Symbolication {
           errors.push({ file: result.file, error: result.error });
         }
       }
+    }
+
+    // Dispose AST extractor if we created it on-demand
+    if (astExtractor && astExtractor !== this.astExtractor) {
+      astExtractor.dispose();
     }
 
     // Phase 0b: Build dependency graph
@@ -228,6 +257,23 @@ export class Phase0Symbolication {
       chunks.push(array.slice(i, i + size));
     }
     return chunks;
+  }
+
+  /**
+   * Check if file is TypeScript or JavaScript
+   */
+  private isTypeScriptOrJavaScript(file: string): boolean {
+    return /\.[jt]sx?$/.test(file);
+  }
+
+  /**
+   * Dispose resources
+   */
+  dispose(): void {
+    if (this.astExtractor) {
+      this.astExtractor.dispose();
+      this.astExtractor = null;
+    }
   }
 }
 
