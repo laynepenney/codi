@@ -317,6 +317,118 @@ src/
 
 ---
 
+## Full Codebase Review (Iterative Pipeline)
+
+### Test Configuration
+- **Pipeline:** `code-review` with `--all` flag (iterative mode)
+- **Files processed:** 84/84 (all source files)
+- **Execution:** Each file analyzed individually, then results aggregated
+- **Commit:** `b5ec762` (feat: add iterative execution mode)
+
+### OpenAI Results (84 files - gpt-5-nano + gpt-5)
+
+**Aggregation: Successful** - Full synthesis of all 84 file reviews
+
+#### Critical Issues (Prioritized)
+
+| # | Issue | Impact | Files Affected |
+|---|-------|--------|----------------|
+| 1 | **Stringly-typed wire protocols** (`__TAG__:a:b`) | Breaks on Windows paths, user content with delimiters | Most `src/commands/*`, tool parsing |
+| 2 | **Config/command parsing gaps** | Quoting issues, runtime crashes from `as string` casts | Commands, tools |
+| 3 | **File/command safety risks** | Path traversal, TOCTOU, history recorded before write | `bash`, `write_file`, `edit_file`, `patch_file` |
+| 4 | **State/lifecycle/concurrency hazards** | Concurrent `chat()` corruption, global mutable singletons | `agent.ts`, session, rag indexer |
+| 5 | **Persistence integrity** | Redo order wrong (FIFO vs LIFO), non-atomic writes | `history.ts`, `session.ts`, `usage.ts` |
+
+#### Common Anti-Patterns Identified
+
+- **Stringly-typed protocols** - `__TOKEN__...` with `:`/`|` delimiters mixing text and JSON
+- **Ad-hoc argument parsing** - `split(/\s+/)`, `args.includes('--flag')` without quoting support
+- **Sync filesystem in async contexts** - `existsSync/statSync/readFileSync` with TOCTOU patterns
+- **Non-atomic file writes** - Direct overwrite without temp+rename
+- **Global mutable state** - Module-level variables reducing testability
+
+#### Top 5 Recommendations
+
+1. **Replace ad-hoc tokens with structured `CommandResult` envelope** - Return typed objects with `schemaVersion`
+2. **Introduce robust parsing utilities** - Quote-aware arg tokenizer, Zod/Valibot validation for tool inputs
+3. **Harden file operation tools** - Workspace-root sandboxing, async read + error codes, atomic writes
+4. **Fix persistence correctness** - Redo LIFO, atomic writes, collision-free IDs, schema validation
+5. **Reduce global mutable state** - Inject registries/services, add disposal hooks, concurrency guards
+
+#### Files Requiring Immediate Attention (P0)
+
+| File | Issue |
+|------|-------|
+| `src/tools/patch-file.ts` | Unsafe patch application, can corrupt files, missing validation |
+| `src/tools/glob.ts` / `grep.ts` | Invalid `glob` import from `node:fs/promises` |
+| `src/tools/bash.ts` | `exec` shell execution + regex blocking, inconsistent truncation |
+| `src/history.ts` | Redo semantics wrong, non-atomic writes, no locking |
+| `src/session.ts` | Filename collisions, non-atomic writes, silent load failures |
+| `src/rag/indexer.ts` | Queue can stall, glob/matcher mismatch, binary detection flawed |
+
+---
+
+### Ollama-Cloud Results (84 files - gemini-3-flash + gpt-oss + coder)
+
+**Aggregation: Failed** (400 Bad Request - token limit exceeded)
+**Fallback:** Concatenated per-file results (64K+ lines)
+
+#### Agent.ts Deep Analysis Highlights
+
+**Architecture Issues:**
+| Theme | Problem | Recommended Fix |
+|-------|---------|-----------------|
+| Single Responsibility | Agent mixes 10+ concerns (~1200 LOC) | Split into ConversationManager, ProviderResolver, ToolOrchestrator, ResponseProcessor |
+| State & Concurrency | Concurrent `chat()` corrupts history | Add `_busy` lock or stateless Session object |
+| Error Handling | Silent catch blocks, no payload validation | Zod schemas for tool inputs, centralized error handler |
+| Security | Destructive tools run if `onConfirm` missing | Fail-closed: deny if callback not provided |
+| Token Management | `compactContext` only runs at turn start | Post-tool-result compaction when limits approached |
+
+**Specific Code Issues Found:**
+
+1. **finalResponse overwrite** - Multi-turn text lost, should accumulate
+2. **Unsafe input access** - `toolCall.input.command as string` without validation
+3. **Concurrent chat() corruption** - No mutex/lock on message array
+4. **compactContext timing** - Large tool results can exceed limits before next compaction
+5. **Silent catch blocks** - `getSummaryProvider` swallows errors without logging
+
+#### Proposed Refactoring Architecture
+
+```
+src/agent/
+├── conversation.ts      - Message history, summary, working set
+├── provider-resolver.ts - All modelMap routing logic
+├── tool-orchestrator.ts - Confirmation, execution, diff previews
+├── response-processor.ts - Build assistant messages, block factories
+└── agent.ts             - Thin facade wiring collaborators
+```
+
+---
+
+### Algorithm Optimization Notes
+
+**Current Approach:**
+- Process 84 files sequentially (1 file at a time)
+- 3 pipeline steps per file (quick-scan, deep-analysis, suggestions)
+- 252 total API calls for full review
+- Aggregation at end with `capable` role
+
+**Observed Issues:**
+1. **Aggregation token limits** - 84 file results exceeded ollama-cloud context window
+2. **Execution time** - Sequential processing is slow for large codebases
+3. **No incremental results** - Must wait for all files before seeing aggregation
+
+**Potential Optimizations:**
+| Approach | Description | Trade-offs |
+|----------|-------------|------------|
+| **Batched aggregation** | Aggregate every 10-20 files, then meta-aggregate | More API calls, but stays within limits |
+| **Hierarchical summarization** | First pass: 1-sentence per file, second pass: full analysis of flagged files | Faster, but may miss issues |
+| **Parallel file processing** | Process N files concurrently | Faster, but rate limits may apply |
+| **Streaming aggregation** | Aggregate incrementally as files complete | Real-time results, memory efficient |
+| **Two-phase pipeline** | Phase 1: fast scan all, Phase 2: deep dive on flagged files only | Much faster for clean codebases |
+
+---
+
 ## Provider Comparison (Before Fix)
 
 ### 1. Ollama Cloud (gemini-3-flash-preview + coder + gpt-oss)

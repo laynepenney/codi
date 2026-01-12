@@ -1,0 +1,2719 @@
+
+
+You: /pipeline --provider openai --all code-review src/**
+
+Executing pipeline: code-review (iterative mode)
+Provider: openai
+Files: 84 total
+
+
+  [1/84] src/agent.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/agent.ts
+```ts
+import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
+import type { BaseProvider } from './providers/base.js';
+impo...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/agent.ts
+```ts
+import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
+import type { BaseProvider ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep, code-quality/architecture/best-practices review of `src/agent.ts` based on what’s visible. I’ll treat this as a production “agent loop” orchestr...
+    ✓ suggestions
+  ✓ src/agent.ts
+
+  [2/84] src/commands/code-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/code-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+
+export const explainCommand: Command = {
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/code-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+
+export ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level architecture assessment
+
+This file is a **command-definition module**: it exports a set of `Command` objects with `execute()` functions that **don’...
+    ✓ suggestions
+  ✓ src/commands/code-commands.ts
+
+  [3/84] src/commands/compression-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/compression-commands.ts
+```ts
+/**
+ * Commands for testing and using context compression.
+ */
+
+import { registerCommand, type Command, type Command...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/compression-commands.ts
+```ts
+/**
+ * Commands for testing and using context compression.
+ */
+
+import { registerC...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, code-quality / architecture / best-practices review of `src/commands/compression-commands.ts`, beyond the quick scan items. I’ll focus on corr...
+    ✓ suggestions
+  ✓ src/commands/compression-commands.ts
+
+  [4/84] src/commands/config-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/config-commands.ts
+```ts
+/**
+ * Configuration management commands.
+ */
+import { registerCommand, type Command, type CommandContext } from './index...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/config-commands.ts
+```ts
+/**
+ * Configuration management commands.
+ */
+import { registerCommand, type Command, t...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is small and readable, but it has a few architectural and robustness risks typical of “command glue” code:
+
+- It mixes **doma...
+    ✓ suggestions
+  ✓ src/commands/config-commands.ts
+
+  [5/84] src/commands/git-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/git-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+
+export const commitCommand: Command = {
+  ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/git-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+
+export c...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level architecture & intent
+
+This file is essentially a **catalog of “prompt templates”** exposed as commands. Each command’s `execute()` builds a string...
+    ✓ suggestions
+  ✓ src/commands/git-commands.ts
+
+  [6/84] src/commands/history-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/history-commands.ts
+```ts
+/**
+ * Undo/Redo and history management commands.
+ */
+import { registerCommand, type Command, type CommandContext } from...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/history-commands.ts
+```ts
+/**
+ * Undo/Redo and history management commands.
+ */
+import { registerCommand, type C...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is small and readable, with clear command definitions and a simple dispatcher (`historyCommand.execute`) that routes based o...
+    ✓ suggestions
+  ✓ src/commands/history-commands.ts
+
+  [7/84] src/commands/import-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/import-commands.ts
+```ts
+/**
+ * Import commands for loading external conversation data.
+ */
+import { registerCommand, type Command, type CommandCo...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/import-commands.ts
+```ts
+/**
+ * Import commands for loading external conversation data.
+ */
+import { registerCom...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, code-quality/architecture/best-practices review of `src/commands/import-commands.ts`, building on your quick scan and expanding into maintaina...
+    ✓ suggestions
+  ✓ src/commands/import-commands.ts
+
+  [8/84] src/commands/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/index.ts
+```ts
+import type { Agent } from '../agent.js';
+
+export interface Command {
+  name: string;
+  aliases?: string[];
+  description: string;
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/index.ts
+```ts
+import type { Agent } from '../agent.js';
+
+export interface Command {
+  name: string;
+  aliases?:...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper code-quality/architecture review of `src/commands/index.ts`, beyond the quick scan items. I’ll cover correctness, API design, extensibility, an...
+    ✓ suggestions
+  ✓ src/commands/index.ts
+
+  [9/84] src/commands/memory-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/memory-commands.ts
+```ts
+/**
+ * Memory commands for persistent user context and personalization.
+ */
+import { registerCommand, type Command, type ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/memory-commands.ts
+```ts
+/**
+ * Memory commands for persistent user context and personalization.
+ */
+import { re...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep, code-quality + architecture + best-practices review of `src/commands/memory-commands.ts`, focusing on correctness, maintainability, security, an...
+    ✓ suggestions
+  ✓ src/commands/memory-commands.ts
+
+  [10/84] src/commands/model-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/model-commands.ts
+```ts
+/**
+ * Model listing and switching commands.
+ */
+import { registerCommand, type Command, type CommandContext } from './ind...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/model-commands.ts
+```ts
+/**
+ * Model listing and switching commands.
+ */
+import { registerCommand, type Command,...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep review focused on **code quality, architecture, and best practices** for `src/commands/model-commands.ts`. I’ll treat this as production CLI/agen...
+    ✓ suggestions
+  ✓ src/commands/model-commands.ts
+
+  [11/84] src/commands/output/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/output/index.ts
+```ts
+/**
+ * Command output system.
+ * Provides typed outputs and rendering for commands.
+ */
+
+export * from './types.js';
+export ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/output/index.ts
+```ts
+/**
+ * Command output system.
+ * Provides typed outputs and rendering for commands.
+ */
+
+e...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### What this file is
+This is a **barrel module**: a thin re-export layer that defines the public API for `src/commands/output`. That’s a good pattern for discov...
+    ✓ suggestions
+  ✓ src/commands/output/index.ts
+
+  [12/84] src/commands/output/renderer.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/output/renderer.ts
+```ts
+/**
+ * Command output renderer.
+ * Converts typed command outputs to formatted console output.
+ */
+
+import chalk from 'ch...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/output/renderer.ts
+```ts
+/**
+ * Command output renderer.
+ * Converts typed command outputs to formatted console ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper code-quality/architecture review of `src/commands/output/renderer.ts`, focused on correctness, maintainability, extensibility, testability, and...
+    ✓ suggestions
+  ✓ src/commands/output/renderer.ts
+
+  [13/84] src/commands/output/types.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/output/types.ts
+```ts
+/**
+ * Typed command output system.
+ * Replaces magic string parsing with structured types.
+ */
+
+import type { Session, Sess...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/output/types.ts
+```ts
+/**
+ * Typed command output system.
+ * Replaces magic string parsing with structured types...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is a solid step toward a *typed, discriminated-union* “command output protocol”. It’s readable, predictable, and scales bette...
+    ✓ suggestions
+  ✓ src/commands/output/types.ts
+
+  [14/84] src/commands/plugin-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/plugin-commands.ts
+```ts
+/**
+ * Plugin management commands.
+ */
+import { registerCommand, type Command, type CommandContext } from './index.js';
+i...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/plugin-commands.ts
+```ts
+/**
+ * Plugin management commands.
+ */
+import { registerCommand, type Command, type Com...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper code-quality / architecture / best-practices review of `src/commands/plugin-commands.ts`, beyond the quick scan items.
+
+---
+
+## 1) Command desi...
+    ✓ suggestions
+  ✓ src/commands/plugin-commands.ts
+
+  [15/84] src/commands/rag-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/rag-commands.ts
+```ts
+/**
+ * RAG Commands
+ *
+ * Commands for managing the RAG code index.
+ */
+
+import { registerCommand, type Command, type Comman...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/rag-commands.ts
+```ts
+/**
+ * RAG Commands
+ *
+ * Commands for managing the RAG code index.
+ */
+
+import { register...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level quality
+This file is readable, cohesive, and has a clear user-facing contract: two commands (`/index`, `/rag`) plus helpers for formatting. TypeScr...
+    ✓ suggestions
+  ✓ src/commands/rag-commands.ts
+
+  [16/84] src/commands/session-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/session-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+import {
+  saveSession,
+  loadSession,
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/session-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+impor...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper review of **code quality, architecture, and best practices** for `src/commands/session-commands.ts`, beyond the obvious unused import. I’ll als...
+    ✓ suggestions
+  ✓ src/commands/session-commands.ts
+
+  [17/84] src/commands/usage-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/usage-commands.ts
+```ts
+/**
+ * Usage tracking and cost estimation commands.
+ */
+import { registerCommand, type Command, type CommandContext } from...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/usage-commands.ts
+```ts
+/**
+ * Usage tracking and cost estimation commands.
+ */
+import { registerCommand, type C...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality snapshot
+- **Readable and straightforward**: simple branching, clear intent, minimal side effects.
+- **Architecture smell**: the command m...
+    ✓ suggestions
+  ✓ src/commands/usage-commands.ts
+
+  [18/84] src/commands/workflow-commands.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/commands/workflow-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+
+export const newCommand: Command = {
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/commands/workflow-commands.ts
+```ts
+import { registerCommand, type Command, type CommandContext } from './index.js';
+
+exp...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file defines several “command descriptors” (name/aliases/usage/taskType/execute) whose `execute()` returns a *prompt string* for a...
+    ✓ suggestions
+  ✓ src/commands/workflow-commands.ts
+
+  [19/84] src/compression.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/compression.ts
+```ts
+/**
+ * Context Compression System - Phase 1: Entity-Reference Compression
+ *
+ * Reduces context size by extracting repeated entities (...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/compression.ts
+```ts
+/**
+ * Context Compression System - Phase 1: Entity-Reference Compression
+ *
+ * Reduces context size...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level architecture & intent
+
+This file is a **two-pass text transformation pipeline**:
+
+1. **Extract** candidate “entities” (paths, URLs, imports, class...
+    ✓ suggestions
+  ✓ src/compression.ts
+
+  [20/84] src/config.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/config.ts
+```ts
+import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Workspace configuration for Codi.
+ * Can be defined in .codi.json or .codi/...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/config.ts
+```ts
+import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Workspace configuration for Codi.
+ * Can ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is readable, cohesive, and does a decent job separating **(1) schema**, **(2) loading**, **(3) validation**, and **(4) mergin...
+    ✓ suggestions
+  ✓ src/config.ts
+
+  [21/84] src/constants.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/constants.ts
+```ts
+/**
+ * Centralized constants for the Codi application.
+ * Extracted from agent.ts and bash.ts to provide a single source of truth.
+ */
+
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/constants.ts
+```ts
+/**
+ * Centralized constants for the Codi application.
+ * Extracted from agent.ts and bash.ts to provi...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & architecture assessment
+
+**Overall: good direction.** This file centralizes cross-cutting “policy” values (agent loop limits, tool safet...
+    ✓ suggestions
+  ✓ src/constants.ts
+
+  [22/84] src/context-windowing.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/context-windowing.ts
+```ts
+/**
+ * Smart Context Windowing
+ *
+ * Dynamically selects which messages to keep vs summarize based on:
+ * - Importance scores
+ *...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/context-windowing.ts
+```ts
+/**
+ * Smart Context Windowing
+ *
+ * Dynamically selects which messages to keep vs summarize b...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & intent
+This file is readable, reasonably cohesive, and implements a clear heuristic pipeline:
+
+1) keep recent messages  
+2) keep high-im...
+    ✓ suggestions
+  ✓ src/context-windowing.ts
+
+  [23/84] src/context.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/context.ts
+```ts
+import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { join, basename } from 'path';
+import type { ProjectInfo ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/context.ts
+```ts
+import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { join, basename } from ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is a small “project detector” module with a clear purpose: infer a `ProjectInfo` from a root directory by checking for canon...
+    ✓ suggestions
+  ✓ src/context.ts
+
+  [24/84] src/diff.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/diff.ts
+```ts
+/**
+ * Diff utility for generating and formatting file change previews.
+ */
+import { createTwoFilesPatch, structuredPatch } from 'diff';
+impo...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/diff.ts
+```ts
+/**
+ * Diff utility for generating and formatting file change previews.
+ */
+import { createTwoFilesPatch, s...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is generally readable, cohesive, and testable: it provides (1) diff generation for two workflows (write vs edit), (2) statis...
+    ✓ suggestions
+  ✓ src/diff.ts
+
+  [25/84] src/entity-normalization.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/entity-normalization.ts
+```ts
+/**
+ * Entity Normalization for Semantic Deduplication
+ *
+ * Merges case variants and semantically similar entities to improv...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/entity-normalization.ts
+```ts
+/**
+ * Entity Normalization for Semantic Deduplication
+ *
+ * Merges case variants and seman...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & architecture
+
+**What’s good**
+- Clear intent and boundaries: normalization + merging kept in one module, with a small public surface (`m...
+    ✓ suggestions
+  ✓ src/entity-normalization.ts
+
+  [26/84] src/history.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/history.ts
+```ts
+/**
+ * File change history system for undo/redo functionality.
+ * Tracks file modifications and allows reverting changes.
+ */
+import * as ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/history.ts
+```ts
+/**
+ * File change history system for undo/redo functionality.
+ * Tracks file modifications and allows r...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file implements a simple persistent undo/redo system by appending `HistoryEntry`s to an `index.json` under `~/.codi/history` and s...
+    ✓ suggestions
+  ✓ src/history.ts
+
+  [27/84] src/import-chatgpt.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/import-chatgpt.ts
+```ts
+/**
+ * ChatGPT conversation import module.
+ * Converts ChatGPT exported conversations to Codi session format.
+ */
+import * as fs fr...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/import-chatgpt.ts
+```ts
+/**
+ * ChatGPT conversation import module.
+ * Converts ChatGPT exported conversations to Codi ses...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper review of **code quality, architecture, correctness, and best practices** for `src/import-chatgpt.ts`. I’ll cover what’s good, what’s risky/inc...
+    ✓ suggestions
+  ✓ src/import-chatgpt.ts
+
+  [28/84] src/importance-scorer.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/importance-scorer.ts
+```ts
+/**
+ * Importance Scoring for Context Optimization
+ *
+ * Scores messages and entities based on multiple factors to determine
+ * ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/importance-scorer.ts
+```ts
+/**
+ * Importance Scoring for Context Optimization
+ *
+ * Scores messages and entities based on...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep code-quality / architecture / best-practices review of `src/importance-scorer.ts`, focused on correctness, scalability, maintainability, and “got...
+    ✓ suggestions
+  ✓ src/importance-scorer.ts
+
+  [29/84] src/logger.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/logger.ts
+```ts
+/**
+ * Logger
+ *
+ * Level-aware logging utilities for debug output.
+ * Provides graduated verbosity: NORMAL → VERBOSE → DEBUG → TRACE
+ */
+
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/logger.ts
+```ts
+/**
+ * Logger
+ *
+ * Level-aware logging utilities for debug output.
+ * Provides graduated verbosity: NORM...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This is a pragmatic, readable CLI logger with a clear “graduated verbosity” concept and helpful domain-specific helpers (API/tool/cont...
+    ✓ suggestions
+  ✓ src/logger.ts
+
+  [30/84] src/memory.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/memory.ts
+```ts
+/**
+ * Memory system for persistent user context and personalization.
+ *
+ * Implements the context personalization pattern:
+ * - Structured...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/memory.ts
+```ts
+/**
+ * Memory system for persistent user context and personalization.
+ *
+ * Implements the context person...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep code-quality / architecture / best-practices review of `src/memory.ts`, with concrete issues, risk assessment, and actionable improvements. I’ll ...
+    ✓ suggestions
+  ✓ src/memory.ts
+
+  [31/84] src/model-map/executor.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/model-map/executor.ts
+```ts
+/**
+ * Pipeline Executor
+ *
+ * Executes multi-model pipelines with variable substitution.
+ */
+
+import { readFileSync, statSync,...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/model-map/executor.ts
+```ts
+/**
+ * Pipeline Executor
+ *
+ * Executes multi-model pipelines with variable substitution.
+ */...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep code-quality / architecture / best-practices review of `src/model-map/executor.ts`. I’ll assume this is part of a CLI/tooling workflow that runs ...
+    ✓ suggestions
+  ✓ src/model-map/executor.ts
+
+  [32/84] src/model-map/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/model-map/index.ts
+```ts
+/**
+ * Model Map Module
+ *
+ * Docker-compose style multi-model orchestration for Codi.
+ */
+
+// Types
+export * from './types.js';
+
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/model-map/index.ts
+```ts
+/**
+ * Model Map Module
+ *
+ * Docker-compose style multi-model orchestration for Codi.
+ */
+
+// T...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is a classic “barrel + facade” module: it re-exports building blocks (types/loader/registry/router/executor) and also provid...
+    ✓ suggestions
+  ✓ src/model-map/index.ts
+
+  [33/84] src/model-map/loader.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/model-map/loader.ts
+```ts
+/**
+ * Model Map Loader
+ *
+ * Loads and validates codi-models.yaml configuration.
+ */
+
+import * as fs from 'fs';
+import * as path...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/model-map/loader.ts
+```ts
+/**
+ * Model Map Loader
+ *
+ * Loads and validates codi-models.yaml configuration.
+ */
+
+import *...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep review of code quality, architecture, and best practices for `src/model-map/loader.ts`, with concrete issues and actionable improvements.
+
+---
+
+#...
+    ✓ suggestions
+  ✓ src/model-map/loader.ts
+
+  [34/84] src/model-map/registry.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/model-map/registry.ts
+```ts
+/**
+ * Model Registry
+ *
+ * Manages lazy provider instantiation with connection pooling.
+ */
+
+import type { BaseProvider } from...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/model-map/registry.ts
+```ts
+/**
+ * Model Registry
+ *
+ * Manages lazy provider instantiation with connection pooling.
+ */
+...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality / architecture read
+
+This file is a clean, readable “registry + cache” wrapper around `createProvider()`. It provides:
+- **Lazy instantiat...
+    ✓ suggestions
+  ✓ src/model-map/registry.ts
+
+  [35/84] src/model-map/router.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/model-map/router.ts
+```ts
+/**
+ * Task Router
+ *
+ * Routes tasks and commands to appropriate models.
+ */
+
+import type { BaseProvider } from '../providers/ba...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/model-map/router.ts
+```ts
+/**
+ * Task Router
+ *
+ * Routes tasks and commands to appropriate models.
+ */
+
+import type { Ba...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper review focused on code quality, architecture, error-handling philosophy, and maintainability. I’ll assume `ModelRegistry.resolveModel()` can th...
+    ✓ suggestions
+  ✓ src/model-map/router.ts
+
+  [36/84] src/model-map/types.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/model-map/types.ts
+```ts
+/**
+ * Model Map Types
+ *
+ * Docker-compose style configuration for multi-model orchestration.
+ */
+
+/**
+ * Named model definition ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/model-map/types.ts
+```ts
+/**
+ * Model Map Types
+ *
+ * Docker-compose style configuration for multi-model orchestration.
+ ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper code-quality / architecture / best-practices review of `src/model-map/types.ts`, beyond the quick scan points. I’ll cover what’s strong, what’s...
+    ✓ suggestions
+  ✓ src/model-map/types.ts
+
+  [37/84] src/models.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/models.ts
+```ts
+/**
+ * Static model registry with pricing and capabilities.
+ * Used as fallback when API model listing is unavailable.
+ */
+import type { Mo...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/models.ts
+```ts
+/**
+ * Static model registry with pricing and capabilities.
+ * Used as fallback when API model listing is...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is a *static registry* and *pricing lookup* used as a fallback when live provider model-listing is unavailable. That’s a sens...
+    ✓ suggestions
+  ✓ src/models.ts
+
+  [38/84] src/plugins.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/plugins.ts
+```ts
+/**
+ * Plugin system for extending Codi with custom tools, commands, and providers.
+ */
+import * as fs from 'fs';
+import * as path from 'p...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/plugins.ts
+```ts
+/**
+ * Plugin system for extending Codi with custom tools, commands, and providers.
+ */
+import * as fs f...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level architecture review
+
+This file implements a **runtime plugin loader + registrar** with a global in-memory registry (`loadedPlugins`) and side-effe...
+    ✓ suggestions
+  ✓ src/plugins.ts
+
+  [39/84] src/providers/anthropic.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/anthropic.ts
+```ts
+import Anthropic from '@anthropic-ai/sdk';
+import { BaseProvider, type ModelInfo } from './base.js';
+import type { Message, To...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/anthropic.ts
+```ts
+import Anthropic from '@anthropic-ai/sdk';
+import { BaseProvider, type ModelInfo } from './b...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, code-quality/architecture/best-practices review of `src/providers/anthropic.ts`, focusing on correctness, resilience, maintainability, and ali...
+    ✓ suggestions
+  ✓ src/providers/anthropic.ts
+
+  [40/84] src/providers/base.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/base.ts
+```ts
+import type { Message, ToolDefinition, ProviderResponse, ProviderConfig } from '../types.js';
+
+/**
+ * Information about an availabl...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/base.ts
+```ts
+import type { Message, ToolDefinition, ProviderResponse, ProviderConfig } from '../types.js';
+
+/*...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper review focused on **TypeScript correctness**, **API design**, **architecture**, and **best practices** for an extensible provider layer.
+
+---
+
+...
+    ✓ suggestions
+  ✓ src/providers/base.ts
+
+  [41/84] src/providers/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/index.ts
+```ts
+import { BaseProvider } from './base.js';
+import { AnthropicProvider } from './anthropic.js';
+import { OpenAICompatibleProvider, c...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/index.ts
+```ts
+import { BaseProvider } from './base.js';
+import { AnthropicProvider } from './anthropic.js';
+im...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level architecture review
+
+This file is doing three jobs at once:
+
+1. **Module barrel**: re-exporting provider classes and helpers.
+2. **DI/registry**: m...
+    ✓ suggestions
+  ✓ src/providers/index.ts
+
+  [42/84] src/providers/message-converter.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/message-converter.ts
+```ts
+/**
+ * Shared message conversion utilities for providers.
+ * Provides common operations for extracting and transformin...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/message-converter.ts
+```ts
+/**
+ * Shared message conversion utilities for providers.
+ * Provides common operati...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, code-quality/architecture-level review of `src/providers/message-converter.ts`, focusing on correctness, maintainability, typing strategy, and...
+    ✓ suggestions
+  ✓ src/providers/message-converter.ts
+
+  [43/84] src/providers/ollama-native.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/ollama-native.ts
+```ts
+/**
+ * Ollama native provider implementation using the Ollama API directly.
+ * This implementation provides better control...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/ollama-native.ts
+```ts
+/**
+ * Ollama native provider implementation using the Ollama API directly.
+ * This impl...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level architecture & design
+
+### What’s good
+- **Clear provider abstraction**: Extends `BaseProvider` and exposes a consistent surface (`chat`, `streamCh...
+    ✓ suggestions
+  ✓ src/providers/ollama-native.ts
+
+  [44/84] src/providers/openai-compatible.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/openai-compatible.ts
+```ts
+import OpenAI from 'openai';
+import { BaseProvider, type ModelInfo } from './base.js';
+import type { Message, ToolDefi...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/openai-compatible.ts
+```ts
+import OpenAI from 'openai';
+import { BaseProvider, type ModelInfo } from './base.js...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deep code-quality / architecture / best-practices review of `src/providers/openai-compatible.ts`. I’ll assume this is part of a multi-provider abstrac...
+    ✓ suggestions
+  ✓ src/providers/openai-compatible.ts
+
+  [45/84] src/providers/response-parser.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/providers/response-parser.ts
+```ts
+/**
+ * Shared response parsing utilities for providers.
+ * Provides common operations for extracting tool calls, usage, ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/providers/response-parser.ts
+```ts
+/**
+ * Shared response parsing utilities for providers.
+ * Provides common operations ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality snapshot
+
+This file is a small, focused “provider normalization” utility module. It has good cohesion (stop reasons, usage shaping, safe J...
+    ✓ suggestions
+  ✓ src/providers/response-parser.ts
+
+  [46/84] src/rag/chunker.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/chunker.ts
+```ts
+/**
+ * Code Chunker
+ *
+ * Splits source code into semantic chunks (functions, classes, methods)
+ * or fixed-size chunks as a fallback....
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/chunker.ts
+```ts
+/**
+ * Code Chunker
+ *
+ * Splits source code into semantic chunks (functions, classes, methods)
+ * o...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level architecture & intent
+
+This file implements a **heuristic code chunker** for RAG ingestion:
+
+1. **Detect language** via file extension.
+2. Attempt...
+    ✓ suggestions
+  ✓ src/rag/chunker.ts
+
+  [47/84] src/rag/embeddings/base.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/embeddings/base.ts
+```ts
+/**
+ * Base Embedding Provider
+ *
+ * Abstract class that all embedding providers must implement.
+ */
+
+/**
+ * Abstract base cla...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/embeddings/base.ts
+```ts
+/**
+ * Base Embedding Provider
+ *
+ * Abstract class that all embedding providers must implem...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality assessment
+
+This is a clean, minimal abstraction that’s easy to implement and consume. It exposes the essential contract for an embedding ...
+    ✓ suggestions
+  ✓ src/rag/embeddings/base.ts
+
+  [48/84] src/rag/embeddings/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/embeddings/index.ts
+```ts
+/**
+ * Embedding Provider Factory
+ *
+ * Auto-detects and creates the appropriate embedding provider.
+ */
+
+import { BaseEmbedd...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/embeddings/index.ts
+```ts
+/**
+ * Embedding Provider Factory
+ *
+ * Auto-detects and creates the appropriate embedding ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, architecture-/quality-focused review of `src/rag/embeddings/index.ts`, beyond the initial edge-case scan. I’ll cover strengths, risks, and con...
+    ✓ suggestions
+  ✓ src/rag/embeddings/index.ts
+
+  [49/84] src/rag/embeddings/ollama.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/embeddings/ollama.ts
+```ts
+/**
+ * Ollama Embedding Provider
+ *
+ * Uses Ollama's local embedding models for generating embeddings.
+ */
+
+import { BaseEmb...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/embeddings/ollama.ts
+```ts
+/**
+ * Ollama Embedding Provider
+ *
+ * Uses Ollama's local embedding models for generating...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, code-quality + architecture review of `src/rag/embeddings/ollama.ts`, focusing on correctness, resilience, performance, and maintainability. I...
+    ✓ suggestions
+  ✓ src/rag/embeddings/ollama.ts
+
+  [50/84] src/rag/embeddings/openai.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/embeddings/openai.ts
+```ts
+/**
+ * OpenAI Embedding Provider
+ *
+ * Uses OpenAI's text-embedding models for generating embeddings.
+ */
+
+import OpenAI fro...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/embeddings/openai.ts
+```ts
+/**
+ * OpenAI Embedding Provider
+ *
+ * Uses OpenAI's text-embedding models for generating ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level architecture & design
+
+- **Clear separation of concerns**: `OpenAIEmbeddingProvider` encapsulates OpenAI-specific logic behind a `BaseEmbeddingPro...
+    ✓ suggestions
+  ✓ src/rag/embeddings/openai.ts
+
+  [51/84] src/rag/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/index.ts
+```ts
+/**
+ * RAG System Exports
+ *
+ * Main entry point for the RAG (Retrieval-Augmented Generation) system.
+ */
+
+// Types
+export type {
+  Code...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/index.ts
+```ts
+/**
+ * RAG System Exports
+ *
+ * Main entry point for the RAG (Retrieval-Augmented Generation) system.
+...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This `src/rag/index.ts` is a classic *barrel* module: it centralizes the public API surface of your RAG package by re-exporting types a...
+    ✓ suggestions
+  ✓ src/rag/index.ts
+
+  [52/84] src/rag/indexer.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/indexer.ts
+```ts
+/**
+ * Background Indexer
+ *
+ * Indexes project files in the background with file watching support.
+ */
+
+import * as fs from 'fs';
+imp...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/indexer.ts
+```ts
+/**
+ * Background Indexer
+ *
+ * Indexes project files in the background with file watching support.
+...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & architecture
+
+**What’s good**
+- Clear single responsibility: “index files + optional watch + persist embeddings”.
+- Reasonable separatio...
+    ✓ suggestions
+  ✓ src/rag/indexer.ts
+
+  [53/84] src/rag/retriever.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/retriever.ts
+```ts
+/**
+ * RAG Retriever
+ *
+ * Queries the vector index for relevant code snippets.
+ */
+
+import type { RAGConfig, RetrievalResult } from...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/retriever.ts
+```ts
+/**
+ * RAG Retriever
+ *
+ * Queries the vector index for relevant code snippets.
+ */
+
+import type {...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is clean, readable, and has a clear single responsibility: wrap an embedding provider + vector store into a simple “retrieve...
+    ✓ suggestions
+  ✓ src/rag/retriever.ts
+
+  [54/84] src/rag/types.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/types.ts
+```ts
+/**
+ * RAG System Types
+ *
+ * Defines interfaces for the Retrieval-Augmented Generation system
+ * including code chunks, configuration, ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/types.ts
+```ts
+/**
+ * RAG System Types
+ *
+ * Defines interfaces for the Retrieval-Augmented Generation system
+ * incl...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is clean, readable, and does a good job separating *domain types* (`CodeChunk`, `RetrievalResult`, `IndexStats`, `RAGConfig`)...
+    ✓ suggestions
+  ✓ src/rag/types.ts
+
+  [55/84] src/rag/vector-store.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/rag/vector-store.ts
+```ts
+/**
+ * Vector Store
+ *
+ * Wrapper around vectra LocalIndex for storing and querying code embeddings.
+ */
+
+import { LocalIndex } f...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/rag/vector-store.ts
+```ts
+/**
+ * Vector Store
+ *
+ * Wrapper around vectra LocalIndex for storing and querying code embedd...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level architecture & responsibilities
+
+**What this file does well**
+- Cleanly wraps `vectra`’s `LocalIndex` behind a project-scoped `VectorStore` class....
+    ✓ suggestions
+  ✓ src/rag/vector-store.ts
+
+  [56/84] src/session.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/session.ts
+```ts
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import type { Message, ContentBlock } from './types.js';...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/session.ts
+```ts
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import type { Message,...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, code-quality/architecture/best-practices review of `src/session.ts`, going beyond the quick scan. I’ll call out correctness issues, data-model...
+    ✓ suggestions
+  ✓ src/session.ts
+
+  [57/84] src/spinner.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/spinner.ts
+```ts
+/**
+ * Spinner Manager
+ *
+ * Centralized spinner management using ora for visual feedback during long operations.
+ */
+
+import ora, { type ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/spinner.ts
+```ts
+/**
+ * Spinner Manager
+ *
+ * Centralized spinner management using ora for visual feedback during long op...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper code-quality / architecture / best-practices review of `src/spinner.ts`, focusing on correctness, ergonomics, and long-term maintainability in ...
+    ✓ suggestions
+  ✓ src/spinner.ts
+
+  [58/84] src/tools/analyze-image.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/analyze-image.ts
+```ts
+import { readFile } from 'fs/promises';
+import { existsSync, statSync } from 'fs';
+import { resolve, extname } from 'path';
+im...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/analyze-image.ts
+```ts
+import { readFile } from 'fs/promises';
+import { existsSync, statSync } from 'fs';
+import { ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level summary
+The tool is small and readable, but it mixes sync + async I/O, has a couple of correctness/security pitfalls (path handling, TOCTOU, unbou...
+    ✓ suggestions
+  ✓ src/tools/analyze-image.ts
+
+  [59/84] src/tools/base.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/base.ts
+```ts
+import type { ToolDefinition, ToolResult } from '../types.js';
+
+/**
+ * Abstract base class for tools.
+ * Each tool can be called by the...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/base.ts
+```ts
+import type { ToolDefinition, ToolResult } from '../types.js';
+
+/**
+ * Abstract base class for tools....
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper review focused on code quality, architectural fit, and best practices for `src/tools/base.ts`. I’ll treat this as a core “tool runtime” abstrac...
+    ✓ suggestions
+  ✓ src/tools/base.ts
+
+  [60/84] src/tools/bash.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/bash.ts
+```ts
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { BaseTool } from './base.js';
+import type { ToolDefinit...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/bash.ts
+```ts
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { BaseTool } from './b...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This is a clean, readable tool wrapper around `child_process.exec` with a schema definition, basic safety gate (blocking patterns), ti...
+    ✓ suggestions
+  ✓ src/tools/bash.ts
+
+  [61/84] src/tools/edit-file.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/edit-file.ts
+```ts
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
+import { BaseT...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/edit-file.ts
+```ts
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { res...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This tool is small and understandable, with a clear contract: “replace an exact string in a file.” It correctly:
+- Resolves paths rela...
+    ✓ suggestions
+  ✓ src/tools/edit-file.ts
+
+  [62/84] src/tools/glob.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/glob.ts
+```ts
+import { glob } from 'node:fs/promises';
+import { resolve } from 'path';
+import { BaseTool } from './base.js';
+import type { ToolDefini...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/glob.ts
+```ts
+import { glob } from 'node:fs/promises';
+import { resolve } from 'path';
+import { BaseTool } from './...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is small and readable, but it currently has **fundamental correctness issues** (wrong import + wrong API usage) and a few **a...
+    ✓ suggestions
+  ✓ src/tools/glob.ts
+
+  [63/84] src/tools/grep.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/grep.ts
+```ts
+import { readFile } from 'fs/promises';
+import { glob } from 'node:fs/promises';
+import { resolve, join } from 'path';
+import { BaseToo...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/grep.ts
+```ts
+import { readFile } from 'fs/promises';
+import { glob } from 'node:fs/promises';
+import { resolve, jo...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This is a straightforward, readable “grep-like” tool with a clear interface definition and a simple execution flow. The main architect...
+    ✓ suggestions
+  ✓ src/tools/grep.ts
+
+  [64/84] src/tools/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/index.ts
+```ts
+export { BaseTool } from './base.js';
+export { ToolRegistry, globalRegistry } from './registry.js';
+export { ReadFileTool } from './re...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/index.ts
+```ts
+export { BaseTool } from './base.js';
+export { ToolRegistry, globalRegistry } from './registry.js';
+...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & architecture assessment
+
+This file is acting as both:
+
+1. **A “barrel” module** (re-exporting tools so consumers can import from `src/to...
+    ✓ suggestions
+  ✓ src/tools/index.ts
+
+  [65/84] src/tools/insert-line.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/insert-line.ts
+```ts
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
+import { Bas...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/insert-line.ts
+```ts
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { r...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+This tool is small and readable, with a clear single responsibility: insert text before a 1-based line number. It also integrates with ...
+    ✓ suggestions
+  ✓ src/tools/insert-line.ts
+
+  [66/84] src/tools/list-directory.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/list-directory.ts
+```ts
+import { readdir, stat } from 'fs/promises';
+import { resolve, join } from 'path';
+import { BaseTool } from './base.js';
+impo...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/list-directory.ts
+```ts
+import { readdir, stat } from 'fs/promises';
+import { resolve, join } from 'path';
+import {...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+This tool is small, readable, and does the job: resolves a path, reads entries, stats them, sorts them, and formats a human-friendly li...
+    ✓ suggestions
+  ✓ src/tools/list-directory.ts
+
+  [67/84] src/tools/patch-file.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/patch-file.ts
+```ts
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
+import { Base...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/patch-file.ts
+```ts
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { re...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Here’s a deep, code-quality/architecture/best-practices review of `src/tools/patch-file.ts`, with concrete failure modes and improvements.
+
+---
+
+## High-level ar...
+    ✓ suggestions
+  ✓ src/tools/patch-file.ts
+
+  [68/84] src/tools/rag-search.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/rag-search.ts
+```ts
+/**
+ * RAG Search Tool
+ *
+ * Allows the AI to search the indexed codebase for relevant code snippets.
+ */
+
+import { BaseTool } fr...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/rag-search.ts
+```ts
+/**
+ * RAG Search Tool
+ *
+ * Allows the AI to search the indexed codebase for relevant code sni...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper, “architecture + code quality + best practices” review of `src/tools/rag-search.ts`, beyond the quick-scan issues you already listed. I’ll cove...
+    ✓ suggestions
+  ✓ src/tools/rag-search.ts
+
+  [69/84] src/tools/read-file.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/read-file.ts
+```ts
+import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
+import { BaseTool } from ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/read-file.ts
+```ts
+import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve } from...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This tool is small and readable, and it’s doing a useful “LLM-friendly” enhancement (line numbering + optional truncation). The main q...
+    ✓ suggestions
+  ✓ src/tools/read-file.ts
+
+  [70/84] src/tools/registry.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/registry.ts
+```ts
+import type { ToolDefinition, ToolCall, ToolResult } from '../types.js';
+import { BaseTool } from './base.js';
+
+/**
+ * Registry for...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/registry.ts
+```ts
+import type { ToolDefinition, ToolCall, ToolResult } from '../types.js';
+import { BaseTool } from...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level quality & architecture
+
+**Overall structure is clean and idiomatic.** This is a small, cohesive class with a single responsibility: store tools key...
+    ✓ suggestions
+  ✓ src/tools/registry.ts
+
+  [71/84] src/tools/run-tests.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/run-tests.ts
+```ts
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { resolve } from 'path';
+import { existsSync, readF...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/run-tests.ts
+```ts
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { resolve } from ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This is a solid “utility tool” implementation: clear intent, reasonable defaults (timeout, CI env), decent cross-language heuristics, ...
+    ✓ suggestions
+  ✓ src/tools/run-tests.ts
+
+  [72/84] src/tools/web-search.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/web-search.ts
+```ts
+/**
+ * Web Search Tool
+ *
+ * Searches the web using DuckDuckGo and returns results with titles, URLs, and snippets.
+ * No API key...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/web-search.ts
+```ts
+/**
+ * Web Search Tool
+ *
+ * Searches the web using DuckDuckGo and returns results with titles,...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is readable, reasonably cohesive, and has a clear purpose (web search via DuckDuckGo Lite without an API key). The overall s...
+    ✓ suggestions
+  ✓ src/tools/web-search.ts
+
+  [73/84] src/tools/write-file.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/tools/write-file.ts
+```ts
+import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { dirname, resolve } from 'path';
+import ...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/tools/write-file.ts
+```ts
+import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { dirna...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This tool is small and readable, but it mixes concerns (path resolution + validation + filesystem writes + history/undo bookkeeping) i...
+    ✓ suggestions
+  ✓ src/tools/write-file.ts
+
+  [74/84] src/types.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/types.ts
+```ts
+// Core message types
+/**
+ * Represents a message with role and content.
+ * @property {('user' | 'assistant' | 'system')} role - The role of...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/types.ts
+```ts
+// Core message types
+/**
+ * Represents a message with role and content.
+ * @property {('user' | 'assistan...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality
+- **Clear intent and decent naming**: `Message`, `ContentBlock`, tool-related types, and `ProviderResponse` are readable and map to common...
+    ✓ suggestions
+  ✓ src/types.ts
+
+  [75/84] src/types/vectra.d.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/types/vectra.d.ts
+```ts
+/**
+ * Type declarations for vectra package.
+ * The package is missing .d.ts files in the published npm release.
+ */
+
+declare modul...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/types/vectra.d.ts
+```ts
+/**
+ * Type declarations for vectra package.
+ * The package is missing .d.ts files in the publish...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: Below is a deeper review that goes beyond the two quick-scan issues, focusing on **correctness**, **type design**, **API ergonomics**, and **maintainability** fo...
+    ✓ suggestions
+  ✓ src/types/vectra.d.ts
+
+  [76/84] src/usage.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/usage.ts
+```ts
+/**
+ * Usage tracking and cost estimation for API calls.
+ */
+import * as fs from 'fs';
+import * as path from 'path';
+import { homedir } from...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/usage.ts
+```ts
+/**
+ * Usage tracking and cost estimation for API calls.
+ */
+import * as fs from 'fs';
+import * as path fr...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level assessment
+
+This file is a pragmatic “single-module service” that does three jobs:
+
+1. **Pricing & cost calculation** (including provider-specific ...
+    ✓ suggestions
+  ✓ src/usage.ts
+
+  [77/84] src/utils/bash-utils.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/bash-utils.ts
+```ts
+/**
+ * Bash command safety utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import { DANGEROUS_BASH_PATTERNS, type Dan...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/bash-utils.ts
+```ts
+/**
+ * Bash command safety utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import {...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is small, readable, and does one thing well: it centralizes “dangerous bash command” checks and exposes two clear entry poin...
+    ✓ suggestions
+  ✓ src/utils/bash-utils.ts
+
+  [78/84] src/utils/image-parser.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/image-parser.ts
+```ts
+/**
+ * Image result parsing utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import type { ImageMediaType } from '.....
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/image-parser.ts
+```ts
+/**
+ * Image result parsing utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+impor...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & architecture
+- **Good separation of concerns**: extracting parsing logic into `src/utils/image-parser.ts` is a solid step toward reusabi...
+    ✓ suggestions
+  ✓ src/utils/image-parser.ts
+
+  [79/84] src/utils/index.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/index.ts
+```ts
+/**
+ * Utility functions extracted from agent.ts and other modules.
+ * Re-exports all utilities for convenient importing.
+ */
+
+// JSON...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/index.ts
+```ts
+/**
+ * Utility functions extracted from agent.ts and other modules.
+ * Re-exports all utilities for ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment (code quality & intent)
+This file is a classic “barrel” module whose sole purpose is to re-export utilities from submodules so consumer...
+    ✓ suggestions
+  ✓ src/utils/index.ts
+
+  [80/84] src/utils/json-parser.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/json-parser.ts
+```ts
+/**
+ * JSON parsing utilities for handling LLM output.
+ * Extracted from agent.ts for reusability.
+ */
+
+import type { ToolCall }...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/json-parser.ts
+```ts
+/**
+ * JSON parsing utilities for handling LLM output.
+ * Extracted from agent.ts for reusabil...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level quality & architecture
+
+**What’s good**
+- **Single-responsibility module**: This file focuses on JSON parsing/extraction concerns and is reusable ...
+    ✓ suggestions
+  ✓ src/utils/json-parser.ts
+
+  [81/84] src/utils/message-utils.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/message-utils.ts
+```ts
+/**
+ * Message analysis utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import type { Message } from '../types.js'...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/message-utils.ts
+```ts
+/**
+ * Message analysis utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import t...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is small, readable, and purpose-focused. Extracting these helpers from `agent.ts` into `utils` is a good modularity move. Th...
+    ✓ suggestions
+  ✓ src/utils/message-utils.ts
+
+  [82/84] src/utils/token-counter.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/token-counter.ts
+```ts
+/**
+ * Token counting utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import type { Message } from '../types.js';
+...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/token-counter.ts
+```ts
+/**
+ * Token counting utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import typ...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ## High-level quality and architecture
+
+**Strengths**
+- **Single responsibility & cohesion:** This file does one thing—derive a rough token estimate from `Messag...
+    ✓ suggestions
+  ✓ src/utils/token-counter.ts
+
+  [83/84] src/utils/tool-result-utils.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/utils/tool-result-utils.ts
+```ts
+/**
+ * Tool result processing utilities.
+ * Extracted from agent.ts for reusability.
+ */
+
+import type { Message } from '.....
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/utils/tool-result-utils.ts
+```ts
+/**
+ * Tool result processing utilities.
+ * Extracted from agent.ts for reusability.
+ */...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### High-level assessment
+
+This file is small, readable, and has a clear purpose: **reduce context usage by summarizing old `tool_result` blocks**. The extractio...
+    ✓ suggestions
+  ✓ src/utils/tool-result-utils.ts
+
+  [84/84] src/version.ts
+[Debug] Resolved role "fast" to model "gpt-5-nano" for provider "openai"
+    ▶ quick-scan (gpt-5-nano)
+[Debug] Pipeline step "quick-scan" using model "gpt-5-nano"
+Prompt: Quick scan for obvious issues: ### File: src/version.ts
+```ts
+/**
+ * Codi version.
+ * Keep this in sync with package.json version.
+ *
+ * Versioning convention:
+ * - MAJOR: Breaking changes to CLI inte...
+    ✓ quick-scan
+[Debug] Resolved role "reasoning" to model "gpt-5" for provider "openai"
+    ▶ deep-analysis (gpt-5)
+[Debug] Pipeline step "deep-analysis" using model "gpt-5"
+Prompt: Deep analysis of code quality, architecture, and best practices: ### File: src/version.ts
+```ts
+/**
+ * Codi version.
+ * Keep this in sync with package.json version.
+ *
+ * Versioning convention:
+ * - M...
+    ✓ deep-analysis
+[Debug] Resolved role "capable" to model "gpt-5" for provider "openai"
+    ▶ suggestions (gpt-5)
+[Debug] Pipeline step "suggestions" using model "gpt-5"
+Prompt: Summarize actionable suggestions from: ### Deep analysis: code quality, architecture, and best practices (`src/version.ts`)
+
+#### What the file does well
+- **Single responsibility / clarity:** It’s ob...
+    ✓ suggestions
+  ✓ src/version.ts
+
+Aggregating results...
+    ▶ aggregate (gpt-5)
+    ✓ aggregate
+
+
+Pipeline complete!
+Files processed: 84/84
+Models used: gpt-5-nano, gpt-5
+
+## Aggregated Results
+
+## 1) Critical Issues (prioritized)
+
+1) **Unsafe / brittle “wire protocols” encoded as strings**
+- Many commands/tools return ad‑hoc tokens like `__TAG__:${a}:${b}` or `__TAG__|...` (sometimes mixing JSON, colons, pipes, newlines). This breaks easily on Windows paths (`C:\...`), user/plugin content containing delimiters, multiline strings, etc., and makes evolution/versioning hard.
+- Affects: most `src/commands/*`, tool image result parsing (`__IMAGE__`), plugin/session/history/config/compression/model commands.
+
+2) **Config/command parsing and validation gaps leading to runtime failures**
+- Repeated `args.trim().split(/\s+/)` + substring flag checks (`args.includes('--flag')`) cause quoting/path issues and unexpected behavior.
+- Many `execute(input: Record<string, unknown>)` implementations cast with `as string/number/boolean` without runtime validation, leading to crashes or unsafe behavior.
+- Affects: many commands (code/git/workflow/model/compression/import/usage/session), many tools (`write_file`, `edit_file`, `insert_line`, `read_file`, `glob`, `grep`, `patch_file`, `bash`, `analyze_image`, `rag_search`).
+
+3) **File/command safety and correctness risks in “dangerous” operations**
+- `bash` uses `exec` (shell execution), blocking is regex-based and bypassable; output truncation inconsistent (esp. error path).
+- File write/edit/patch tools allow path traversal (resolve against `cwd` with no workspace boundary), have TOCTOU patterns (`existsSync` then read/write), and often record history **before** write succeeds.
+- `patch_file` is currently not a correct unified-diff applier and can silently corrupt files (no context validation, hunk-count ignored, CRLF/newline markers ignored, multi-file patches not scoped).
+
+4) **State/lifecycle/concurrency hazards**
+- Global mutable singletons (registries, session name, rag indexer/config setters, plugin loader state) + in-place mutation patterns make concurrency unsafe and tests flaky.
+- `Agent` is not safe for concurrent `chat()` calls; working set not rebuilt on session load; provider routing/tool-mode semantics inconsistent per turn.
+- RAG indexer queue can stall (queued changes during `indexAll()` may never process).
+- Providers/registries may leak resources (registry evicts providers without disposal).
+
+5) **Persistence integrity problems (undo/redo/usage/session)**
+- `history.ts` redo order is wrong (FIFO instead of LIFO) and does not clear redo branch on new edits; not atomic/locked; stores large content in index JSON.
+- `usage.ts` sync read/modify/write without atomic writes/locks; prone to lost updates/corruption; pricing duplicated with other module(s).
+- `session.ts` save overwrites metadata, filename sanitization collisions, non-atomic writes, silent load failures.
+
+---
+
+## 2) Common Patterns (recurring issues / anti-patterns)
+
+- **Stringly-typed protocol outputs** (`__TOKEN__...` with `:`/`|` delimiters), often mixing plain text and JSON inconsistently.
+- **Ad-hoc argument parsing** (`split(/\s+/)`, `args.includes('--flag')`), missing quoting/escaping support and inconsistent remainder handling.
+- **Lack of runtime validation** at boundaries (tool inputs, config files, YAML/JSON imports, provider responses).
+- **Sync filesystem operations** in async contexts (`existsSync/statSync/readFileSync` inside `async`), plus TOCTOU patterns.
+- **Non-atomic file writes** (direct overwrite of JSON/YAML/MD files) and **no locking**, causing corruption and lost updates across processes.
+- **Global mutable state** (singletons, module-level variables) reducing testability and making concurrency unsafe.
+- **Heuristic parsing where correctness matters**:
+  - regex HTML parsing for web search,
+  - regex/substring matching for tool-call extraction,
+  - naive unified diff patching,
+  - heuristic token counting without explicit “estimate” semantics.
+- **Delimiter-/heuristic-based safety** (bash dangerous patterns, tool-call extraction) without clear policy layering or validation hooks.
+
+---
+
+## 3) Top Recommendations (5 most impactful improvements)
+
+1) **Replace ad-hoc token strings with a structured `CommandResult` / `ToolResult` envelope**
+- Commands should return typed objects (or `__TAG__:${JSON.stringify(payload)}` as an interim step).
+- Tools that return rich data (images, diffs, lists) should return structured payloads instead of delimiter strings.
+- Add `schemaVersion` to payloads for forward compatibility.
+
+2) **Introduce shared, robust parsing + validation utilities**
+- Commands: adopt a single arg tokenizer/flag parser (quote-aware) used across commands (`/import`, `/diff`, `/compress`, `/pipeline`, etc.).
+- Tools: validate tool inputs against schemas before use (Ajv/Zod/Valibot). Stop `as string` casts.
+- Config/YAML/JSON ingestion: validate and normalize at boundaries (model-map loader, session files, ChatGPT import, memory YAML).
+
+3) **Harden file operation tools and patching**
+- Enforce workspace-root sandboxing for read/write/edit/patch/analyze_image tools.
+- Remove sync `existsSync` patterns; use async read + error code handling; use atomic writes (temp + rename).
+- Fix history recording semantics: record **after** successful write; ensure undo stores old+new content or deltas.
+- Replace `patch_file` implementation with a proven patch library (or implement strict hunk validation + CRLF/newline marker handling) and scope patches to the target file.
+
+4) **Fix persistence correctness and durability (history/session/usage)**
+- `history.ts`: redo LIFO, clear redo on new change, atomic index writes, locking, move newContent out of index JSON.
+- `session.ts`: collision-free IDs (UUID filenames), merge-on-save instead of overwrite, atomic writes, schema validation/versioning, don’t swallow load errors silently.
+- `usage.ts`: atomic writes + lock, cache in memory/debounce flush, deterministic pricing lookup (aliases/longest-prefix), remove duplicated pricing sources.
+
+5) **Reduce global mutable state and make lifecycle explicit**
+- Inject registries/services into commands/tools instead of mutating globals where feasible (`registerDefaultTools(registry)`, RAG services via context).
+- Add disposal hooks for providers and plugin registrations (registry eviction and plugin unload should dispose/unregister).
+- Add concurrency guards where state is shared (Agent single-flight lock; RAG indexer queue worker; command registry collision detection and reset for tests).
+
+---
+
+## 4) Files Requiring Attention (immediate work)
+
+### P0 (must address soon due to correctness/safety)
+- **src/tools/patch-file.ts** — unsafe patch application; can corrupt files; missing validation; newline/CRLF issues; multi-file patch risk.
+- **src/tools/glob.ts / src/tools/grep.ts** — invalid `glob` import usage (`node:fs/promises`); likely broken at runtime.
+- **src/tools/bash.ts** — `exec` shell execution + regex blocking; inconsistent truncation on error; needs validation and stronger safety policy.
+- **src/history.ts** — redo semantics wrong; redo not cleared on new edits; non-atomic writes; no locking; stores large content in index.
+- **src/session.ts** — save overwrites metadata; filename collisions; non-atomic writes; silent load failures; repair mutates objects.
+- **src/rag/indexer.ts** — queue can stall after `indexAll`; glob/matcher mismatch; watcher portability; binary detection flawed.
+
+### P1 (high-value refactors that unlock stability/testing)
+- **src/agent.ts** — god-object; concurrency unsafety; tool-mode confusion; working set not rebuilt on session load; logging redaction concerns.
+- **src/commands/index.ts** — command key normalization + collision handling; parse edge cases (`"/"`); global registry test isolation.
+- **src/model-map/loader.ts / router.ts / index.ts / executor.ts / registry.ts** — unsafe YAML casting; reload doesn’t update exposed config; ambiguous precedence; missing validation; no provider disposal; pipeline edge cases.
+- **src/utils/json-parser.ts** — brittle tool-call extraction; regex nested JSON; code-block extraction not always run; weak IDs.
+- **src/tools/write-file.ts / edit-file.ts / insert-line.ts / read-file.ts / analyze-image.ts** — input v
