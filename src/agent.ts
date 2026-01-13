@@ -31,6 +31,18 @@ import {
   checkDangerousBash,
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
+import {
+  checkCommandApproval,
+  getApprovalSuggestions,
+  addApprovedPattern,
+  addApprovedCategory,
+  checkPathApproval,
+  getPathApprovalSuggestions,
+  addApprovedPathPattern,
+  addApprovedPathCategory,
+  type ApprovedPattern,
+  type ApprovedPathPattern,
+} from './approvals.js';
 
 /**
  * Information about a tool call for confirmation.
@@ -42,12 +54,23 @@ export interface ToolConfirmation {
   dangerReason?: string;
   /** Diff preview for file operations */
   diffPreview?: DiffResult;
+  /** Suggestions for approving similar commands (bash only) */
+  approvalSuggestions?: {
+    suggestedPattern: string;
+    matchedCategories: Array<{ id: string; name: string; description: string }>;
+  };
 }
 
 /**
  * Result of a confirmation request.
+ * Extended to support "approve similar" responses.
  */
-export type ConfirmationResult = 'approve' | 'deny' | 'abort';
+export type ConfirmationResult =
+  | 'approve'
+  | 'deny'
+  | 'abort'
+  | { type: 'approve_pattern'; pattern: string }
+  | { type: 'approve_category'; categoryId: string };
 
 export interface AgentOptions {
   provider: BaseProvider;
@@ -56,6 +79,10 @@ export interface AgentOptions {
   useTools?: boolean; // Set to false for models that don't support tool use
   extractToolsFromText?: boolean; // Extract tool calls from JSON in text (for models without native tool support)
   autoApprove?: boolean | string[]; // Skip confirmation: true = all tools, string[] = specific tools
+  approvedPatterns?: ApprovedPattern[]; // Auto-approved bash command patterns
+  approvedCategories?: string[]; // Auto-approved bash command categories
+  approvedPathPatterns?: ApprovedPathPattern[]; // Auto-approved file path patterns
+  approvedPathCategories?: string[]; // Auto-approved file path categories
   customDangerousPatterns?: Array<{ pattern: RegExp; description: string }>; // Additional patterns
   logLevel?: LogLevel; // Log level for debug output (replaces debug)
   debug?: boolean; // @deprecated Use logLevel instead
@@ -83,6 +110,10 @@ export class Agent {
   private extractToolsFromText: boolean;
   private autoApproveAll: boolean;
   private autoApproveTools: Set<string>;
+  private approvedPatterns: ApprovedPattern[];
+  private approvedCategories: string[];
+  private approvedPathPatterns: ApprovedPathPattern[];
+  private approvedPathCategories: string[];
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
   private logLevel: LogLevel;
   private enableCompression: boolean;
@@ -118,6 +149,10 @@ export class Agent {
       this.autoApproveTools = new Set();
     }
 
+    this.approvedPatterns = options.approvedPatterns ?? [];
+    this.approvedCategories = options.approvedCategories ?? [];
+    this.approvedPathPatterns = options.approvedPathPatterns ?? [];
+    this.approvedPathCategories = options.approvedPathCategories ?? [];
     this.customDangerousPatterns = options.customDangerousPatterns ?? [];
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
@@ -137,6 +172,36 @@ export class Agent {
    */
   private shouldAutoApprove(toolName: string): boolean {
     return this.autoApproveAll || this.autoApproveTools.has(toolName);
+  }
+
+  /**
+   * Check if a bash command should be auto-approved via patterns/categories.
+   */
+  private shouldAutoApproveBash(command: string): boolean {
+    const result = checkCommandApproval(
+      command,
+      this.approvedPatterns,
+      this.approvedCategories
+    );
+    return result.approved;
+  }
+
+  /**
+   * File tools that support path-based auto-approval.
+   */
+  private static readonly FILE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file']);
+
+  /**
+   * Check if a file operation should be auto-approved via path patterns/categories.
+   */
+  private shouldAutoApproveFilePath(toolName: string, filePath: string): boolean {
+    const result = checkPathApproval(
+      toolName,
+      filePath,
+      this.approvedPathPatterns,
+      this.approvedPathCategories
+    );
+    return result.approved;
   }
 
   /**
@@ -509,9 +574,25 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       for (const toolCall of response.toolCalls) {
         // Check if this tool requires confirmation
-        const needsConfirmation = !this.shouldAutoApprove(toolCall.name) &&
+        let needsConfirmation = !this.shouldAutoApprove(toolCall.name) &&
           TOOL_CATEGORIES.DESTRUCTIVE.has(toolCall.name) &&
           this.callbacks.onConfirm;
+
+        // For bash commands, also check approved patterns/categories
+        if (needsConfirmation && toolCall.name === 'bash') {
+          const command = toolCall.input.command as string;
+          if (this.shouldAutoApproveBash(command)) {
+            needsConfirmation = false;
+          }
+        }
+
+        // For file tools, also check approved path patterns/categories
+        if (needsConfirmation && Agent.FILE_TOOLS.has(toolCall.name)) {
+          const filePath = toolCall.input.path as string;
+          if (filePath && this.shouldAutoApproveFilePath(toolCall.name, filePath)) {
+            needsConfirmation = false;
+          }
+        }
 
         if (needsConfirmation) {
           // Check for dangerous bash commands (including custom patterns)
@@ -559,34 +640,111 @@ Always use tools to interact with the filesystem rather than asking the user to 
             // If diff generation fails, continue without preview
           }
 
+          // Get approval suggestions for bash commands (unless dangerous)
+          let approvalSuggestions: ToolConfirmation['approvalSuggestions'];
+          if (toolCall.name === 'bash' && !isDangerous) {
+            const command = toolCall.input.command as string;
+            const suggestions = getApprovalSuggestions(command);
+            approvalSuggestions = {
+              suggestedPattern: suggestions.suggestedPattern,
+              matchedCategories: suggestions.matchedCategories.map((c) => ({
+                id: c.id,
+                name: c.name,
+                description: c.description,
+              })),
+            };
+          }
+
+          // Get approval suggestions for file tools
+          if (Agent.FILE_TOOLS.has(toolCall.name)) {
+            const filePath = toolCall.input.path as string;
+            if (filePath) {
+              const suggestions = getPathApprovalSuggestions(filePath);
+              approvalSuggestions = {
+                suggestedPattern: suggestions.suggestedPattern,
+                matchedCategories: suggestions.matchedCategories.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  description: c.description,
+                })),
+              };
+            }
+          }
+
           const confirmation: ToolConfirmation = {
             toolName: toolCall.name,
             input: toolCall.input,
             isDangerous,
             dangerReason,
             diffPreview,
+            approvalSuggestions,
           };
 
           const result = await this.callbacks.onConfirm!(confirmation);
 
-          if (result === 'abort') {
-            aborted = true;
-            toolResults.push({
-              tool_use_id: toolCall.id,
-              content: 'User aborted the operation.',
-              is_error: true,
-            });
-            break;
-          }
+          // Handle "approve similar" responses
+          if (typeof result === 'object') {
+            if (result.type === 'approve_pattern') {
+              // Determine if this is a bash command or file tool
+              if (Agent.FILE_TOOLS.has(toolCall.name)) {
+                // Save as path pattern
+                const saveResult = addApprovedPathPattern(result.pattern, toolCall.name);
+                if (saveResult.success) {
+                  this.approvedPathPatterns.push({
+                    pattern: result.pattern,
+                    toolName: toolCall.name,
+                    approvedAt: new Date().toISOString(),
+                  });
+                }
+              } else {
+                // Save as bash command pattern
+                const saveResult = addApprovedPattern(result.pattern);
+                if (saveResult.success) {
+                  this.approvedPatterns.push({
+                    pattern: result.pattern,
+                    approvedAt: new Date().toISOString(),
+                  });
+                }
+              }
+              // Continue with approval (execute the tool)
+            } else if (result.type === 'approve_category') {
+              // Determine if this is a bash command or file tool
+              if (Agent.FILE_TOOLS.has(toolCall.name)) {
+                // Save as path category
+                const saveResult = addApprovedPathCategory(result.categoryId);
+                if (saveResult.success) {
+                  this.approvedPathCategories.push(result.categoryId);
+                }
+              } else {
+                // Save as bash command category
+                const saveResult = addApprovedCategory(result.categoryId);
+                if (saveResult.success) {
+                  this.approvedCategories.push(result.categoryId);
+                }
+              }
+              // Continue with approval (execute the tool)
+            }
+          } else {
+            // Handle simple string results
+            if (result === 'abort') {
+              aborted = true;
+              toolResults.push({
+                tool_use_id: toolCall.id,
+                content: 'User aborted the operation.',
+                is_error: true,
+              });
+              break;
+            }
 
-          if (result === 'deny') {
-            toolResults.push({
-              tool_use_id: toolCall.id,
-              content: 'User denied this operation. Please try a different approach or ask for clarification.',
-              is_error: true,
-            });
-            hasError = true;
-            continue;
+            if (result === 'deny') {
+              toolResults.push({
+                tool_use_id: toolCall.id,
+                content: 'User denied this operation. Please try a different approach or ask for clarification.',
+                is_error: true,
+              });
+              hasError = true;
+              continue;
+            }
           }
         }
 

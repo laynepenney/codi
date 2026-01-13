@@ -21,6 +21,27 @@ export interface WorkspaceConfig {
   /** Tools that don't require confirmation (e.g., ["read_file", "glob", "grep"]) */
   autoApprove?: string[];
 
+  /** Auto-approved bash command patterns (glob-like, e.g., "npm test*") */
+  approvedPatterns?: Array<{
+    pattern: string;
+    approvedAt: string;
+    description?: string;
+  }>;
+
+  /** Auto-approved bash command categories (e.g., ["run-tests", "build-project"]) */
+  approvedCategories?: string[];
+
+  /** Auto-approved file path patterns (glob-like) */
+  approvedPathPatterns?: Array<{
+    pattern: string;
+    toolName: string;
+    approvedAt: string;
+    description?: string;
+  }>;
+
+  /** Auto-approved file path categories */
+  approvedPathCategories?: string[];
+
   /** Additional dangerous patterns for bash commands */
   dangerousPatterns?: string[];
 
@@ -108,12 +129,31 @@ export interface WorkspaceConfig {
 /**
  * Resolved configuration with all values set.
  */
+/** Approved pattern stored in config */
+export interface ApprovedPatternConfig {
+  pattern: string;
+  approvedAt: string;
+  description?: string;
+}
+
+/** Approved path pattern stored in config */
+export interface ApprovedPathPatternConfig {
+  pattern: string;
+  toolName: string;
+  approvedAt: string;
+  description?: string;
+}
+
 export interface ResolvedConfig {
   provider: string;
   model?: string;
   baseUrl?: string;
   endpointId?: string;
   autoApprove: string[];
+  approvedPatterns: ApprovedPatternConfig[];
+  approvedCategories: string[];
+  approvedPathPatterns: ApprovedPathPatternConfig[];
+  approvedPathCategories: string[];
   dangerousPatterns: string[];
   systemPromptAdditions?: string;
   noTools: boolean;
@@ -131,6 +171,10 @@ export interface ResolvedConfig {
 const DEFAULT_CONFIG: ResolvedConfig = {
   provider: 'auto',
   autoApprove: [],
+  approvedPatterns: [],
+  approvedCategories: [],
+  approvedPathPatterns: [],
+  approvedPathCategories: [],
   dangerousPatterns: [],
   noTools: false,
   extractToolsFromText: true,
@@ -245,6 +289,10 @@ export function mergeConfig(
     if (workspaceConfig.baseUrl) config.baseUrl = workspaceConfig.baseUrl;
     if (workspaceConfig.endpointId) config.endpointId = workspaceConfig.endpointId;
     if (workspaceConfig.autoApprove) config.autoApprove = workspaceConfig.autoApprove;
+    if (workspaceConfig.approvedPatterns) config.approvedPatterns = workspaceConfig.approvedPatterns;
+    if (workspaceConfig.approvedCategories) config.approvedCategories = workspaceConfig.approvedCategories;
+    if (workspaceConfig.approvedPathPatterns) config.approvedPathPatterns = workspaceConfig.approvedPathPatterns;
+    if (workspaceConfig.approvedPathCategories) config.approvedPathCategories = workspaceConfig.approvedPathCategories;
     if (workspaceConfig.dangerousPatterns) config.dangerousPatterns = workspaceConfig.dangerousPatterns;
     if (workspaceConfig.systemPromptAdditions) config.systemPromptAdditions = workspaceConfig.systemPromptAdditions;
     if (workspaceConfig.noTools) config.noTools = workspaceConfig.noTools;
@@ -315,6 +363,8 @@ export function getExampleConfig(): string {
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
     autoApprove: ['read_file', 'glob', 'grep', 'list_directory'],
+    approvedPatterns: [],
+    approvedCategories: [],
     dangerousPatterns: [],
     systemPromptAdditions: '',
     commandAliases: {

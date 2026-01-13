@@ -269,6 +269,7 @@ import { registerImportCommands } from './commands/import-commands.js';
 import { registerMemoryCommands } from './commands/memory-commands.js';
 import { registerCompressionCommands } from './commands/compression-commands.js';
 import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
+import { registerApprovalCommands } from './commands/approval-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import {
   BackgroundIndexer,
@@ -482,7 +483,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
  * Format a tool confirmation for display.
  */
 function formatConfirmation(confirmation: ToolConfirmation): string {
-  const { toolName, input, isDangerous, dangerReason, diffPreview } = confirmation;
+  const { toolName, input, isDangerous, dangerReason, diffPreview, approvalSuggestions } = confirmation;
 
   let display = '';
 
@@ -496,6 +497,16 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
   // Format input based on tool type
   if (toolName === 'bash') {
     display += chalk.dim(`Command: ${input.command}\n`);
+
+    // Show approval suggestions for non-dangerous bash commands
+    if (!isDangerous && approvalSuggestions) {
+      display += '\n' + chalk.cyan('Also approve similar commands?\n');
+      display += chalk.dim(`  [p] Pattern: ${approvalSuggestions.suggestedPattern}\n`);
+
+      approvalSuggestions.matchedCategories.forEach((cat, i) => {
+        display += chalk.dim(`  [${i + 1}] Category: ${cat.name} - ${cat.description}\n`);
+      });
+    }
   } else if (toolName === 'write_file' || toolName === 'edit_file') {
     display += chalk.dim(`Path: ${input.path}\n`);
 
@@ -536,6 +547,28 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
         }
       }
     }
+
+    // Show approval suggestions for file tools
+    if (approvalSuggestions) {
+      display += '\n' + chalk.cyan('Also approve similar file operations?\n');
+      display += chalk.dim(`  [p] Pattern: ${approvalSuggestions.suggestedPattern}\n`);
+
+      approvalSuggestions.matchedCategories.forEach((cat, i) => {
+        display += chalk.dim(`  [${i + 1}] Category: ${cat.name} - ${cat.description}\n`);
+      });
+    }
+  } else if (toolName === 'insert_line' || toolName === 'patch_file') {
+    display += chalk.dim(`Path: ${input.path}\n`);
+
+    // Show approval suggestions for other file tools
+    if (approvalSuggestions) {
+      display += '\n' + chalk.cyan('Also approve similar file operations?\n');
+      display += chalk.dim(`  [p] Pattern: ${approvalSuggestions.suggestedPattern}\n`);
+
+      approvalSuggestions.matchedCategories.forEach((cat, i) => {
+        display += chalk.dim(`  [${i + 1}] Category: ${cat.name} - ${cat.description}\n`);
+      });
+    }
   } else {
     display += chalk.dim(JSON.stringify(input, null, 2).slice(0, 200) + '\n');
   }
@@ -554,6 +587,66 @@ function promptConfirmation(rl: ReturnType<typeof createInterface>, message: str
         resolve('approve');
       } else if (lower === 'a' || lower === 'abort') {
         resolve('abort');
+      } else {
+        resolve('deny');
+      }
+    });
+  });
+}
+
+/**
+ * Prompt user for confirmation with approval suggestions.
+ */
+function promptConfirmationWithSuggestions(
+  rl: ReturnType<typeof createInterface>,
+  confirmation: ToolConfirmation
+): Promise<ConfirmationResult> {
+  const { isDangerous, approvalSuggestions } = confirmation;
+
+  // Dangerous commands or no suggestions - simple prompt
+  if (isDangerous || !approvalSuggestions) {
+    const promptText = isDangerous
+      ? chalk.red.bold('Approve? [y/N/abort] ')
+      : chalk.yellow('Approve? [y/N/abort] ');
+    return promptConfirmation(rl, promptText);
+  }
+
+  // Build dynamic prompt with options
+  const categoryCount = approvalSuggestions.matchedCategories.length;
+  let options = 'y/n';
+  if (approvalSuggestions.suggestedPattern) {
+    options += '/p';
+  }
+  if (categoryCount > 0) {
+    options += categoryCount > 1 ? `/1-${categoryCount}` : '/1';
+  }
+  options += '/abort';
+
+  const promptText = chalk.yellow(`Approve? [${options}] `);
+
+  return new Promise((resolve) => {
+    rl.question(promptText, (answer) => {
+      const lower = (answer || '').toLowerCase().trim();
+
+      if (lower === 'y' || lower === 'yes') {
+        resolve('approve');
+      } else if (lower === 'a' || lower === 'abort') {
+        resolve('abort');
+      } else if (lower === 'p' || lower === 'pattern') {
+        resolve({
+          type: 'approve_pattern',
+          pattern: approvalSuggestions.suggestedPattern,
+        });
+      } else if (/^\d+$/.test(lower)) {
+        const index = parseInt(lower, 10) - 1;
+        if (index >= 0 && index < approvalSuggestions.matchedCategories.length) {
+          resolve({
+            type: 'approve_category',
+            categoryId: approvalSuggestions.matchedCategories[index].id,
+          });
+        } else {
+          resolve('deny');
+        }
       } else {
         resolve('deny');
       }
@@ -1617,6 +1710,125 @@ function handleCompressionOutput(output: string): void {
 }
 
 /**
+ * Handle approval command output.
+ */
+function handleApprovalOutput(output: string): void {
+  const parts = output.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__APPROVALS_LIST__': {
+      const data = JSON.parse(parts.slice(1).join(':'));
+
+      console.log(chalk.bold('\n=== Bash Command Approvals ==='));
+
+      console.log(chalk.bold('\nApproved Command Patterns:'));
+      if (data.patterns.length === 0) {
+        console.log(chalk.dim('  No patterns configured'));
+      } else {
+        for (const p of data.patterns) {
+          console.log(chalk.green(`  ${p.pattern}`));
+          if (p.description) {
+            console.log(chalk.dim(`    ${p.description}`));
+          }
+          console.log(chalk.dim(`    Added: ${new Date(p.approvedAt).toLocaleDateString()}`));
+        }
+      }
+
+      console.log(chalk.bold('\nApproved Categories:'));
+      if (data.categories.length === 0) {
+        console.log(chalk.dim('  No categories configured'));
+      } else {
+        for (const c of data.categories) {
+          console.log(chalk.green(`  ${c.name} (${c.id})`));
+          console.log(chalk.dim(`    ${c.description}`));
+        }
+      }
+
+      console.log(chalk.bold('\n=== File Path Approvals ==='));
+
+      console.log(chalk.bold('\nApproved Path Patterns:'));
+      if (!data.pathPatterns || data.pathPatterns.length === 0) {
+        console.log(chalk.dim('  No path patterns configured'));
+      } else {
+        for (const p of data.pathPatterns) {
+          const toolInfo = p.toolName === '*' ? '(all tools)' : `(${p.toolName})`;
+          console.log(chalk.green(`  ${p.pattern} ${chalk.dim(toolInfo)}`));
+          if (p.description) {
+            console.log(chalk.dim(`    ${p.description}`));
+          }
+          console.log(chalk.dim(`    Added: ${new Date(p.approvedAt).toLocaleDateString()}`));
+        }
+      }
+
+      console.log(chalk.bold('\nApproved Path Categories:'));
+      if (!data.pathCategories || data.pathCategories.length === 0) {
+        console.log(chalk.dim('  No path categories configured'));
+      } else {
+        for (const c of data.pathCategories) {
+          console.log(chalk.green(`  ${c.name} (${c.id})`));
+          console.log(chalk.dim(`    ${c.description}`));
+        }
+      }
+      break;
+    }
+
+    case '__APPROVAL_CATEGORIES__': {
+      const categories = JSON.parse(parts.slice(1).join(':'));
+      console.log(chalk.bold('\nAvailable Command Categories:'));
+      for (const c of categories) {
+        console.log(chalk.cyan(`  ${c.id}`));
+        console.log(chalk.white(`    ${c.name}`));
+        console.log(chalk.dim(`    ${c.description}`));
+      }
+      break;
+    }
+
+    case '__APPROVAL_PATH_CATEGORIES__': {
+      const pathCategories = JSON.parse(parts.slice(1).join(':'));
+      console.log(chalk.bold('\nAvailable Path Categories:'));
+      for (const c of pathCategories) {
+        console.log(chalk.cyan(`  ${c.id}`));
+        console.log(chalk.white(`    ${c.name}`));
+        console.log(chalk.dim(`    ${c.description}`));
+      }
+      break;
+    }
+
+    case '__APPROVAL_ADDED__': {
+      const [, addType, value] = parts;
+      console.log(chalk.green(`\nAdded ${addType}: ${value}`));
+      break;
+    }
+
+    case '__APPROVAL_REMOVED__': {
+      const [, removeType, value] = parts;
+      console.log(chalk.yellow(`\nRemoved ${removeType}: ${value}`));
+      break;
+    }
+
+    case '__APPROVAL_NOT_FOUND__': {
+      const [, notFoundType, value] = parts;
+      console.log(chalk.dim(`\n${notFoundType} not found: ${value}`));
+      break;
+    }
+
+    case '__APPROVAL_ERROR__': {
+      console.log(chalk.red(`\nError: ${parts.slice(1).join(':')}`));
+      break;
+    }
+
+    case '__APPROVAL_USAGE__': {
+      console.log(chalk.yellow(`\nUsage: /approvals ${parts.slice(1).join(':')}`));
+      break;
+    }
+
+    default:
+      console.log(output);
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -1697,6 +1909,7 @@ async function main() {
   registerMemoryCommands();
   registerCompressionCommands();
   registerRAGCommands();
+  registerApprovalCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
@@ -1890,6 +2103,10 @@ async function main() {
     useTools,
     extractToolsFromText: resolvedConfig.extractToolsFromText,
     autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,
+    approvedPatterns: resolvedConfig.approvedPatterns,
+    approvedCategories: resolvedConfig.approvedCategories,
+    approvedPathPatterns: resolvedConfig.approvedPathPatterns,
+    approvedPathCategories: resolvedConfig.approvedPathCategories,
     customDangerousPatterns,
     logLevel,
     enableCompression: options.compress || resolvedConfig.enableCompression,
@@ -1954,6 +2171,41 @@ async function main() {
       spinner.stop();
 
       console.log('\n' + formatConfirmation(confirmation));
+
+      // File tools that support path-based approval
+      const FILE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file']);
+
+      // Use extended prompt for bash commands or file tools with suggestions
+      const hasApprovalSuggestions = confirmation.approvalSuggestions &&
+        (confirmation.toolName === 'bash' || FILE_TOOLS.has(confirmation.toolName));
+
+      if (hasApprovalSuggestions) {
+        const result = await promptConfirmationWithSuggestions(rl, confirmation);
+
+        // Show feedback when pattern/category is saved
+        if (typeof result === 'object') {
+          if (result.type === 'approve_pattern') {
+            if (FILE_TOOLS.has(confirmation.toolName)) {
+              console.log(chalk.green(`\nSaved path pattern: ${result.pattern}`));
+            } else {
+              console.log(chalk.green(`\nSaved pattern: ${result.pattern}`));
+            }
+          } else if (result.type === 'approve_category') {
+            const cat = confirmation.approvalSuggestions!.matchedCategories.find(
+              (c) => c.id === result.categoryId
+            );
+            if (FILE_TOOLS.has(confirmation.toolName)) {
+              console.log(chalk.green(`\nSaved path category: ${cat?.name || result.categoryId}`));
+            } else {
+              console.log(chalk.green(`\nSaved category: ${cat?.name || result.categoryId}`));
+            }
+          }
+        }
+
+        return result;
+      }
+
+      // Standard confirmation for other tools
       const promptText = confirmation.isDangerous
         ? chalk.red.bold('Approve? [y/N/abort] ')
         : chalk.yellow('Approve? [y/N/abort] ');
@@ -2627,6 +2879,12 @@ async function main() {
               // Handle compression command outputs
               if (result.startsWith('COMPRESS_')) {
                 handleCompressionOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle approval command outputs
+              if (result.startsWith('__APPROVAL')) {
+                handleApprovalOutput(result);
                 rl.prompt();
                 return;
               }
