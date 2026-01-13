@@ -25,6 +25,13 @@ import type {
 // Import extractors from model-map
 import { RegexSymbolExtractor } from '../model-map/symbols/regex-extractor.js';
 
+// Import tsconfig resolver
+import {
+  loadTsConfig,
+  resolveWithTsConfig,
+  type ResolvedTsConfig,
+} from './tsconfig-resolver.js';
+
 // Default file patterns
 const DEFAULT_INCLUDE_PATTERNS = [
   '**/*.ts',
@@ -59,13 +66,20 @@ function hashFile(filePath: string): string {
 function resolveImportPath(
   importPath: string,
   fromFile: string,
-  projectRoot: string
+  projectRoot: string,
+  tsconfig?: ResolvedTsConfig | null
 ): string | undefined {
   const fromDir = path.dirname(fromFile);
 
-  // Handle TypeScript path aliases (common patterns)
-  let resolvedPath = importPath;
+  // Try tsconfig paths resolution FIRST (most accurate)
+  if (tsconfig) {
+    const resolved = resolveWithTsConfig(importPath, fromFile, projectRoot, tsconfig);
+    if (resolved) {
+      return resolved;
+    }
+  }
 
+  // Fall back to hardcoded patterns for common aliases
   // @/ alias - commonly maps to project root, src/, or app/
   if (importPath.startsWith('@/')) {
     const aliasPath = importPath.slice(2); // Remove @/
@@ -162,17 +176,40 @@ function resolveKotlinImport(importPath: string, projectRoot: string): string | 
   const className = parts[parts.length - 1];
   const packagePath = parts.slice(0, -1).join('/');
 
-  // Common Kotlin source roots
+  // Common Kotlin source roots - including multi-module and KMP patterns
   const sourceRoots = [
+    // Standard single-module
     'src/main/kotlin',
+    'src/main/java', // Kotlin files can be in java directories
+
+    // Kotlin Multiplatform (KMP)
     'src/commonMain/kotlin',
     'src/androidMain/kotlin',
     'src/iosMain/kotlin',
+    'src/jvmMain/kotlin',
+    'src/jsMain/kotlin',
+    'src/nativeMain/kotlin',
+
+    // Multi-module patterns (glob-like, we'll expand them)
+    'app/src/main/kotlin',
+    'core/src/main/kotlin',
+    'shared/src/main/kotlin',
+    'shared/src/commonMain/kotlin',
+    'shared/src/androidMain/kotlin',
+    'shared/src/iosMain/kotlin',
+
+    // Mobile-specific multi-module
     'mobile/shared/src/commonMain/kotlin',
     'mobile/shared/src/androidMain/kotlin',
     'mobile/shared/src/iosMain/kotlin',
     'mobile/androidApp/src/main/kotlin',
     'mobile/iosApp/src/main/kotlin',
+
+    // Common module name patterns
+    'modules/core/src/main/kotlin',
+    'modules/shared/src/main/kotlin',
+    'modules/app/src/main/kotlin',
+    'features/*/src/main/kotlin', // Will need glob expansion
   ];
 
   for (const root of sourceRoots) {
@@ -193,6 +230,7 @@ export class SymbolIndexService {
   private projectRoot: string;
   private extractor: RegexSymbolExtractor;
   private initialized: boolean = false;
+  private tsconfig: ResolvedTsConfig | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = path.resolve(projectRoot);
@@ -205,6 +243,9 @@ export class SymbolIndexService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
+
+    // Load tsconfig for path alias resolution
+    this.tsconfig = loadTsConfig(this.projectRoot);
 
     // Store project root in metadata
     this.db.setMetadata('project_root', this.projectRoot);
@@ -317,7 +358,7 @@ export class SymbolIndexService {
 
           // Insert imports
           for (const imp of fileInfo.imports) {
-            const resolvedPath = resolveImportPath(imp.source, filePath, this.projectRoot);
+            const resolvedPath = resolveImportPath(imp.source, filePath, this.projectRoot, this.tsconfig);
             let resolvedFileId: number | undefined;
 
             if (resolvedPath) {
@@ -388,7 +429,7 @@ export class SymbolIndexService {
       const fileInfo = this.extractor.extract(content, file.path);
 
       for (const imp of fileInfo.imports) {
-        const resolvedPath = resolveImportPath(imp.source, filePath, this.projectRoot);
+        const resolvedPath = resolveImportPath(imp.source, filePath, this.projectRoot, this.tsconfig);
         if (resolvedPath) {
           const resolvedRelative = path.relative(this.projectRoot, resolvedPath);
           const toFileId = filePathToId.get(resolvedRelative);
