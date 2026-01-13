@@ -20,7 +20,7 @@ export class FindReferencesTool extends BaseTool {
     return {
       name: 'find_references',
       description:
-        'Find all files that reference or import a symbol. Returns import locations and usage types. ' +
+        'Find all files that reference, import, or use a symbol. Returns import locations, callsites, and usage types. ' +
         'Use this to understand the impact of changes or find where a symbol is used.',
       input_schema: {
         type: 'object',
@@ -31,11 +31,15 @@ export class FindReferencesTool extends BaseTool {
           },
           file: {
             type: 'string',
-            description: 'Optional file path where the symbol is defined. Helps disambiguate symbols with the same name.',
+            description: 'Optional file path where the symbol is defined. Helps disambiguate symbols with the same name and excludes this file from callsite search.',
           },
           include_imports: {
             type: 'boolean',
             description: 'Include import statements in results. Default: true.',
+          },
+          include_callsites: {
+            type: 'boolean',
+            description: 'Include callsites and usages (not just imports). Default: true.',
           },
           max_results: {
             type: 'number',
@@ -51,6 +55,7 @@ export class FindReferencesTool extends BaseTool {
     const name = input.name as string;
     const file = input.file as string | undefined;
     const includeImports = (input.include_imports as boolean) ?? true;
+    const includeCallsites = (input.include_callsites as boolean) ?? true;
     const maxResults = (input.max_results as number) ?? 20;
 
     if (!name) {
@@ -66,10 +71,15 @@ export class FindReferencesTool extends BaseTool {
     const results = this.indexService.findReferences(name, {
       file,
       includeImports,
+      includeCallsites,
       limit: maxResults,
     });
 
     if (results.length === 0) {
+      // Check if this might be a cross-language entry point (iOS/Swift)
+      if (file && (file.includes('iosMain') || file.includes('MainViewController'))) {
+        return `No Kotlin references found for "${name}".\nNote: This may be referenced from Swift/Objective-C code, which is not indexed.`;
+      }
       return `No references found for "${name}".`;
     }
 

@@ -7,6 +7,7 @@
 import { BaseTool } from '../../tools/base.js';
 import type { ToolDefinition } from '../../types.js';
 import type { SymbolIndexService } from '../service.js';
+import type { DependencyResult } from '../types.js';
 
 export class GetDependencyGraphTool extends BaseTool {
   private indexService: SymbolIndexService;
@@ -39,6 +40,10 @@ export class GetDependencyGraphTool extends BaseTool {
             type: 'number',
             description: 'How many levels deep to traverse. Default: 1.',
           },
+          flat: {
+            type: 'boolean',
+            description: 'Return a flat list instead of nested by depth. Default: false.',
+          },
           include_external: {
             type: 'boolean',
             description: 'Include external (node_modules) dependencies. Default: false.',
@@ -49,10 +54,26 @@ export class GetDependencyGraphTool extends BaseTool {
     };
   }
 
+  /**
+   * Deduplicate results by file path, keeping the entry with the smallest depth
+   */
+  private deduplicateResults(results: DependencyResult[]): DependencyResult[] {
+    const seen = new Map<string, DependencyResult>();
+    for (const r of results) {
+      const key = `${r.direction}:${r.file}`;
+      const existing = seen.get(key);
+      if (!existing || r.depth < existing.depth) {
+        seen.set(key, r);
+      }
+    }
+    return Array.from(seen.values());
+  }
+
   async execute(input: Record<string, unknown>): Promise<string> {
     const file = input.file as string;
     const direction = (input.direction as 'imports' | 'importedBy' | 'both') ?? 'both';
     const depth = (input.depth as number) ?? 1;
+    const flat = (input.flat as boolean) ?? false;
 
     if (!file) {
       throw new Error('File path is required');
@@ -64,7 +85,10 @@ export class GetDependencyGraphTool extends BaseTool {
     }
 
     // Get dependency graph
-    const results = this.indexService.getDependencyGraph(file, direction, depth);
+    let results = this.indexService.getDependencyGraph(file, direction, depth);
+
+    // Deduplicate results
+    results = this.deduplicateResults(results);
 
     if (results.length === 0) {
       const dirStr = direction === 'both' ? 'dependencies' : direction === 'imports' ? 'imports' : 'dependents';
@@ -81,19 +105,32 @@ export class GetDependencyGraphTool extends BaseTool {
 
     if (imports.length > 0) {
       lines.push('This file imports:');
-      // Group by depth
-      const byDepth = new Map<number, typeof imports>();
-      for (const dep of imports) {
-        if (!byDepth.has(dep.depth)) {
-          byDepth.set(dep.depth, []);
+      if (flat) {
+        // Flat mode - simple list sorted alphabetically
+        const sorted = [...imports].sort((a, b) => a.file.localeCompare(b.file));
+        for (const dep of sorted) {
+          const depthInfo = depth > 1 ? ` (depth: ${dep.depth})` : '';
+          lines.push(`  ${dep.file}${depthInfo}`);
         }
-        byDepth.get(dep.depth)!.push(dep);
-      }
+      } else {
+        // Nested mode - group by depth with indentation
+        const byDepth = new Map<number, typeof imports>();
+        for (const dep of imports) {
+          if (!byDepth.has(dep.depth)) {
+            byDepth.set(dep.depth, []);
+          }
+          byDepth.get(dep.depth)!.push(dep);
+        }
 
-      for (const [d, deps] of [...byDepth.entries()].sort((a, b) => a[0] - b[0])) {
-        const indent = '  '.repeat(d);
-        for (const dep of deps) {
-          lines.push(`${indent}${dep.file}`);
+        for (const [d, deps] of [...byDepth.entries()].sort((a, b) => a[0] - b[0])) {
+          const indent = '  '.repeat(d);
+          const depthLabel = d === 1 ? '(direct)' : `(transitive, depth ${d})`;
+          if (d > 1) {
+            lines.push(`${indent}${depthLabel}`);
+          }
+          for (const dep of deps.sort((a, b) => a.file.localeCompare(b.file))) {
+            lines.push(`${indent}  ${dep.file}`);
+          }
         }
       }
       lines.push('');
@@ -101,19 +138,32 @@ export class GetDependencyGraphTool extends BaseTool {
 
     if (importedBy.length > 0) {
       lines.push('This file is imported by:');
-      // Group by depth
-      const byDepth = new Map<number, typeof importedBy>();
-      for (const dep of importedBy) {
-        if (!byDepth.has(dep.depth)) {
-          byDepth.set(dep.depth, []);
+      if (flat) {
+        // Flat mode - simple list sorted alphabetically
+        const sorted = [...importedBy].sort((a, b) => a.file.localeCompare(b.file));
+        for (const dep of sorted) {
+          const depthInfo = depth > 1 ? ` (depth: ${dep.depth})` : '';
+          lines.push(`  ${dep.file}${depthInfo}`);
         }
-        byDepth.get(dep.depth)!.push(dep);
-      }
+      } else {
+        // Nested mode - group by depth with indentation
+        const byDepth = new Map<number, typeof importedBy>();
+        for (const dep of importedBy) {
+          if (!byDepth.has(dep.depth)) {
+            byDepth.set(dep.depth, []);
+          }
+          byDepth.get(dep.depth)!.push(dep);
+        }
 
-      for (const [d, deps] of [...byDepth.entries()].sort((a, b) => a[0] - b[0])) {
-        const indent = '  '.repeat(d);
-        for (const dep of deps) {
-          lines.push(`${indent}${dep.file}`);
+        for (const [d, deps] of [...byDepth.entries()].sort((a, b) => a[0] - b[0])) {
+          const indent = '  '.repeat(d);
+          const depthLabel = d === 1 ? '(direct)' : `(transitive, depth ${d})`;
+          if (d > 1) {
+            lines.push(`${indent}${depthLabel}`);
+          }
+          for (const dep of deps.sort((a, b) => a.file.localeCompare(b.file))) {
+            lines.push(`${indent}  ${dep.file}`);
+          }
         }
       }
       lines.push('');

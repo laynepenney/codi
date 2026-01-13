@@ -61,6 +61,13 @@ function hashFile(filePath: string): string {
 }
 
 /**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Resolve import path to actual file
  */
 function resolveImportPath(
@@ -615,10 +622,11 @@ export class SymbolIndexService {
     options: {
       file?: string;
       includeImports?: boolean;
+      includeCallsites?: boolean;
       limit?: number;
     } = {}
   ): ReferenceResult[] {
-    const { includeImports = true, limit = 20 } = options;
+    const { includeImports = true, includeCallsites = true, limit = 20 } = options;
     const results: ReferenceResult[] = [];
 
     // Find import references
@@ -633,7 +641,81 @@ export class SymbolIndexService {
       }
     }
 
+    // Find callsites/usages
+    if (includeCallsites) {
+      const callsites = this.findCallsites(symbolName, options.file);
+      for (const site of callsites) {
+        // Avoid duplicates with imports (same file and line)
+        const isDupe = results.some(r => r.file === site.file && r.line === site.line);
+        if (!isDupe) {
+          results.push(site);
+        }
+      }
+    }
+
     return results.slice(0, limit);
+  }
+
+  /**
+   * Find callsites (usages) of a symbol in the codebase
+   */
+  private findCallsites(symbolName: string, definitionFile?: string): ReferenceResult[] {
+    const results: ReferenceResult[] = [];
+    const files = this.db.getAllFiles();
+
+    // Patterns to search for:
+    // - Function calls: symbolName(
+    // - Method calls: .symbolName(
+    // - Property access: .symbolName
+    // - Type usage: : symbolName, <symbolName>, extends symbolName, implements symbolName
+    // - Object instantiation: new symbolName(
+    const callPattern = new RegExp(
+      `(?:^|[^a-zA-Z0-9_])` + // Word boundary (not preceded by identifier chars)
+      `(?:new\\s+)?` + // Optional "new" keyword
+      `${escapeRegex(symbolName)}` +
+      `(?:\\s*[(<]|\\s*$|[^a-zA-Z0-9_])`, // Followed by ( or < or end/non-identifier
+      'gm'
+    );
+
+    for (const file of files) {
+      // Skip the definition file itself
+      if (definitionFile && file.path === definitionFile) {
+        continue;
+      }
+
+      const fullPath = path.join(this.projectRoot, file.path);
+      if (!fs.existsSync(fullPath)) continue;
+
+      try {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          // Skip import/export lines - those are handled separately
+          if (/^\s*(import|export)\s/.test(line)) continue;
+
+          if (callPattern.test(line)) {
+            // Reset regex lastIndex for next test
+            callPattern.lastIndex = 0;
+
+            // Extract context (trimmed line content)
+            const context = line.trim().slice(0, 60) + (line.trim().length > 60 ? '...' : '');
+
+            results.push({
+              file: file.path,
+              line: i + 1,
+              type: 'usage',
+              context,
+            });
+          }
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+
+    return results;
   }
 
   /**
