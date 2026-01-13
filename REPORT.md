@@ -1090,11 +1090,29 @@ With more aggressive retry settings tuned for Ollama rate limits:
 | **Retry config** | 5 retries, 5s initial delay, 2x backoff, 60s max |
 | **Aggregation** | Failed (400 Bad Request - payload too large) |
 
+#### Test 4: With Batched Aggregation
+
+After implementing batched aggregation to handle large result sets:
+
+| Metric | Value |
+|--------|-------|
+| **Files total** | 95 |
+| **Files to process** | 87 (after triage skip) |
+| **Files processed** | 59 (68% success) |
+| **Files skipped** | 28 (rate limits) + 8 (triage) |
+| **Symbolication time** | 1.3 seconds |
+| **Triage time** | 44.3 seconds |
+| **Processing time** | 19.7 minutes |
+| **Aggregation time** | 204.1 seconds (4 batches) |
+| **Total time** | 20.4 minutes |
+| **Aggregation batches** | 4 (15+15+15+14 files) |
+| **Concurrency** | 2 parallel files |
+
 **Key findings:**
-- **Concurrency=2** significantly improves success rate (74% vs 27% with concurrency=4)
+- **Batched aggregation works!** - 59 files aggregated in 4 batches without 400 errors
+- **Concurrency=2** significantly improves success rate vs higher concurrency
 - **Longer retry delays** (5s vs 2s) help avoid rate limits
 - **More retries** (5 vs 3) allow recovery from temporary rate limits
-- Aggregation fails with large payloads (~60 files) - needs batched aggregation
 - The Ollama cloud endpoint has very strict rate limits (~1 request/second)
 
 ### Symbolication Results
@@ -1240,7 +1258,7 @@ The V4 pipeline introduces **codebase symbolication** that provides structural c
 4. **Cost Tracking per Pipeline** - Detailed cost breakdown by phase
 5. **Incremental Symbolication** - Cache structure, update only changed files
 6. **Adaptive Concurrency** - Auto-reduce concurrency on rate limit detection
-7. **Batched Aggregation** - Split large aggregation requests to avoid 400 errors
+7. ~~**Batched Aggregation**~~ - ✅ Implemented (15 files per batch)
 
 The pipeline is now fully functional for **full codebase code review** with intelligent triage, adaptive processing, and structural awareness.
 

@@ -1718,9 +1718,29 @@ Provide a comprehensive final report:
     structure: CodebaseStructure | undefined,
     options: V3Options
   ): Promise<string> {
+    // Use batched aggregation for large result sets to avoid payload limits
+    const BATCH_SIZE = 15; // Max files per batch
+    const resultEntries = Array.from(fileResults.entries());
+
+    if (resultEntries.length > BATCH_SIZE) {
+      return this.batchedAggregateV4(resultEntries, structure, options, BATCH_SIZE);
+    }
+
+    // Small result set - aggregate directly
+    return this.singleAggregateV4(resultEntries, structure, options);
+  }
+
+  /**
+   * Aggregate a small set of results in a single request.
+   */
+  private async singleAggregateV4(
+    results: Array<[string, PipelineResult]>,
+    structure: CodebaseStructure | undefined,
+    options: V3Options
+  ): Promise<string> {
     const resultSummaries: string[] = [];
 
-    for (const [file, result] of fileResults) {
+    for (const [file, result] of results) {
       resultSummaries.push(`### ${file}\n${result.output}`);
     }
 
@@ -1748,7 +1768,107 @@ Codebase Structure:
       structureContext + resultSummaries.join('\n\n')
     );
 
-    // Get aggregation model - use router for role resolution if available
+    // Get aggregation model
+    const provider = await this.getAggregationProvider(options);
+
+    // Execute aggregation
+    const response = await provider.chat([
+      { role: 'user', content: aggregationPrompt },
+    ]);
+
+    return typeof response.content === 'string'
+      ? response.content
+      : (response.content as ContentBlock[]).map((b) => (b.type === 'text' ? b.text : '')).join('');
+  }
+
+  /**
+   * Aggregate large result sets in batches to avoid payload limits.
+   * First aggregates each batch, then combines batch summaries into final output.
+   */
+  private async batchedAggregateV4(
+    results: Array<[string, PipelineResult]>,
+    structure: CodebaseStructure | undefined,
+    options: V3Options,
+    batchSize: number
+  ): Promise<string> {
+    // Split results into batches
+    const batches: Array<Array<[string, PipelineResult]>> = [];
+    for (let i = 0; i < results.length; i += batchSize) {
+      batches.push(results.slice(i, i + batchSize));
+    }
+
+    console.log(`Info: Aggregating ${results.length} files in ${batches.length} batches`);
+
+    // Get provider once for all batches
+    const provider = await this.getAggregationProvider(options);
+
+    // Aggregate each batch
+    const batchSummaries: string[] = [];
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      const batchFiles = batch.map(([file]) => file);
+
+      console.log(`  Batch ${i + 1}/${batches.length}: ${batch.length} files`);
+
+      const resultSummaries = batch.map(([file, result]) => `### ${file}\n${result.output}`);
+
+      const batchPrompt = `Summarize these ${batch.length} file analysis results into key findings. Be concise but comprehensive.
+
+Files in this batch: ${batchFiles.join(', ')}
+
+${resultSummaries.join('\n\n')}`;
+
+      const response = await provider.chat([
+        { role: 'user', content: batchPrompt },
+      ]);
+
+      const summary = typeof response.content === 'string'
+        ? response.content
+        : (response.content as ContentBlock[]).map((b) => (b.type === 'text' ? b.text : '')).join('');
+
+      batchSummaries.push(`## Batch ${i + 1} (${batchFiles.slice(0, 3).join(', ')}${batch.length > 3 ? `, +${batch.length - 3} more` : ''})\n${summary}`);
+    }
+
+    // Final aggregation of batch summaries
+    console.log(`  Combining ${batches.length} batch summaries...`);
+
+    let structureContext = '';
+    if (structure) {
+      const entryPoints = structure.dependencyGraph.entryPoints.slice(0, 5);
+      const cycleCount = structure.dependencyGraph.cycles.length;
+
+      structureContext = `
+Codebase Structure:
+- Total files analyzed: ${results.length}
+- Entry points: ${entryPoints.join(', ')}
+- Circular dependencies: ${cycleCount}
+
+`;
+    }
+
+    const finalPrompt = `${structureContext}Synthesize these batch summaries into a coherent final analysis of the codebase:
+
+${batchSummaries.join('\n\n')}
+
+Provide a unified summary covering:
+1. Overall codebase health
+2. Critical issues found
+3. Architecture recommendations
+4. Priority action items`;
+
+    const finalResponse = await provider.chat([
+      { role: 'user', content: finalPrompt },
+    ]);
+
+    return typeof finalResponse.content === 'string'
+      ? finalResponse.content
+      : (finalResponse.content as ContentBlock[]).map((b) => (b.type === 'text' ? b.text : '')).join('');
+  }
+
+  /**
+   * Get the provider for aggregation based on options.
+   */
+  private async getAggregationProvider(options: V3Options): Promise<BaseProvider> {
     let modelName: string;
     const roleName = options.aggregation?.role || 'capable';
 
@@ -1773,15 +1893,7 @@ Codebase Structure:
       modelName = modelNames[0];
     }
 
-    // Execute aggregation
-    const provider = this.registry.getProvider(modelName);
-    const response = await provider.chat([
-      { role: 'user', content: aggregationPrompt },
-    ]);
-
-    return typeof response.content === 'string'
-      ? response.content
-      : (response.content as ContentBlock[]).map((b) => (b.type === 'text' ? b.text : '')).join('');
+    return this.registry.getProvider(modelName);
   }
 
   /**
