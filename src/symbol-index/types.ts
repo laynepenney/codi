@@ -87,7 +87,7 @@ export interface IndexedImportSymbol {
 export interface IndexedDependency {
   fromFileId: number;
   toFileId: number;
-  type: 'import' | 'dynamic-import' | 're-export';
+  type: 'import' | 'dynamic-import' | 're-export' | 'usage';
 }
 
 /**
@@ -121,7 +121,7 @@ export interface DependencyResult {
   file: string;
   direction: 'imports' | 'importedBy';
   depth: number;
-  type: 'import' | 'dynamic-import' | 're-export';
+  type: 'import' | 'dynamic-import' | 're-export' | 'usage';
 }
 
 /**

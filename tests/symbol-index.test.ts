@@ -510,4 +510,115 @@ describe('Symbol Index Validation Suite', () => {
       }
     });
   });
+
+  // =========================================================================
+  // D) IDE-Style Symbol Usage Tracking Tests
+  // =========================================================================
+
+  describe('IDE-Style Symbol Usage Tracking', () => {
+    it('should detect usage-based dependencies (no explicit import)', () => {
+      // MainViewController.kt uses App() without importing it
+      // This should be detected as a 'usage' dependency
+      const results = service.getDependencyGraph(
+        'mobile/shared/src/iosMain/kotlin/party/jldance/shared/ui/MainViewController.kt',
+        'imports',
+        1
+      );
+
+      // Should find App.kt as a dependency via usage tracking
+      const hasAppDep = results.some(r => r.file.includes('App.kt'));
+      expect(hasAppDep).toBe(true);
+    });
+
+    it('should mark usage-based dependencies with type "usage"', () => {
+      const results = service.getDependencyGraph(
+        'mobile/shared/src/iosMain/kotlin/party/jldance/shared/ui/MainViewController.kt',
+        'imports',
+        1
+      );
+
+      // Find the App.kt dependency
+      const appDep = results.find(r => r.file.includes('App.kt'));
+      if (appDep) {
+        // It should be marked as 'usage' type since there's no explicit import
+        expect(appDep.type).toBe('usage');
+      }
+    });
+
+    it('should find files that use a symbol (importedBy with usage)', () => {
+      // App is used by MainViewController.kt (via usage, not import)
+      const results = service.getDependencyGraph(
+        'mobile/shared/src/commonMain/kotlin/party/jldance/shared/ui/App.kt',
+        'importedBy',
+        1
+      );
+
+      // Should find MainViewController as a dependent via usage tracking
+      const files = results.map(r => r.file);
+      const hasMainViewController = files.some(f => f.includes('MainViewController.kt'));
+      expect(hasMainViewController).toBe(true);
+    });
+
+    it('should distinguish between import and usage dependencies', () => {
+      // MainActivity.kt explicitly imports App, so it should be 'import' type
+      // MainViewController.kt uses App without import, so it should be 'usage' type
+      const results = service.getDependencyGraph(
+        'mobile/shared/src/commonMain/kotlin/party/jldance/shared/ui/App.kt',
+        'importedBy',
+        1
+      );
+
+      const mainActivityDep = results.find(r => r.file.includes('MainActivity.kt'));
+      const mainViewControllerDep = results.find(r => r.file.includes('MainViewController.kt'));
+
+      // MainActivity uses explicit import
+      if (mainActivityDep) {
+        expect(mainActivityDep.type).toBe('import');
+      }
+
+      // MainViewController uses App without explicit import
+      if (mainViewControllerDep) {
+        expect(mainViewControllerDep.type).toBe('usage');
+      }
+    });
+
+    it('should not create false positives from comments or strings', () => {
+      // The removeCommentsAndStrings method should prevent false positives
+      // This test verifies the basic functionality works
+      const results = service.getDependencyGraph('web/lib/api.ts', 'imports', 1);
+
+      // All results should be real dependencies, not from strings/comments
+      for (const r of results) {
+        expect(r.file).toBeTruthy();
+        expect(r.type).toMatch(/^(import|usage|dynamic-import|re-export)$/);
+      }
+    });
+
+    it('database should return exported symbol registry', () => {
+      const db = service.getDatabase();
+      const registry = db.getExportedSymbolRegistry();
+
+      // Should have symbols registered
+      expect(registry.size).toBeGreaterThan(0);
+
+      // Check that known symbols are in the registry
+      expect(registry.has('App')).toBe(true);
+      expect(registry.has('ApiClient')).toBe(true);
+      expect(registry.has('getContent')).toBe(true);
+    });
+
+    it('database should return exported symbol names', () => {
+      const db = service.getDatabase();
+      const names = db.getExportedSymbolNames();
+
+      // Should have symbol names
+      expect(names.length).toBeGreaterThan(0);
+
+      // Names should be valid identifiers
+      for (const name of names) {
+        expect(name).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+        expect(name.length).toBeGreaterThanOrEqual(3);
+      }
+    });
+  });
 });

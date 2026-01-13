@@ -404,6 +404,45 @@ export class SymbolDatabase {
     return stmt.all(symbolName, symbolName) as Array<{ file: string; line: number; isTypeOnly: boolean }>;
   }
 
+  /**
+   * Get all exported/public symbols for building a symbol registry
+   * Returns map of symbol name to array of files where it's defined
+   */
+  getExportedSymbolRegistry(): Map<string, Array<{ fileId: number; file: string; kind: string }>> {
+    const stmt = this.db.prepare(`
+      SELECT s.name, s.kind, s.file_id as fileId, f.path as file
+      FROM symbols s
+      JOIN files f ON s.file_id = f.id
+      WHERE s.visibility IN ('export', 'export-default', 'public')
+      ORDER BY s.name
+    `);
+    const rows = stmt.all() as Array<{ name: string; kind: string; fileId: number; file: string }>;
+
+    const registry = new Map<string, Array<{ fileId: number; file: string; kind: string }>>();
+    for (const row of rows) {
+      if (!registry.has(row.name)) {
+        registry.set(row.name, []);
+      }
+      registry.get(row.name)!.push({ fileId: row.fileId, file: row.file, kind: row.kind });
+    }
+    return registry;
+  }
+
+  /**
+   * Get all unique exported symbol names (for efficient regex building)
+   */
+  getExportedSymbolNames(): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT s.name
+      FROM symbols s
+      WHERE s.visibility IN ('export', 'export-default', 'public')
+        AND length(s.name) >= 3
+      ORDER BY length(s.name) DESC
+    `);
+    const rows = stmt.all() as Array<{ name: string }>;
+    return rows.map(r => r.name);
+  }
+
   // ============================================================================
   // Dependency operations
   // ============================================================================

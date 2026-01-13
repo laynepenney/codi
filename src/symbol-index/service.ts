@@ -451,6 +451,119 @@ export class SymbolIndexService {
         }
       }
     }
+
+    // Build usage-based dependencies (IDE-style symbol tracking)
+    this.buildUsageBasedDependencies(files, filePathToId);
+  }
+
+  /**
+   * Build usage-based dependencies by scanning files for symbol usages
+   * This enables IDE-style navigation even without explicit imports
+   * (e.g., Kotlin fully-qualified names, cross-file references)
+   */
+  private buildUsageBasedDependencies(
+    files: Array<{ id: number; path: string }>,
+    filePathToId: Map<string, number>
+  ): void {
+    // Get the symbol registry: maps symbol name to files where it's defined
+    const symbolRegistry = this.db.getExportedSymbolRegistry();
+    if (symbolRegistry.size === 0) return;
+
+    // Get all symbol names for efficient matching
+    const symbolNames = this.db.getExportedSymbolNames();
+    if (symbolNames.length === 0) return;
+
+    // Build a regex that matches any known symbol name
+    // Use word boundaries to avoid false positives
+    // Sort by length descending to match longer names first
+    const sortedSymbols = symbolNames
+      .filter(name => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) // Valid identifiers only
+      .sort((a, b) => b.length - a.length);
+
+    if (sortedSymbols.length === 0) return;
+
+    // Create a Set for O(1) lookup
+    const symbolSet = new Set(sortedSymbols);
+
+    // Process each file
+    for (const file of files) {
+      const filePath = path.join(this.projectRoot, file.path);
+      if (!fs.existsSync(filePath)) continue;
+
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+
+        // Remove comments and strings to avoid false positives
+        const cleanedContent = this.removeCommentsAndStrings(content, file.path);
+
+        // Find all identifiers in the file
+        const identifierRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
+        const foundSymbols = new Set<string>();
+
+        let match;
+        while ((match = identifierRegex.exec(cleanedContent)) !== null) {
+          const identifier = match[1];
+          if (symbolSet.has(identifier)) {
+            foundSymbols.add(identifier);
+          }
+        }
+
+        // For each found symbol, create a usage dependency
+        for (const symbolName of foundSymbols) {
+          const definitions = symbolRegistry.get(symbolName);
+          if (!definitions) continue;
+
+          for (const def of definitions) {
+            // Don't create self-references
+            if (def.fileId === file.id) continue;
+
+            // Create usage dependency
+            this.db.insertDependency({
+              fromFileId: file.id,
+              toFileId: def.fileId,
+              type: 'usage',
+            });
+          }
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+  }
+
+  /**
+   * Remove comments and string literals from code to avoid false positives
+   */
+  private removeCommentsAndStrings(content: string, filePath: string): string {
+    const isKotlin = filePath.endsWith('.kt') || filePath.endsWith('.kts');
+    const isTS = filePath.endsWith('.ts') || filePath.endsWith('.tsx') ||
+                 filePath.endsWith('.js') || filePath.endsWith('.jsx');
+
+    if (!isKotlin && !isTS) return content;
+
+    let result = content;
+
+    // Remove block comments /* ... */
+    result = result.replace(/\/\*[\s\S]*?\*\//g, ' ');
+
+    // Remove line comments // ...
+    result = result.replace(/\/\/[^\n]*/g, ' ');
+
+    // Remove template literals `...`
+    result = result.replace(/`[^`]*`/g, ' ');
+
+    // Remove double-quoted strings "..."
+    result = result.replace(/"(?:[^"\\]|\\.)*"/g, ' ');
+
+    // Remove single-quoted strings '...'
+    result = result.replace(/'(?:[^'\\]|\\.)*'/g, ' ');
+
+    // For Kotlin, also remove triple-quoted strings """..."""
+    if (isKotlin) {
+      result = result.replace(/"""[\s\S]*?"""/g, ' ');
+    }
+
+    return result;
   }
 
   /**
@@ -739,7 +852,7 @@ export class SymbolIndexService {
           file: dep.file,
           direction: 'imports',
           depth: dep.depth,
-          type: dep.type as 'import' | 'dynamic-import' | 're-export',
+          type: dep.type as 'import' | 'dynamic-import' | 're-export' | 'usage',
         });
       }
     }
@@ -751,7 +864,7 @@ export class SymbolIndexService {
           file: dep.file,
           direction: 'importedBy',
           depth: dep.depth,
-          type: dep.type as 'import' | 'dynamic-import' | 're-export',
+          type: dep.type as 'import' | 'dynamic-import' | 're-export' | 'usage',
         });
       }
     }

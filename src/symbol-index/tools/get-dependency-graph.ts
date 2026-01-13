@@ -104,13 +104,14 @@ export class GetDependencyGraphTool extends BaseTool {
     const importedBy = results.filter(r => r.direction === 'importedBy');
 
     if (imports.length > 0) {
-      lines.push('This file imports:');
+      lines.push('This file imports/uses:');
       if (flat) {
         // Flat mode - simple list sorted alphabetically
         const sorted = [...imports].sort((a, b) => a.file.localeCompare(b.file));
         for (const dep of sorted) {
           const depthInfo = depth > 1 ? ` (depth: ${dep.depth})` : '';
-          lines.push(`  ${dep.file}${depthInfo}`);
+          const typeInfo = dep.type === 'usage' ? ' [usage]' : '';
+          lines.push(`  ${dep.file}${depthInfo}${typeInfo}`);
         }
       } else {
         // Nested mode - group by depth with indentation
@@ -129,7 +130,8 @@ export class GetDependencyGraphTool extends BaseTool {
             lines.push(`${indent}${depthLabel}`);
           }
           for (const dep of deps.sort((a, b) => a.file.localeCompare(b.file))) {
-            lines.push(`${indent}  ${dep.file}`);
+            const typeInfo = dep.type === 'usage' ? ' [usage]' : '';
+            lines.push(`${indent}  ${dep.file}${typeInfo}`);
           }
         }
       }
@@ -137,13 +139,14 @@ export class GetDependencyGraphTool extends BaseTool {
     }
 
     if (importedBy.length > 0) {
-      lines.push('This file is imported by:');
+      lines.push('This file is imported/used by:');
       if (flat) {
         // Flat mode - simple list sorted alphabetically
         const sorted = [...importedBy].sort((a, b) => a.file.localeCompare(b.file));
         for (const dep of sorted) {
           const depthInfo = depth > 1 ? ` (depth: ${dep.depth})` : '';
-          lines.push(`  ${dep.file}${depthInfo}`);
+          const typeInfo = dep.type === 'usage' ? ' [usage]' : '';
+          lines.push(`  ${dep.file}${depthInfo}${typeInfo}`);
         }
       } else {
         // Nested mode - group by depth with indentation
@@ -162,7 +165,8 @@ export class GetDependencyGraphTool extends BaseTool {
             lines.push(`${indent}${depthLabel}`);
           }
           for (const dep of deps.sort((a, b) => a.file.localeCompare(b.file))) {
-            lines.push(`${indent}  ${dep.file}`);
+            const typeInfo = dep.type === 'usage' ? ' [usage]' : '';
+            lines.push(`${indent}  ${dep.file}${typeInfo}`);
           }
         }
       }
