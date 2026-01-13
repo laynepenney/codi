@@ -245,11 +245,12 @@ export class OpenAICompatibleProvider extends BaseProvider {
   }
 
   private convertMessages(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
-    return messages.map((msg) => {
+    // Convert messages to OpenAI format
+    const converted = messages.map((msg) => {
       // Map system role to user role for OpenAI compatibility, since system prompts
       // are handled separately in the chat/streamChat methods
-      const role: 'user' | 'assistant' | 'tool' = 
-        msg.role === 'assistant' ? 'assistant' : 
+      const role: 'user' | 'assistant' | 'tool' =
+        msg.role === 'assistant' ? 'assistant' :
         msg.role === 'system' ? 'user' : 'user';
 
       if (typeof msg.content === 'string') {
@@ -263,7 +264,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       // and tool results must immediately follow the assistant message
       const parts: OpenAI.ChatCompletionMessageParam[] = [];
       const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [];
-      const toolResults: OpenAI.ChatCompletionMessageParam[] = [];
+      const toolResults: Array<{ role: 'tool'; tool_call_id: string; content: string }> = [];
       let textContent = '';
       const imageBlocks: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
 
@@ -284,7 +285,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
             role: 'tool',
             tool_call_id: block.tool_use_id || '',
             content: block.content || '',
-          } as OpenAI.ChatCompletionMessageParam);
+          });
         } else if (block.type === 'image' && block.image) {
           // Convert to OpenAI's image_url format with data URL
           imageBlocks.push({
@@ -311,7 +312,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       }
 
       // Add tool results
-      parts.push(...toolResults);
+      parts.push(...toolResults as OpenAI.ChatCompletionMessageParam[]);
 
       // Add text content after tool results (if any remaining)
       // If there are images, use the multimodal content format
@@ -337,6 +338,52 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
       return parts;
     }).flat();
+
+    // Final validation pass: OpenAI requires 'tool' role messages to immediately follow
+    // an assistant message with matching tool_calls. Remove any orphaned tool messages.
+    return this.validateToolPairing(converted);
+  }
+
+  /**
+   * Validate and fix tool_call/tool_result pairing for OpenAI API compatibility.
+   * OpenAI requires that 'tool' role messages immediately follow an assistant
+   * message with tool_calls, and each tool message must reference a valid tool_call_id.
+   */
+  private validateToolPairing(messages: OpenAI.ChatCompletionMessageParam[]): OpenAI.ChatCompletionMessageParam[] {
+    const result: OpenAI.ChatCompletionMessageParam[] = [];
+    let pendingToolCallIds = new Set<string>();
+
+    for (const msg of messages) {
+      if (msg.role === 'assistant') {
+        // If there are pending tool_call_ids that weren't consumed, they're orphaned
+        // (This shouldn't happen in well-formed conversations, but clear them anyway)
+        pendingToolCallIds.clear();
+
+        // Track tool_call_ids from this assistant message
+        const assistantMsg = msg as OpenAI.ChatCompletionAssistantMessageParam;
+        if (assistantMsg.tool_calls) {
+          for (const tc of assistantMsg.tool_calls) {
+            pendingToolCallIds.add(tc.id);
+          }
+        }
+        result.push(msg);
+      } else if (msg.role === 'tool') {
+        // Only include tool messages that have a matching pending tool_call_id
+        const toolMsg = msg as OpenAI.ChatCompletionToolMessageParam;
+        if (pendingToolCallIds.has(toolMsg.tool_call_id)) {
+          result.push(msg);
+          pendingToolCallIds.delete(toolMsg.tool_call_id);
+        }
+        // Skip orphaned tool messages - they would cause OpenAI API errors
+      } else {
+        // For user/system messages, clear pending tool_call_ids
+        // (tool results must immediately follow their tool_calls)
+        pendingToolCallIds.clear();
+        result.push(msg);
+      }
+    }
+
+    return result;
   }
 
   private convertTools(tools: ToolDefinition[]): OpenAI.ChatCompletionTool[] {
