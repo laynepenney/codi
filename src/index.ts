@@ -270,6 +270,7 @@ import { registerMemoryCommands } from './commands/memory-commands.js';
 import { registerCompressionCommands } from './commands/compression-commands.js';
 import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
 import { registerApprovalCommands } from './commands/approval-commands.js';
+import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import {
   BackgroundIndexer,
@@ -278,7 +279,8 @@ import {
   DEFAULT_RAG_CONFIG,
   type RAGConfig,
 } from './rag/index.js';
-import { registerRAGSearchTool } from './tools/index.js';
+import { registerRAGSearchTool, registerSymbolIndexTools } from './tools/index.js';
+import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
@@ -1829,6 +1831,113 @@ function handleApprovalOutput(output: string): void {
 }
 
 /**
+ * Handle symbols command output messages.
+ */
+function handleSymbolsOutput(output: string): void {
+  const parts = output.split(':');
+  const type = parts[0];
+
+  switch (type) {
+    case '__SYMBOLS_REBUILD__': {
+      const filesProcessed = parts[1];
+      const symbolsExtracted = parts[2];
+      const duration = parts[3];
+      const errors = parts.slice(4).join(':');
+      console.log(chalk.bold('\nSymbol Index Rebuilt'));
+      console.log(chalk.green(`  Files: ${filesProcessed}`));
+      console.log(chalk.green(`  Symbols: ${symbolsExtracted}`));
+      console.log(chalk.dim(`  Duration: ${duration}s`));
+      if (errors) {
+        console.log(chalk.yellow(errors));
+      }
+      break;
+    }
+
+    case '__SYMBOLS_UPDATE__': {
+      const added = parts[1];
+      const modified = parts[2];
+      const removed = parts[3];
+      const duration = parts[4];
+      console.log(chalk.bold('\nSymbol Index Updated'));
+      if (added !== '0') console.log(chalk.green(`  Added: ${added} files`));
+      if (modified !== '0') console.log(chalk.yellow(`  Modified: ${modified} files`));
+      if (removed !== '0') console.log(chalk.red(`  Removed: ${removed} files`));
+      if (added === '0' && modified === '0' && removed === '0') {
+        console.log(chalk.dim('  No changes detected'));
+      }
+      console.log(chalk.dim(`  Duration: ${duration}s`));
+      break;
+    }
+
+    case '__SYMBOLS_STATS__': {
+      const stats = JSON.parse(parts.slice(1).join(':'));
+      console.log(chalk.bold('\nSymbol Index Statistics'));
+      console.log(`  Files: ${chalk.cyan(stats.totalFiles)}`);
+      console.log(`  Symbols: ${chalk.cyan(stats.totalSymbols)}`);
+      console.log(`  Imports: ${chalk.cyan(stats.totalImports)}`);
+      console.log(`  Dependencies: ${chalk.cyan(stats.totalDependencies)}`);
+      console.log(`  Size: ${chalk.dim(stats.sizeKb + ' KB')}`);
+      if (stats.lastFullRebuild) {
+        console.log(`  Last rebuild: ${chalk.dim(stats.lastFullRebuild)}`);
+      }
+      if (stats.lastUpdate) {
+        console.log(`  Last update: ${chalk.dim(stats.lastUpdate)}`);
+      }
+      console.log(chalk.dim(`  Location: ${stats.indexDir}`));
+      break;
+    }
+
+    case '__SYMBOLS_SEARCH__': {
+      const query = parts[1];
+      const results = JSON.parse(parts.slice(2).join(':'));
+      console.log(chalk.bold(`\nSymbols matching "${query}":`));
+      for (const r of results) {
+        const visStr = r.visibility === 'internal' ? '' : chalk.dim(` [${r.visibility}]`);
+        console.log(`  ${chalk.cyan(r.name)} (${r.kind})${visStr}`);
+        console.log(chalk.dim(`    ${r.file}:${r.line}`));
+        if (r.signature) {
+          console.log(chalk.dim(`    ${r.signature}`));
+        }
+      }
+      break;
+    }
+
+    case '__SYMBOLS_SEARCH_EMPTY__': {
+      const query = parts[1];
+      console.log(chalk.yellow(`\nNo symbols found matching "${query}".`));
+      console.log(chalk.dim('Try a different search term or run /symbols rebuild to index the codebase.'));
+      break;
+    }
+
+    case '__SYMBOLS_CLEAR__': {
+      console.log(chalk.green('\nSymbol index cleared.'));
+      console.log(chalk.dim('Run /symbols rebuild to create a new index.'));
+      break;
+    }
+
+    case '__SYMBOLS_CLEAR_NOT_FOUND__': {
+      console.log(chalk.dim('\nNo symbol index to clear.'));
+      break;
+    }
+
+    case '__SYMBOLS_UNKNOWN__': {
+      const action = parts[1];
+      console.log(chalk.red(`\nUnknown action: ${action}`));
+      console.log(chalk.dim('Usage: /symbols [rebuild|update|stats|search <name>|clear]'));
+      break;
+    }
+
+    case '__SYMBOLS_ERROR__': {
+      console.log(chalk.red(`\n${parts.slice(1).join(':')}`));
+      break;
+    }
+
+    default:
+      console.log(output);
+  }
+}
+
+/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -1910,6 +2019,7 @@ async function main() {
   registerCompressionCommands();
   registerRAGCommands();
   registerApprovalCommands();
+  registerSymbolCommands();
 
   // Load plugins from ~/.codi/plugins/
   const loadedPlugins = await loadPluginsFromDirectory();
@@ -1970,6 +2080,23 @@ async function main() {
     } catch (err) {
       console.error(chalk.red(`Failed to initialize RAG: ${err instanceof Error ? err.message : err}`));
     }
+  }
+
+  // Initialize Symbol Index for AST-based navigation tools
+  try {
+    const symbolIndexService = new SymbolIndexService(process.cwd());
+    await symbolIndexService.initialize();
+    setSymbolIndexService(symbolIndexService);
+    registerSymbolIndexTools(symbolIndexService);
+
+    // Show status if index exists
+    if (symbolIndexService.hasIndex()) {
+      const stats = symbolIndexService.getStats();
+      console.log(chalk.dim(`Symbol index: ${stats.totalSymbols} symbols in ${stats.totalFiles} files`));
+    }
+  } catch (err) {
+    // Non-fatal - symbol tools just won't be available
+    console.error(chalk.yellow(`Symbol index: ${err instanceof Error ? err.message : err}`));
   }
 
   const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
@@ -2885,6 +3012,12 @@ async function main() {
               // Handle approval command outputs
               if (result.startsWith('__APPROVAL')) {
                 handleApprovalOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle symbols command outputs
+              if (result.startsWith('__SYMBOLS_')) {
+                handleSymbolsOutput(result);
                 rl.prompt();
                 return;
               }

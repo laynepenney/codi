@@ -14,6 +14,16 @@ export { RunTestsTool } from './run-tests.js';
 export { RAGSearchTool } from './rag-search.js';
 export { WebSearchTool } from './web-search.js';
 
+// Symbol index tools
+export {
+  FindSymbolTool,
+  FindReferencesTool,
+  GotoDefinitionTool,
+  GetDependencyGraphTool,
+  GetInheritanceTool,
+  GetCallGraphTool,
+} from '../symbol-index/index.js';
+
 import { globalRegistry } from './registry.js';
 import { ReadFileTool } from './read-file.js';
 import { WriteFileTool } from './write-file.js';
@@ -29,6 +39,15 @@ import { RunTestsTool } from './run-tests.js';
 import { RAGSearchTool } from './rag-search.js';
 import { WebSearchTool } from './web-search.js';
 import type { Retriever } from '../rag/retriever.js';
+import type { SymbolIndexService } from '../symbol-index/service.js';
+import {
+  FindSymbolTool,
+  FindReferencesTool,
+  GotoDefinitionTool,
+  GetDependencyGraphTool,
+  GetInheritanceTool,
+  GetCallGraphTool,
+} from '../symbol-index/index.js';
 
 /**
  * Register all default tools with the global registry.
@@ -67,4 +86,16 @@ export function registerRAGSearchTool(retriever: Retriever): RAGSearchTool {
   ragTool.setRetriever(retriever);
   globalRegistry.register(ragTool);
   return ragTool;
+}
+
+/**
+ * Register symbol index tools with a symbol index service.
+ */
+export function registerSymbolIndexTools(indexService: SymbolIndexService): void {
+  globalRegistry.register(new FindSymbolTool(indexService));
+  globalRegistry.register(new FindReferencesTool(indexService));
+  globalRegistry.register(new GotoDefinitionTool(indexService));
+  globalRegistry.register(new GetDependencyGraphTool(indexService));
+  globalRegistry.register(new GetInheritanceTool(indexService));
+  globalRegistry.register(new GetCallGraphTool(indexService));
 }

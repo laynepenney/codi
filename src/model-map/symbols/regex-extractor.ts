@@ -18,7 +18,7 @@ import type {
 /**
  * Regex patterns for TypeScript/JavaScript symbol extraction
  */
-const PATTERNS = {
+const TS_PATTERNS = {
   // Import patterns
   importDefault: /^import\s+(\w+)\s+from\s*['"]([^'"]+)['"]/gm,
   importNamed: /^import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/gm,
@@ -34,7 +34,7 @@ const PATTERNS = {
   exportTypeOnly: /^export\s+type\s*\{([^}]+)\}(?:\s*from\s*['"]([^'"]+)['"])?/gm,
 
   // Symbol patterns
-  functionDecl: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(<[^>]*>)?\s*\(([^)]*)\)\s*(?::\s*([^{]+))?\s*\{/gm,
+  functionDecl: /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*(<[^>]*>)?\s*\(([^)]*)\)\s*(?::\s*([^{]+))?\s*\{/gm,
   arrowFunction: /^(?:export\s+)?(?:const|let)\s+(\w+)\s*(?::\s*([^=]+))?\s*=\s*(?:async\s+)?\(?[^)]*\)?\s*(?::\s*([^=]+))?\s*=>/gm,
   classDecl: /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:<[^>]*>)?(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?\s*\{/gm,
   interfaceDecl: /^(?:export\s+)?interface\s+(\w+)(?:<([^>]*)>)?(?:\s+extends\s+([\w,\s]+))?\s*\{/gm,
@@ -46,6 +46,45 @@ const PATTERNS = {
   // JSDoc pattern (for extracting doc summaries)
   jsdoc: /\/\*\*\s*\n\s*\*\s*([^\n*]+)/g,
 };
+
+/**
+ * Regex patterns for Kotlin symbol extraction
+ */
+const KOTLIN_PATTERNS = {
+  // Import: import package.name.ClassName
+  importDecl: /^import\s+([\w.]+)(?:\s+as\s+(\w+))?/gm,
+
+  // Class: class Foo : Bar(), Baz { } (with optional modifiers)
+  classDecl: /^(?:(?:public|private|protected|internal|open|abstract|sealed|data|inline|value|enum|annotation)\s+)*class\s+(\w+)(?:<[^>]*>)?(?:\s*\([^)]*\))?(?:\s*:\s*([^{]+))?\s*\{?/gm,
+
+  // Interface: interface Foo : Bar { }
+  interfaceDecl: /^(?:(?:public|private|protected|internal|sealed|fun)\s+)*interface\s+(\w+)(?:<[^>]*>)?(?:\s*:\s*([^{]+))?\s*\{?/gm,
+
+  // Object: object Foo : Bar { } or companion object { }
+  objectDecl: /^(?:(?:public|private|protected|internal)\s+)*(?:companion\s+)?object\s+(\w+)?(?:\s*:\s*([^{]+))?\s*\{?/gm,
+
+  // Function: fun foo(): ReturnType { } or fun Type.foo(): ReturnType
+  functionDecl: /^(?:(?:public|private|protected|internal|open|abstract|override|suspend|inline|infix|operator|tailrec|external)\s+)*fun\s+(?:<[^>]*>\s+)?(?:(\w+)\.)?(\w+)\s*\(([^)]*)\)(?:\s*:\s*([^\s{=]+))?/gm,
+
+  // Property: val/var foo: Type = ...
+  propertyDecl: /^(?:(?:public|private|protected|internal|open|abstract|override|const|lateinit)\s+)*(?:val|var)\s+(\w+)\s*(?::\s*([^=\n]+))?/gm,
+
+  // Type alias: typealias Foo = Bar
+  typeAlias: /^(?:(?:public|private|protected|internal)\s+)*typealias\s+(\w+)(?:<[^>]*>)?\s*=/gm,
+
+  // KDoc pattern
+  kdoc: /\/\*\*\s*\n(?:\s*\*[^\n]*\n)*\s*\*\//g,
+};
+
+// Alias for backward compatibility
+const PATTERNS = TS_PATTERNS;
+
+/**
+ * Check if file is Kotlin
+ */
+function isKotlinFile(filePath: string): boolean {
+  return filePath.endsWith('.kt') || filePath.endsWith('.kts');
+}
 
 /**
  * Fast regex-based symbol extractor
@@ -66,17 +105,18 @@ export class RegexSymbolExtractor implements SymbolExtractor {
     const errors: string[] = [];
 
     try {
-      // Extract imports
-      imports.push(...this.extractImports(content, lines));
-
-      // Extract exports (including re-exports)
-      exports.push(...this.extractExports(content, lines));
-
-      // Extract symbols
-      symbols.push(...this.extractSymbols(content, lines, filePath));
-
-      // Mark exported symbols
-      this.markExportedSymbols(symbols, exports, content);
+      if (isKotlinFile(filePath)) {
+        // Kotlin extraction
+        imports.push(...this.extractKotlinImports(content, lines));
+        symbols.push(...this.extractKotlinSymbols(content, lines, filePath));
+        // Kotlin doesn't have separate export statements - visibility is on declarations
+      } else {
+        // TypeScript/JavaScript extraction
+        imports.push(...this.extractImports(content, lines));
+        exports.push(...this.extractExports(content, lines));
+        symbols.push(...this.extractSymbols(content, lines, filePath));
+        this.markExportedSymbols(symbols, exports, content);
+      }
     } catch (error) {
       errors.push(`Extraction error: ${error}`);
     }
@@ -521,6 +561,216 @@ export class RegexSymbolExtractor implements SymbolExtractor {
       if (content[i] === '\n') line++;
     }
     return line;
+  }
+
+  // ============================================================================
+  // Kotlin Extraction Methods
+  // ============================================================================
+
+  /**
+   * Extract Kotlin import statements
+   */
+  private extractKotlinImports(content: string, lines: string[]): ImportStatement[] {
+    const imports: ImportStatement[] = [];
+
+    for (const match of content.matchAll(KOTLIN_PATTERNS.importDecl)) {
+      const line = this.offsetToLine(content, match.index!);
+      const fullPath = match[1];
+      const alias = match[2];
+
+      // Extract the class name (last part of the path)
+      const parts = fullPath.split('.');
+      const name = parts[parts.length - 1];
+
+      imports.push({
+        source: fullPath,
+        symbols: [{ name, alias, isDefault: false }],
+        isTypeOnly: false,
+        line,
+      });
+    }
+
+    return imports;
+  }
+
+  /**
+   * Extract Kotlin symbol definitions
+   */
+  private extractKotlinSymbols(
+    content: string,
+    lines: string[],
+    filePath: string
+  ): CodeSymbol[] {
+    const symbols: CodeSymbol[] = [];
+    const kdocMap = this.extractKDocComments(content);
+
+    // Classes (including data classes, enum classes, etc.)
+    for (const match of content.matchAll(KOTLIN_PATTERNS.classDecl)) {
+      const line = this.offsetToLine(content, match.index!);
+      const fullLine = lines[line - 1];
+      const docSummary = kdocMap.get(line);
+      const visibility = this.getKotlinVisibility(fullLine);
+      const endLine = this.findBlockEnd(lines, line);
+
+      // Parse extends/implements
+      const extendsClause = match[2];
+      const extendsNames = extendsClause
+        ? extendsClause.split(',').map(s => s.trim().replace(/\([^)]*\)/, '').trim())
+        : undefined;
+
+      symbols.push({
+        name: match[1],
+        kind: fullLine.includes('data class') ? 'class' :
+              fullLine.includes('enum class') ? 'enum' : 'class',
+        file: filePath,
+        line,
+        endLine,
+        visibility,
+        docSummary,
+        extends: extendsNames,
+      });
+    }
+
+    // Interfaces
+    for (const match of content.matchAll(KOTLIN_PATTERNS.interfaceDecl)) {
+      const line = this.offsetToLine(content, match.index!);
+      const fullLine = lines[line - 1];
+      const docSummary = kdocMap.get(line);
+      const visibility = this.getKotlinVisibility(fullLine);
+      const endLine = this.findBlockEnd(lines, line);
+
+      symbols.push({
+        name: match[1],
+        kind: 'interface',
+        file: filePath,
+        line,
+        endLine,
+        visibility,
+        docSummary,
+      });
+    }
+
+    // Objects (singleton objects)
+    for (const match of content.matchAll(KOTLIN_PATTERNS.objectDecl)) {
+      if (!match[1]) continue; // Skip companion object without name
+      const line = this.offsetToLine(content, match.index!);
+      const fullLine = lines[line - 1];
+      const docSummary = kdocMap.get(line);
+      const visibility = this.getKotlinVisibility(fullLine);
+      const endLine = this.findBlockEnd(lines, line);
+
+      symbols.push({
+        name: match[1],
+        kind: 'class', // Objects are like singleton classes
+        file: filePath,
+        line,
+        endLine,
+        visibility,
+        docSummary,
+      });
+    }
+
+    // Functions
+    for (const match of content.matchAll(KOTLIN_PATTERNS.functionDecl)) {
+      const line = this.offsetToLine(content, match.index!);
+      const fullLine = lines[line - 1];
+      const docSummary = kdocMap.get(line);
+      const visibility = this.getKotlinVisibility(fullLine);
+
+      const receiverType = match[1]; // Extension function receiver
+      const name = match[2];
+      const params = match[3];
+      const returnType = match[4];
+
+      const signature = receiverType
+        ? `${receiverType}.${name}(${params})${returnType ? `: ${returnType}` : ''}`
+        : `${name}(${params})${returnType ? `: ${returnType}` : ''}`;
+
+      symbols.push({
+        name,
+        kind: 'function',
+        file: filePath,
+        line,
+        visibility,
+        signature,
+        docSummary,
+        returnType,
+      });
+    }
+
+    // Properties (val/var) - only capture top-level or those with visibility
+    for (const match of content.matchAll(KOTLIN_PATTERNS.propertyDecl)) {
+      const line = this.offsetToLine(content, match.index!);
+      const fullLine = lines[line - 1];
+
+      // Skip if this looks like a parameter or local variable (indented significantly)
+      const indent = fullLine.length - fullLine.trimStart().length;
+      if (indent > 4) continue;
+
+      const docSummary = kdocMap.get(line);
+      const visibility = this.getKotlinVisibility(fullLine);
+
+      symbols.push({
+        name: match[1],
+        kind: fullLine.includes('const ') ? 'constant' : 'variable',
+        file: filePath,
+        line,
+        visibility,
+        signature: match[2]?.trim(),
+        docSummary,
+      });
+    }
+
+    // Type aliases
+    for (const match of content.matchAll(KOTLIN_PATTERNS.typeAlias)) {
+      const line = this.offsetToLine(content, match.index!);
+      const fullLine = lines[line - 1];
+      const docSummary = kdocMap.get(line);
+      const visibility = this.getKotlinVisibility(fullLine);
+
+      symbols.push({
+        name: match[1],
+        kind: 'type',
+        file: filePath,
+        line,
+        visibility,
+        docSummary,
+      });
+    }
+
+    return symbols;
+  }
+
+  /**
+   * Get Kotlin visibility from line
+   */
+  private getKotlinVisibility(line: string): SymbolVisibility {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('private ')) return 'internal';
+    if (trimmed.startsWith('internal ')) return 'internal';
+    if (trimmed.startsWith('protected ')) return 'internal';
+    // public is default in Kotlin
+    return 'export';
+  }
+
+  /**
+   * Extract KDoc comments and map them to line numbers
+   */
+  private extractKDocComments(content: string): Map<number, string> {
+    const map = new Map<number, string>();
+
+    for (const match of content.matchAll(KOTLIN_PATTERNS.kdoc)) {
+      const endOffset = match.index! + match[0].length;
+      const endLine = this.offsetToLine(content, endOffset);
+
+      // Extract first non-empty line after /**
+      const firstLineMatch = match[0].match(/\/\*\*\s*\n\s*\*\s*([^\n@*]+)/);
+      if (firstLineMatch) {
+        map.set(endLine + 1, firstLineMatch[1].trim());
+      }
+    }
+
+    return map;
   }
 }
 
