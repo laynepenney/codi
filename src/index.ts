@@ -3106,11 +3106,33 @@ async function main() {
     rl.prompt();
   };
 
-  // Set up line handler for REPL
+  // Paste detection via debouncing
+  // When lines arrive rapidly (within PASTE_DEBOUNCE_MS), they're buffered
+  // and processed as a single multiline input
+  const PASTE_DEBOUNCE_MS = 50;
+  let pasteBuffer: string[] = [];
+  let pasteTimeout: NodeJS.Timeout | null = null;
+
+  // Set up line handler for REPL with paste detection
   rl.on('line', (input) => {
     // Don't process if readline was closed
     if (rlClosed) return;
-    handleInput(input);
+
+    // Add to paste buffer
+    pasteBuffer.push(input);
+
+    // Clear existing timeout
+    if (pasteTimeout) {
+      clearTimeout(pasteTimeout);
+    }
+
+    // Set new timeout - when no more lines arrive, process the buffer
+    pasteTimeout = setTimeout(() => {
+      const combinedInput = pasteBuffer.join('\n');
+      pasteBuffer = [];
+      pasteTimeout = null;
+      handleInput(combinedInput);
+    }, PASTE_DEBOUNCE_MS);
   });
 
   console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
