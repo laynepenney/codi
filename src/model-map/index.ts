@@ -7,6 +7,9 @@
 // Types
 export * from './types.js';
 
+// Rate limiter cleanup
+import { shutdownAllRateLimiters } from '../providers/rate-limiter.js';
+
 // Loader
 export {
   loadModelMap,
@@ -57,6 +60,8 @@ export type {
   CodebaseStructure,
   SymbolicationOptions,
   SymbolicationResult,
+  TwoPassOptions,
+  FastScanResult,
 } from './types.js';
 
 // V4 Symbolication
@@ -98,6 +103,32 @@ export {
   getSuggestedModel,
   formatTriageResult,
 } from './triage.js';
+
+// Fast Scan (Two-pass analysis)
+export {
+  fastScanFiles,
+  selectFilesForDeepAnalysis,
+  buildShallowContext,
+} from './fast-scan.js';
+
+// Processing order
+export {
+  getOptimalProcessingOrder,
+  getDependencySummaries,
+  type ProcessingOrderOptions,
+  type ProcessingOrderResult,
+} from './symbols/graph.js';
+
+// Caching
+export {
+  PipelineCache,
+  getCache,
+  getCachedResult,
+  cacheResult,
+  computeContentHash,
+  type CachedResult,
+  type CacheOptions,
+} from './cache.js';
 
 // --- Convenience functions ---
 
@@ -176,6 +207,7 @@ export function initModelMap(cwd: string = process.cwd()): ModelMap | null {
 
   const shutdown = (): void => {
     registry.shutdown();
+    shutdownAllRateLimiters();
   };
 
   return {

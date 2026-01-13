@@ -376,3 +376,165 @@ export function createDependencyGraphBuilder(
 ): DependencyGraphBuilder {
   return new DependencyGraphBuilder(projectRoot);
 }
+
+/**
+ * Options for computing optimal processing order
+ */
+export interface ProcessingOrderOptions {
+  /** Priority scores for files (higher = process earlier within same tier) */
+  priorities?: Map<string, number>;
+  /** Whether to include tier information in output */
+  includeTiers?: boolean;
+}
+
+/**
+ * Result of optimal processing order computation
+ */
+export interface ProcessingOrderResult {
+  /** Files in optimal order for processing */
+  order: string[];
+  /** Tier assignment for each file (0 = leaves, higher = closer to entry points) */
+  tiers: Map<string, number>;
+  /** Files in each tier */
+  tierFiles: Map<number, string[]>;
+}
+
+/**
+ * Compute optimal file processing order based on dependency graph.
+ *
+ * Uses a modified topological sort that:
+ * 1. Starts with leaf files (no incoming dependencies from within the project)
+ * 2. Processes files tier by tier, moving up to entry points
+ * 3. Within each tier, prioritizes by optional priority scores
+ *
+ * This order ensures that when processing a file, all its dependencies
+ * have already been processed (useful for context inclusion).
+ */
+export function getOptimalProcessingOrder(
+  graph: DependencyGraph,
+  files: Set<string> | string[],
+  options: ProcessingOrderOptions = {}
+): ProcessingOrderResult {
+  const fileSet = files instanceof Set ? files : new Set(files);
+  const priorities = options.priorities || new Map<string, number>();
+
+  // Build adjacency lists
+  // importers: who imports this file (dependents)
+  // dependencies: what this file imports
+  const importers = new Map<string, Set<string>>();
+  const dependencies = new Map<string, Set<string>>();
+
+  for (const file of fileSet) {
+    importers.set(file, new Set());
+    dependencies.set(file, new Set());
+  }
+
+  for (const edge of graph.edges) {
+    // Only consider edges within our file set
+    if (fileSet.has(edge.from) && fileSet.has(edge.to)) {
+      importers.get(edge.to)?.add(edge.from);
+      dependencies.get(edge.from)?.add(edge.to);
+    }
+  }
+
+  // Calculate tiers using modified Kahn's algorithm
+  // Tier 0 = leaves (no unprocessed dependencies)
+  const tiers = new Map<string, number>();
+  const tierFiles = new Map<number, string[]>();
+  const order: string[] = [];
+
+  // Track remaining dependencies for each file
+  const remainingDeps = new Map<string, number>();
+  for (const file of fileSet) {
+    remainingDeps.set(file, dependencies.get(file)?.size || 0);
+  }
+
+  // Find initial leaves (files with no dependencies within the set)
+  let currentTier: string[] = [];
+  for (const [file, deps] of remainingDeps) {
+    if (deps === 0) {
+      currentTier.push(file);
+    }
+  }
+
+  let tierNum = 0;
+
+  while (currentTier.length > 0) {
+    // Sort current tier by priority (higher priority first)
+    currentTier.sort((a, b) => {
+      const pA = priorities.get(a) || 0;
+      const pB = priorities.get(b) || 0;
+      return pB - pA; // Higher priority first
+    });
+
+    // Record this tier
+    tierFiles.set(tierNum, [...currentTier]);
+    for (const file of currentTier) {
+      tiers.set(file, tierNum);
+      order.push(file);
+    }
+
+    // Find next tier: files whose dependencies are all processed
+    const nextTier: string[] = [];
+    for (const file of currentTier) {
+      // For each file that imports this one
+      for (const importer of importers.get(file) || []) {
+        // Decrease its remaining dependency count
+        const remaining = (remainingDeps.get(importer) || 1) - 1;
+        remainingDeps.set(importer, remaining);
+
+        // If all dependencies are now processed, add to next tier
+        if (remaining === 0) {
+          nextTier.push(importer);
+        }
+      }
+    }
+
+    currentTier = nextTier;
+    tierNum++;
+  }
+
+  // Handle any remaining files (cycles) - add them at the end
+  for (const file of fileSet) {
+    if (!tiers.has(file)) {
+      tiers.set(file, tierNum);
+      order.push(file);
+      const existing = tierFiles.get(tierNum) || [];
+      existing.push(file);
+      tierFiles.set(tierNum, existing);
+    }
+  }
+
+  return { order, tiers, tierFiles };
+}
+
+/**
+ * Get dependency summaries for a file based on already-processed results.
+ *
+ * This is useful for including context about dependencies when processing a file.
+ */
+export function getDependencySummaries(
+  file: string,
+  graph: DependencyGraph,
+  processedResults: Map<string, string>,
+  maxDeps: number = 3
+): string[] {
+  const summaries: string[] = [];
+
+  // Find dependencies of this file
+  const deps = graph.edges
+    .filter((e) => e.from === file && e.type !== 're-export')
+    .map((e) => e.to);
+
+  // Get summaries for dependencies that have been processed
+  for (const dep of deps.slice(0, maxDeps)) {
+    const result = processedResults.get(dep);
+    if (result) {
+      // Extract first ~100 chars as a summary
+      const summary = result.slice(0, 200).replace(/\n/g, ' ').trim();
+      summaries.push(`${dep}: ${summary}${result.length > 200 ? '...' : ''}`);
+    }
+  }
+
+  return summaries;
+}

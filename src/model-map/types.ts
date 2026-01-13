@@ -495,6 +495,42 @@ export interface V4Options extends V3Options {
   includeNavigationContext?: boolean;
   /** Include related file context in analysis prompts */
   includeRelatedContext?: boolean;
+  /** Process files in dependency order (leaves first, default: true) */
+  useDependencyOrder?: boolean;
+  /** Two-pass analysis configuration */
+  twoPass?: TwoPassOptions;
   /** Override callbacks with V4 callbacks */
   callbacks?: V4Callbacks;
+}
+
+/**
+ * Configuration for two-pass analysis (fast scan + deep analysis).
+ */
+export interface TwoPassOptions {
+  /** Enable two-pass mode (default: false) */
+  enabled: boolean;
+  /** Role for fast scanning (default: 'fast') */
+  fastRole?: string;
+  /** Role for deep analysis (default: 'capable') */
+  deepRole?: string;
+  /** Score threshold for triggering deep analysis (default: 5) */
+  deepThreshold?: number;
+  /** Maximum percentage of files for deep analysis (default: 30) */
+  maxDeepPercent?: number;
+}
+
+/**
+ * Result from fast scan phase of two-pass analysis.
+ */
+export interface FastScanResult {
+  /** File that was scanned */
+  file: string;
+  /** Complexity/issue score from fast scan */
+  score: number;
+  /** Flags for deep analysis */
+  flags: string[];
+  /** Brief summary from fast scan */
+  summary: string;
+  /** Whether deep analysis is recommended */
+  needsDeep: boolean;
 }

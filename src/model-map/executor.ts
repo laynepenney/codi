@@ -37,6 +37,7 @@ import {
   buildFileAnalysisPrompt,
   buildNavigationContext,
   compressFileContext,
+  getOptimalProcessingOrder,
 } from './symbols/index.js';
 import type { ModelRegistry } from './registry.js';
 import type { TaskRouter } from './router.js';
@@ -1537,13 +1538,36 @@ Provide a comprehensive final report:
     }
 
     // Determine files to process based on triage
-    const filesToProcess = triageResult
+    let filesToProcess = triageResult
       ? [...triageResult.criticalPaths, ...triageResult.normalPaths]
       : files;
 
     const skippedFiles = triageResult
       ? triageResult.skipPaths.map((f) => ({ file: f, reason: 'low priority' }))
       : [];
+
+    // Reorder files based on dependency graph (leaves first) if structure available
+    // This ensures dependencies are processed before dependents for better context
+    if (structure && (options as V4Options).useDependencyOrder !== false) {
+      // Build priority map from triage scores
+      const priorities = new Map<string, number>();
+      if (triageResult) {
+        // Critical files get higher priority (processed earlier within same tier)
+        triageResult.criticalPaths.forEach((f, i) =>
+          priorities.set(f, 1000 - i)
+        );
+        triageResult.normalPaths.forEach((f, i) =>
+          priorities.set(f, 500 - i)
+        );
+      }
+
+      const orderResult = getOptimalProcessingOrder(
+        structure.dependencyGraph,
+        filesToProcess,
+        { priorities }
+      );
+      filesToProcess = orderResult.order;
+    }
 
     // Phase 2: Process files with enhanced context (in parallel)
     const processStart = Date.now();
@@ -1783,7 +1807,7 @@ Codebase Structure:
 
   /**
    * Aggregate large result sets in batches to avoid payload limits.
-   * First aggregates each batch, then combines batch summaries into final output.
+   * First aggregates each batch in parallel (with rate limiting), then combines batch summaries into final output.
    */
   private async batchedAggregateV4(
     results: Array<[string, PipelineResult]>,
@@ -1797,18 +1821,16 @@ Codebase Structure:
       batches.push(results.slice(i, i + batchSize));
     }
 
-    console.log(`Info: Aggregating ${results.length} files in ${batches.length} batches`);
+    console.log(`Info: Aggregating ${results.length} files in ${batches.length} batches (parallel)`);
 
     // Get provider once for all batches
     const provider = await this.getAggregationProvider(options);
 
-    // Aggregate each batch
-    const batchSummaries: string[] = [];
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
+    // Process a single batch
+    const processBatch = async (batch: Array<[string, PipelineResult]>, batchIndex: number): Promise<string> => {
       const batchFiles = batch.map(([file]) => file);
 
-      console.log(`  Batch ${i + 1}/${batches.length}: ${batch.length} files`);
+      console.log(`  Batch ${batchIndex + 1}/${batches.length}: ${batch.length} files`);
 
       const resultSummaries = batch.map(([file, result]) => `### ${file}\n${result.output}`);
 
@@ -1826,8 +1848,12 @@ ${resultSummaries.join('\n\n')}`;
         ? response.content
         : (response.content as ContentBlock[]).map((b) => (b.type === 'text' ? b.text : '')).join('');
 
-      batchSummaries.push(`## Batch ${i + 1} (${batchFiles.slice(0, 3).join(', ')}${batch.length > 3 ? `, +${batch.length - 3} more` : ''})\n${summary}`);
-    }
+      return `## Batch ${batchIndex + 1} (${batchFiles.slice(0, 3).join(', ')}${batch.length > 3 ? `, +${batch.length - 3} more` : ''})\n${summary}`;
+    };
+
+    // Run all batches in parallel (rate limiting is handled by the provider)
+    const batchPromises = batches.map((batch, index) => processBatch(batch, index));
+    const batchSummaries = await Promise.all(batchPromises);
 
     // Final aggregation of batch summaries
     console.log(`  Combining ${batches.length} batch summaries...`);

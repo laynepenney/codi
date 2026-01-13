@@ -6,6 +6,7 @@
 import { BaseProvider } from './base.js';
 import { createProviderResponse } from './response-parser.js';
 import { withRetry, type RetryOptions } from './retry.js';
+import { getProviderRateLimiter, type RateLimiter } from './rate-limiter.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 
 /** Ollama message format */
@@ -74,6 +75,7 @@ export class OllamaNativeProvider extends BaseProvider {
   private readonly temperature: number;
   private readonly maxTokens: number | undefined;
   private readonly retryOptions: RetryOptions;
+  private readonly rateLimiter: RateLimiter;
   private retryCallback?: (attempt: number, error: Error, delayMs: number) => void;
 
   constructor(config: ProviderConfig & { retry?: RetryOptions } = {}) {
@@ -94,6 +96,8 @@ export class OllamaNativeProvider extends BaseProvider {
       jitter: true,
       ...config.retry,
     };
+    // Get shared rate limiter for Ollama provider
+    this.rateLimiter = getProviderRateLimiter('ollama');
   }
 
   /**
@@ -188,40 +192,43 @@ export class OllamaNativeProvider extends BaseProvider {
       },
     };
 
-    return withRetry(
-      async () => {
-        const response = await fetch(`${this.baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        });
+    // Use rate limiter to prevent 429 errors
+    return this.rateLimiter.schedule(() =>
+      withRetry(
+        async () => {
+          const response = await fetch(`${this.baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
 
-        if (!response.ok) {
-          throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
+          if (!response.ok) {
+            throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
+          }
+
+          const responseData: OllamaChatResponse = await response.json();
+
+          // Extract tool calls from response if tools were provided
+          let toolCalls: ToolCall[] = [];
+          if (tools && tools.length > 0) {
+            toolCalls = this.extractToolCalls(responseData.message.content, tools);
+          }
+
+          return createProviderResponse({
+            content: responseData.message.content,
+            toolCalls,
+            stopReason: responseData.done_reason,
+            inputTokens: responseData.prompt_eval_count,
+            outputTokens: responseData.eval_count,
+          });
+        },
+        {
+          ...this.retryOptions,
+          onRetry: this.retryCallback,
         }
-
-        const responseData: OllamaChatResponse = await response.json();
-
-        // Extract tool calls from response if tools were provided
-        let toolCalls: ToolCall[] = [];
-        if (tools && tools.length > 0) {
-          toolCalls = this.extractToolCalls(responseData.message.content, tools);
-        }
-
-        return createProviderResponse({
-          content: responseData.message.content,
-          toolCalls,
-          stopReason: responseData.done_reason,
-          inputTokens: responseData.prompt_eval_count,
-          outputTokens: responseData.eval_count,
-        });
-      },
-      {
-        ...this.retryOptions,
-        onRetry: this.retryCallback,
-      }
+      )
     );
   }
 
@@ -243,80 +250,83 @@ export class OllamaNativeProvider extends BaseProvider {
       },
     };
 
-    return withRetry(
-      async () => {
-        const response = await fetch(`${this.baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        });
+    // Use rate limiter to prevent 429 errors
+    return this.rateLimiter.schedule(() =>
+      withRetry(
+        async () => {
+          const response = await fetch(`${this.baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
 
-        if (!response.ok) {
-          throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
-        }
+          if (!response.ok) {
+            throw new Error(`Ollama API request failed: ${response.status} ${response.statusText}`);
+          }
 
-        if (!response.body) {
-          throw new Error('Response body is undefined');
-        }
+          if (!response.body) {
+            throw new Error('Response body is undefined');
+          }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-        let inputTokens: number | undefined;
-        let outputTokens: number | undefined;
-        let stopReason: string | undefined;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let fullText = '';
+          let inputTokens: number | undefined;
+          let outputTokens: number | undefined;
+          let stopReason: string | undefined;
 
-        // Process streamed chunks
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          // Process streamed chunks
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n').filter(line => line.trim());
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n').filter(line => line.trim());
 
-          for (const line of lines) {
-            try {
-              const data: OllamaChatResponse = JSON.parse(line);
+            for (const line of lines) {
+              try {
+                const data: OllamaChatResponse = JSON.parse(line);
 
-              if (data.message?.content) {
-                const content = data.message.content;
-                fullText += content;
-                if (onChunk) onChunk(content);
+                if (data.message?.content) {
+                  const content = data.message.content;
+                  fullText += content;
+                  if (onChunk) onChunk(content);
+                }
+
+                // Capture token counts and stop reason from final chunk
+                if (data.done) {
+                  inputTokens = data.prompt_eval_count;
+                  outputTokens = data.eval_count;
+                  stopReason = data.done_reason;
+                }
+              } catch {
+                // Not valid JSON, skip
+                continue;
               }
-
-              // Capture token counts and stop reason from final chunk
-              if (data.done) {
-                inputTokens = data.prompt_eval_count;
-                outputTokens = data.eval_count;
-                stopReason = data.done_reason;
-              }
-            } catch {
-              // Not valid JSON, skip
-              continue;
             }
           }
-        }
 
-        // Extract tool calls if tools were provided
-        let toolCalls: ToolCall[] = [];
-        if (tools && tools.length > 0) {
-          toolCalls = this.extractToolCalls(fullText, tools);
-        }
+          // Extract tool calls if tools were provided
+          let toolCalls: ToolCall[] = [];
+          if (tools && tools.length > 0) {
+            toolCalls = this.extractToolCalls(fullText, tools);
+          }
 
-        return createProviderResponse({
-          content: fullText,
-          toolCalls,
-          stopReason: stopReason || 'stop',
-          inputTokens,
-          outputTokens,
-        });
-      },
-      {
-        ...this.retryOptions,
-        onRetry: this.retryCallback,
-      }
+          return createProviderResponse({
+            content: fullText,
+            toolCalls,
+            stopReason: stopReason || 'stop',
+            inputTokens,
+            outputTokens,
+          });
+        },
+        {
+          ...this.retryOptions,
+          onRetry: this.retryCallback,
+        }
+      )
     );
   }
 

@@ -23,6 +23,12 @@ export * from './types.js';
 export { compressFileContext, formatContextForPrompt, buildFileAnalysisPrompt } from './context.js';
 export { buildNavigationContext, formatFullNavigationContext, getDepthFromEntry } from './navigation.js';
 export { AstSymbolExtractor, createAstExtractor } from './ast-extractor.js';
+export {
+  getOptimalProcessingOrder,
+  getDependencySummaries,
+  type ProcessingOrderOptions,
+  type ProcessingOrderResult,
+} from './graph.js';
 
 /**
  * Entry point patterns for critical file detection
