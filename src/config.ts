@@ -142,6 +142,16 @@ export interface WorkspaceConfig {
       enabled?: boolean;
     };
   };
+
+  /** Per-tool configuration */
+  tools?: {
+    /** Tools to disable (e.g., ["web_search", "bash"]) */
+    disabled?: string[];
+    /** Default settings per tool */
+    defaults?: {
+      [toolName: string]: Record<string, unknown>;
+    };
+  };
 }
 
 /**
@@ -160,6 +170,14 @@ export interface ApprovedPathPatternConfig {
   toolName: string;
   approvedAt: string;
   description?: string;
+}
+
+/** Tool-specific configuration */
+export interface ToolsConfig {
+  /** Tools to disable */
+  disabled: string[];
+  /** Default settings per tool */
+  defaults: Record<string, Record<string, unknown>>;
 }
 
 export interface ResolvedConfig {
@@ -183,6 +201,8 @@ export interface ResolvedConfig {
   /** Secondary model for summarization */
   summarizeProvider?: string;
   summarizeModel?: string;
+  /** Per-tool configuration */
+  toolsConfig: ToolsConfig;
 }
 
 /** Default configuration values */
@@ -198,6 +218,10 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   extractToolsFromText: true,
   commandAliases: {},
   enableCompression: false,
+  toolsConfig: {
+    disabled: [],
+    defaults: {},
+  },
 };
 
 /** Config file names to search for, in order of priority */
@@ -322,6 +346,9 @@ export function mergeConfig(
     // Summarize model from workspace config
     if (workspaceConfig.models?.summarize?.provider) config.summarizeProvider = workspaceConfig.models.summarize.provider;
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
+    // Per-tool configuration
+    if (workspaceConfig.tools?.disabled) config.toolsConfig.disabled = workspaceConfig.tools.disabled;
+    if (workspaceConfig.tools?.defaults) config.toolsConfig.defaults = workspaceConfig.tools.defaults;
   }
 
   // CLI options override workspace config
@@ -371,6 +398,33 @@ export function getCustomDangerousPatterns(config: ResolvedConfig): Array<{
     pattern: new RegExp(pattern),
     description: `matches custom pattern: ${pattern}`,
   }));
+}
+
+/**
+ * Check if a tool is disabled in the config.
+ */
+export function isToolDisabled(toolName: string, config: ResolvedConfig): boolean {
+  return config.toolsConfig.disabled.includes(toolName);
+}
+
+/**
+ * Get default configuration for a specific tool.
+ */
+export function getToolDefaults(toolName: string, config: ResolvedConfig): Record<string, unknown> {
+  return config.toolsConfig.defaults[toolName] || {};
+}
+
+/**
+ * Merge tool input with configured defaults.
+ * User-provided values take precedence over defaults.
+ */
+export function mergeToolInput(
+  toolName: string,
+  input: Record<string, unknown>,
+  config: ResolvedConfig
+): Record<string, unknown> {
+  const defaults = getToolDefaults(toolName, config);
+  return { ...defaults, ...input };
 }
 
 /**
@@ -425,6 +479,18 @@ export function getExampleConfig(): string {
       //   env: { GITHUB_TOKEN: '${GITHUB_TOKEN}' },
       //   enabled: true,
       // },
+    },
+    tools: {
+      disabled: [],
+      defaults: {
+        search_codebase: {
+          max_results: 10,
+          min_score: 0.7,
+        },
+        run_tests: {
+          timeout: 120,
+        },
+      },
     },
   };
 

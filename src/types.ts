@@ -85,6 +85,45 @@ export interface ToolResult {
 }
 
 /**
+ * Structured result format for tool outputs.
+ * Provides consistent success/error handling across all tools.
+ *
+ * @template T - The type of data returned on success
+ * @property {boolean} ok - Whether the operation succeeded
+ * @property {T} [data] - The result data (present when ok === true)
+ * @property {string} [error] - Error message (present when ok === false)
+ * @property {string[]} [warnings] - Non-fatal warnings that don't block execution
+ */
+export interface StructuredResult<T = unknown> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+  warnings?: string[];
+}
+
+/**
+ * Helper to create a successful structured result.
+ */
+export function success<T>(data: T, warnings?: string[]): StructuredResult<T> {
+  return { ok: true, data, warnings };
+}
+
+/**
+ * Helper to create a failed structured result.
+ */
+export function failure(error: string, warnings?: string[]): StructuredResult<never> {
+  return { ok: false, error, warnings };
+}
+
+/**
+ * Format a structured result as a string for tool output.
+ * Returns JSON for structured results, or formats human-readable output.
+ */
+export function formatResult<T>(result: StructuredResult<T>): string {
+  return JSON.stringify(result, null, 2);
+}
+
+/**
  * Token usage information from a provider response.
  */
 export interface TokenUsage {

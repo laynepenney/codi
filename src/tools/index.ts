@@ -15,6 +15,8 @@ export { RAGSearchTool } from './rag-search.js';
 export { WebSearchTool } from './web-search.js';
 export { RefactorTool } from './refactor.js';
 export { ShellInfoTool } from './shell-info.js';
+export { PipelineTool } from './pipeline.js';
+export { GenerateDocsTool } from './generate-docs.js';
 
 // Symbol index tools
 export {
@@ -44,6 +46,8 @@ import { RAGSearchTool } from './rag-search.js';
 import { WebSearchTool } from './web-search.js';
 import { RefactorTool } from './refactor.js';
 import { ShellInfoTool } from './shell-info.js';
+import { PipelineTool } from './pipeline.js';
+import { GenerateDocsTool } from './generate-docs.js';
 import type { Retriever } from '../rag/retriever.js';
 import type { SymbolIndexService } from '../symbol-index/service.js';
 import {
@@ -90,6 +94,12 @@ export function registerDefaultTools(): void {
 
   // Environment info
   globalRegistry.register(new ShellInfoTool());
+
+  // Pipeline/orchestration
+  globalRegistry.register(new PipelineTool());
+
+  // Documentation
+  globalRegistry.register(new GenerateDocsTool());
 }
 
 /**
