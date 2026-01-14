@@ -106,6 +106,7 @@ describe('Session Commands', () => {
         expect.objectContaining({
           provider: 'Anthropic',
           model: 'claude-3',
+          openFilesState: undefined,
         })
       );
       expect(result).toContain('__SESSION_SAVED__');
