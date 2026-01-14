@@ -4,43 +4,49 @@ This roadmap outlines planned improvements to Codi's tool suite based on real-wo
 
 ---
 
+## Changelog
+
+### v0.6.0 (2026-01-14)
+
+**Quick Wins Completed:**
+- `search_codebase`: Added `dir`, `file_pattern`, and `min_score` parameters
+- `run_tests`: Structured output with parsed pass/fail/skip counts, duration, and failure details
+- `bash`: Structured output with exit code, duration, and separate stdout/stderr sections
+- `find_references`: Added summary counts by type and "files with most references" section
+
+---
+
 ## Phase 1: Search & Navigation Enhancements
 
 ### 1.1 Richer Code Search (`search_codebase`)
 
-**Current limitations:**
-- Returns raw snippets without ranking or relevance scores
-- No file type or directory filtering
-- Results lack symbol context (function name, line numbers)
+**Status: Partially Complete**
 
-**Proposed improvements:**
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Semantic ranking | Scores already returned in output | Done |
+| Result filtering | `max_results` and `min_score` parameters | Done |
+| File/directory scope | `file_pattern` (glob) and `dir` parameters | Done |
+| Symbol context | Return symbolName, symbolKind with results | Pending |
 
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| Semantic ranking | Add BM25 + vector similarity scoring, return `score` field | High |
-| Result filtering | Add `max_results` and `min_score` parameters | High |
-| File/directory scope | Add `file_glob` and `dir` parameters to narrow search | Medium |
-| Symbol context | Return `{file, startLine, endLine, snippet, symbolName?, symbolKind?}` | Medium |
-
-**Example enhanced API:**
+**Current API:**
 ```typescript
 search_codebase({
   query: "paste detection",
-  file_glob: "*.ts",
-  dir: "src/",
-  max_results: 10,
-  min_score: 0.7
+  file_pattern: "*.ts",    // glob pattern
+  dir: "src/",             // directory filter
+  max_results: 10,         // default: 5, max: 20
+  min_score: 0.7           // default: 0.7
 })
-// Returns: { results: [{ file, startLine, endLine, snippet, symbolName, score }] }
 ```
 
 ### 1.2 Navigation Tool Improvements
 
-| Tool | Current Issue | Improvement |
-|------|---------------|-------------|
-| `goto_definition` | Ambiguous when same name appears in multiple modules | Add optional `line`/`column` parameters to resolve exact reference |
-| `find_references` | Returns flat list, no grouping | Group by type: `{type: "import" \| "call", file, line, snippet}` with per-file counts |
-| NEW: `show_impact` | No way to preview change impact | Show dependent files (via dependency graph) and diff preview |
+| Tool | Improvement | Status |
+|------|-------------|--------|
+| `goto_definition` | Add optional `line`/`column` parameters | Pending |
+| `find_references` | Group by type with per-file counts | Done |
+| NEW: `show_impact` | Show dependent files and diff preview | Pending |
 
 ---
 
@@ -80,55 +86,75 @@ Internally uses semantic search + `edit_file`, applies all changes atomically.
 
 ## Phase 3: Testing Integration
 
+**Status: Partially Complete**
+
 ### 3.1 Smart Test Filtering
 
-**Current:** `run_tests` runs all tests or requires manual filter specification.
-
-**Proposed:**
-```typescript
-run_tests({
-  filter: "paste-debounce",  // pattern match
-  changedFiles: true,        // auto-detect from git status
-  timeout: 60
-})
-```
+| Feature | Status |
+|---------|--------|
+| Filter by pattern | Done (existing `filter` param) |
+| Auto-detect from git status (`changedFiles`) | Pending |
 
 ### 3.2 Structured Test Output
 
-**Current:** Returns raw stdout as string.
+**Status: Done**
 
-**Proposed:**
-```typescript
-interface TestResult {
-  passed: number;
-  failed: number;
-  skipped: number;
-  coverage?: { lines: number; branches: number };
-  failures: Array<{ test: string; error: string; file: string; line: number }>;
-  duration: number;
-  output: string;  // raw output preserved
-}
+Output now includes:
+- Summary: passed/failed/skipped/total counts
+- Duration in seconds
+- List of failures with name, file, line, error message
+- Raw output preserved
+
+Parsers implemented for: **vitest**, **jest**, **pytest**, **go test**, **cargo test**
+
+Example output:
+```
+## Test Results
+
+**Status:** PASSED
+**Command:** `pnpm test`
+**Exit Code:** 0
+
+### Summary
+- **Passed:** 747
+- **Failed:** 0
+- **Skipped:** 32
+- **Total:** 779
+- **Duration:** 2.48s
+
+### Raw Output
+...
 ```
 
 ---
 
 ## Phase 4: Shell & Environment
 
+**Status: Partially Complete**
+
 ### 4.1 Enhanced Bash Output
 
-**Current:** Returns combined stdout/stderr as string.
+**Status: Done**
 
-**Proposed:**
-```typescript
-interface BashResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  duration: number;
-}
+Output format:
+```
+[Exit Code: 0] [Status: SUCCESS] [Duration: 1.23s]
+
+<stdout content>
+
+[STDERR]
+<stderr content if any>
 ```
 
+Features:
+- Exit code clearly shown
+- Duration tracking
+- Separate `[STDERR]` section when stderr present
+- Truncation with middle-cut for very long output
+
 ### 4.2 Environment Snapshot Tool
+
+**Status: Pending**
 
 New tool to capture runtime environment:
 
@@ -243,25 +269,26 @@ User-configurable toolset via `.codi-tools.json`:
 
 ## Implementation Priority
 
-| Phase | Effort | Impact | Priority |
-|-------|--------|--------|----------|
-| Phase 1: Search & Navigation | Medium | High | **P0** |
-| Phase 2: Batch Operations | Medium | High | **P0** |
-| Phase 3: Testing Integration | Low | Medium | **P1** |
-| Phase 4: Shell & Environment | Low | Medium | **P1** |
-| Phase 5: Indexing & Performance | High | High | **P1** |
-| Phase 6: Standardization | Medium | Medium | **P2** |
-| Phase 7: Documentation & Config | Low | Low | **P2** |
+| Phase | Effort | Impact | Priority | Status |
+|-------|--------|--------|----------|--------|
+| Phase 1: Search & Navigation | Medium | High | **P0** | **Partial** |
+| Phase 2: Batch Operations | Medium | High | **P0** | Pending |
+| Phase 3: Testing Integration | Low | Medium | **P1** | **Partial** |
+| Phase 4: Shell & Environment | Low | Medium | **P1** | **Partial** |
+| Phase 5: Indexing & Performance | High | High | **P1** | Pending |
+| Phase 6: Standardization | Medium | Medium | **P2** | Pending |
+| Phase 7: Documentation & Config | Low | Low | **P2** | Pending |
 
 ---
 
-## Quick Wins (Can implement immediately)
+## Quick Wins
 
-1. **Add `dir` parameter to `search_codebase`** - Simple filter, high value
-2. **Add `min_score` to RAG search** - Already have scores internally
-3. **Structured test output** - Parse existing output into JSON
-4. **Separate stdout/stderr in bash** - Node.js supports this natively
-5. **Group `find_references` by type** - Post-process existing results
+| Item | Description | Status |
+|------|-------------|--------|
+| `search_codebase` filtering | Add `dir`, `file_pattern`, `min_score` params | Done |
+| Structured test output | Parse output into pass/fail/skip counts | Done |
+| Separate stdout/stderr | Enhanced bash output format | Done |
+| Group `find_references` | By type with per-file counts | Done |
 
 ---
 
