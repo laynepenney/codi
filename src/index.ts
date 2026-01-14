@@ -280,6 +280,7 @@ import {
   type RAGConfig,
 } from './rag/index.js';
 import { registerRAGSearchTool, registerSymbolIndexTools } from './tools/index.js';
+import { createCompleter } from './completions.js';
 import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
@@ -2230,8 +2231,9 @@ async function main() {
   }
   console.log();
 
-  // Create readline interface with history (needed for confirmation prompts)
+  // Create readline interface with history and tab completion
   const history = loadHistory();
+  const completer = createCompleter();
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -2239,6 +2241,7 @@ async function main() {
     historySize: MAX_HISTORY_SIZE,
     terminal: true,
     prompt: chalk.bold.cyan('\nYou: '),
+    completer,
   });
 
   // Track if readline is closed (for piped input)
