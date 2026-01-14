@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { detectProject, formatProjectContext } from '../src/context.js';
+import { detectProject, formatProjectContext, loadContextFile } from '../src/context.js';
 
 describe('Context Detection', () => {
   let testDir: string;
@@ -331,6 +331,75 @@ describe('Context Detection', () => {
 
       const result = formatProjectContext(info);
       expect(result).not.toContain('Entry points');
+    });
+  });
+
+  describe('loadContextFile', () => {
+    it('returns null when no context file found', () => {
+      const result = loadContextFile(testDir);
+      expect(result.content).toBeNull();
+      expect(result.path).toBeNull();
+    });
+
+    it('loads CODI.md from project root', () => {
+      const content = '# My Project\n\nThis is context for the AI.';
+      writeFileSync(join(testDir, 'CODI.md'), content);
+
+      const result = loadContextFile(testDir);
+      expect(result.content).toBe(content);
+      expect(result.path).toBe(join(testDir, 'CODI.md'));
+    });
+
+    it('loads .codi/CODI.md as second priority', () => {
+      const content = '# Context from .codi folder';
+      mkdirSync(join(testDir, '.codi'));
+      writeFileSync(join(testDir, '.codi', 'CODI.md'), content);
+
+      const result = loadContextFile(testDir);
+      expect(result.content).toBe(content);
+      expect(result.path).toBe(join(testDir, '.codi', 'CODI.md'));
+    });
+
+    it('loads .codi/context.md as third priority', () => {
+      const content = '# Context file';
+      mkdirSync(join(testDir, '.codi'));
+      writeFileSync(join(testDir, '.codi', 'context.md'), content);
+
+      const result = loadContextFile(testDir);
+      expect(result.content).toBe(content);
+      expect(result.path).toBe(join(testDir, '.codi', 'context.md'));
+    });
+
+    it('prefers CODI.md over .codi/CODI.md', () => {
+      const rootContent = '# Root CODI';
+      const codiContent = '# .codi folder CODI';
+      writeFileSync(join(testDir, 'CODI.md'), rootContent);
+      mkdirSync(join(testDir, '.codi'));
+      writeFileSync(join(testDir, '.codi', 'CODI.md'), codiContent);
+
+      const result = loadContextFile(testDir);
+      expect(result.content).toBe(rootContent);
+      expect(result.path).toBe(join(testDir, 'CODI.md'));
+    });
+
+    it('prefers .codi/CODI.md over .codi/context.md', () => {
+      const codiMd = '# CODI.md content';
+      const contextMd = '# context.md content';
+      mkdirSync(join(testDir, '.codi'));
+      writeFileSync(join(testDir, '.codi', 'CODI.md'), codiMd);
+      writeFileSync(join(testDir, '.codi', 'context.md'), contextMd);
+
+      const result = loadContextFile(testDir);
+      expect(result.content).toBe(codiMd);
+      expect(result.path).toBe(join(testDir, '.codi', 'CODI.md'));
+    });
+
+    it('handles empty context file', () => {
+      writeFileSync(join(testDir, 'CODI.md'), '');
+
+      const result = loadContextFile(testDir);
+      expect(result.content).toBe('');
+      expect(result.path).toBe(join(testDir, 'CODI.md'));
     });
   });
 });

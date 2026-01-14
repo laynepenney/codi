@@ -251,7 +251,7 @@ async function resolveFileList(
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
 import { globalRegistry, registerDefaultTools } from './tools/index.js';
-import { detectProject, formatProjectContext } from './context.js';
+import { detectProject, formatProjectContext, loadContextFile } from './context.js';
 import {
   isCommand,
   parseCommand,
@@ -271,6 +271,7 @@ import {
 } from './commands/session-commands.js';
 import { registerConfigCommands } from './commands/config-commands.js';
 import { registerHistoryCommands } from './commands/history-commands.js';
+import { registerPlanCommands } from './commands/plan-commands.js';
 import { registerUsageCommands } from './commands/usage-commands.js';
 import { registerPluginCommands } from './commands/plugin-commands.js';
 import { registerModelCommands } from './commands/model-commands.js';
@@ -2129,6 +2130,12 @@ async function main() {
     console.warn(chalk.yellow(`Model map error: ${err instanceof Error ? err.message : err}`));
   }
 
+  // Check for context file (CODI.md)
+  const { content: contextFileContent, path: contextFilePath } = loadContextFile();
+  if (contextFilePath) {
+    console.log(chalk.dim(`Context: ${contextFilePath}`));
+  }
+
   // Merge workspace config with CLI options
   const resolvedConfig = mergeConfig(workspaceConfig, {
     provider: options.provider,
@@ -2150,6 +2157,7 @@ async function main() {
   registerSessionCommands();
   registerConfigCommands();
   registerHistoryCommands();
+  registerPlanCommands();
   registerUsageCommands();
   registerPluginCommands();
   registerModelCommands();
@@ -2395,6 +2403,12 @@ async function main() {
   const memoryContext = generateMemoryContext(process.cwd());
   if (memoryContext) {
     systemPrompt += `\n\n${memoryContext}`;
+  }
+
+  // Add project context file content (CODI.md) if loaded earlier
+  if (contextFileContent && contextFilePath) {
+    const fileName = contextFilePath.split('/').pop() || 'CODI.md';
+    systemPrompt += `\n\n## Project Context (from ${fileName})\n\n${contextFileContent}`;
   }
 
   // Get custom dangerous patterns from config

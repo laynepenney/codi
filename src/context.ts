@@ -179,3 +179,42 @@ export function formatProjectContext(info: ProjectInfo): string {
 
   return context;
 }
+
+/**
+ * Context file candidates in priority order.
+ * Similar to Claude Code's CLAUDE.md, Codi looks for CODI.md.
+ */
+const CONTEXT_FILE_CANDIDATES = [
+  'CODI.md',
+  '.codi/CODI.md',
+  '.codi/context.md',
+];
+
+/**
+ * Load project context from a CODI.md file.
+ * Searches for context files in priority order.
+ *
+ * @param rootPath - Project root directory (defaults to cwd)
+ * @returns Object with content and path if found, nulls otherwise
+ */
+export function loadContextFile(rootPath: string = process.cwd()): {
+  content: string | null;
+  path: string | null;
+} {
+  const fs = require('fs');
+
+  for (const candidate of CONTEXT_FILE_CANDIDATES) {
+    const fullPath = join(rootPath, candidate);
+    if (existsSync(fullPath)) {
+      try {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        return { content, path: fullPath };
+      } catch {
+        // Try next candidate
+        continue;
+      }
+    }
+  }
+
+  return { content: null, path: null };
+}
