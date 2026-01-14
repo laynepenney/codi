@@ -14,6 +14,25 @@ interface TestRunnerConfig {
   command: string;
   args: string[];
   filterFlag?: string;
+  runner?: 'vitest' | 'jest' | 'pytest' | 'go' | 'cargo' | 'mocha' | 'unknown';
+}
+
+/**
+ * Structured test result for machine-readable output.
+ */
+interface TestResult {
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+  duration?: number;
+  failures: Array<{
+    name: string;
+    error?: string;
+    file?: string;
+    line?: number;
+  }>;
+  success: boolean;
 }
 
 export class RunTestsTool extends BaseTool {
@@ -58,9 +77,10 @@ export class RunTestsTool extends BaseTool {
       throw new Error(`Directory not found: ${cwd}`);
     }
 
-    // If command is provided, use it directly
+    // If command is provided, use it directly (try to detect runner from command)
     if (command) {
-      return this.runTestCommand(command, cwd, timeoutMs);
+      const runner = this.detectRunnerFromCommand(command);
+      return this.runTestCommand(command, cwd, timeoutMs, runner);
     }
 
     // Auto-detect test runner
@@ -79,7 +99,21 @@ export class RunTestsTool extends BaseTool {
     }
 
     const finalCommand = `${config.command} ${args.join(' ')}`.trim();
-    return this.runTestCommand(finalCommand, cwd, timeoutMs);
+    return this.runTestCommand(finalCommand, cwd, timeoutMs, config.runner);
+  }
+
+  /**
+   * Try to detect test runner from command string.
+   */
+  private detectRunnerFromCommand(command: string): TestRunnerConfig['runner'] {
+    const cmd = command.toLowerCase();
+    if (cmd.includes('vitest')) return 'vitest';
+    if (cmd.includes('jest')) return 'jest';
+    if (cmd.includes('pytest') || cmd.includes('python -m pytest')) return 'pytest';
+    if (cmd.includes('go test')) return 'go';
+    if (cmd.includes('cargo test')) return 'cargo';
+    if (cmd.includes('mocha')) return 'mocha';
+    return 'unknown';
   }
 
   /**
@@ -108,6 +142,7 @@ export class RunTestsTool extends BaseTool {
         command: 'go',
         args: ['test', './...'],
         filterFlag: '-run',
+        runner: 'go',
       };
     }
 
@@ -118,6 +153,7 @@ export class RunTestsTool extends BaseTool {
         command: 'cargo',
         args: ['test'],
         filterFlag: '--',
+        runner: 'cargo',
       };
     }
 
@@ -141,6 +177,7 @@ export class RunTestsTool extends BaseTool {
           command: packageManager,
           args: ['test'],
           filterFlag: this.getFilterFlagForScript(packageJson.scripts.test),
+          runner: this.getRunnerFromScript(packageJson.scripts.test),
         };
       }
 
@@ -150,6 +187,7 @@ export class RunTestsTool extends BaseTool {
           command: 'npx',
           args: ['vitest', 'run'],
           filterFlag: '-t',
+          runner: 'vitest',
         };
       }
 
@@ -158,6 +196,7 @@ export class RunTestsTool extends BaseTool {
           command: 'npx',
           args: ['jest', '--passWithNoTests'],
           filterFlag: '-t',
+          runner: 'jest',
         };
       }
 
@@ -166,6 +205,7 @@ export class RunTestsTool extends BaseTool {
           command: 'npx',
           args: ['mocha'],
           filterFlag: '--grep',
+          runner: 'mocha',
         };
       }
 
@@ -174,6 +214,7 @@ export class RunTestsTool extends BaseTool {
           command: 'npx',
           args: ['jasmine'],
           filterFlag: '--filter=',
+          runner: 'unknown',
         };
       }
 
@@ -212,6 +253,17 @@ export class RunTestsTool extends BaseTool {
   }
 
   /**
+   * Get the test runner type from script content.
+   */
+  private getRunnerFromScript(script: string): TestRunnerConfig['runner'] {
+    if (script.includes('vitest')) return 'vitest';
+    if (script.includes('jest')) return 'jest';
+    if (script.includes('mocha')) return 'mocha';
+    if (script.includes('pytest')) return 'pytest';
+    return 'unknown';
+  }
+
+  /**
    * Detect Python test runner.
    */
   private async detectPythonTestRunner(cwd: string): Promise<TestRunnerConfig> {
@@ -222,6 +274,7 @@ export class RunTestsTool extends BaseTool {
         command: 'python',
         args: ['-m', 'pytest'],
         filterFlag: '-k',
+        runner: 'pytest',
       };
     } catch {
       // Fall back to unittest
@@ -229,6 +282,7 @@ export class RunTestsTool extends BaseTool {
         command: 'python',
         args: ['-m', 'unittest', 'discover'],
         filterFlag: '-k',
+        runner: 'unknown',
       };
     }
   }
@@ -236,7 +290,7 @@ export class RunTestsTool extends BaseTool {
   /**
    * Execute a test command and return formatted output.
    */
-  private async runTestCommand(command: string, cwd: string, timeoutMs: number): Promise<string> {
+  private async runTestCommand(command: string, cwd: string, timeoutMs: number, runner?: TestRunnerConfig['runner']): Promise<string> {
     try {
       const { stdout, stderr } = await execAsync(command, {
         cwd,
@@ -249,7 +303,7 @@ export class RunTestsTool extends BaseTool {
         },
       });
 
-      return this.formatOutput(command, 0, stdout, stderr);
+      return this.formatOutput(command, 0, stdout, stderr, runner);
     } catch (error: unknown) {
       // exec errors include stdout/stderr in the error object
       const execError = error as {
@@ -272,40 +326,330 @@ export class RunTestsTool extends BaseTool {
         command,
         exitCode,
         execError.stdout || '',
-        execError.stderr || execError.message || ''
+        execError.stderr || execError.message || '',
+        runner
       );
     }
   }
 
   /**
-   * Format test output for display.
+   * Format test output for display with structured summary.
    */
-  private formatOutput(command: string, exitCode: number, stdout: string, stderr: string): string {
+  private formatOutput(command: string, exitCode: number, stdout: string, stderr: string, runner?: string): string {
     const status = exitCode === 0 ? 'PASSED' : 'FAILED';
-    let output = `Test command: ${command}
-Exit code: ${exitCode} (${status})
-`;
+    const combinedOutput = stdout + '\n' + stderr;
 
-    if (stdout) {
-      output += `\nSTDOUT:\n${stdout}`;
+    // Parse test results for structured output
+    const testResult = this.parseTestOutput(combinedOutput, exitCode, runner);
+
+    // Build structured summary
+    let output = `## Test Results
+
+**Status:** ${status}
+**Command:** \`${command}\`
+**Exit Code:** ${exitCode}
+
+### Summary
+- **Passed:** ${testResult.passed}
+- **Failed:** ${testResult.failed}
+- **Skipped:** ${testResult.skipped}
+- **Total:** ${testResult.total}`;
+
+    if (testResult.duration !== undefined) {
+      output += `\n- **Duration:** ${testResult.duration.toFixed(2)}s`;
     }
 
-    if (stderr) {
-      output += `\nSTDERR:\n${stderr}`;
+    // List failures if any
+    if (testResult.failures.length > 0) {
+      output += '\n\n### Failures\n';
+      for (const failure of testResult.failures.slice(0, 10)) { // Limit to first 10 failures
+        output += `\n**${failure.name}**`;
+        if (failure.file) {
+          output += failure.line ? ` (${failure.file}:${failure.line})` : ` (${failure.file})`;
+        }
+        if (failure.error) {
+          output += `\n\`\`\`\n${failure.error.slice(0, 500)}${failure.error.length > 500 ? '...' : ''}\n\`\`\``;
+        }
+      }
+      if (testResult.failures.length > 10) {
+        output += `\n\n... and ${testResult.failures.length - 10} more failures`;
+      }
     }
 
-    if (!stdout && !stderr) {
-      output += '\n(Tests completed with no output)';
+    // Include raw output for full details
+    output += '\n\n### Raw Output\n```\n';
+
+    let rawOutput = '';
+    if (stdout) rawOutput += stdout;
+    if (stderr) rawOutput += (rawOutput ? '\n' : '') + stderr;
+    if (!rawOutput) rawOutput = '(Tests completed with no output)';
+
+    // Truncate raw output if too long
+    if (rawOutput.length > MAX_OUTPUT_LENGTH - output.length - 100) {
+      const allowedLength = MAX_OUTPUT_LENGTH - output.length - 200;
+      const half = Math.floor(allowedLength / 2);
+      rawOutput = rawOutput.slice(0, half) +
+        `\n\n... [${rawOutput.length - allowedLength} characters truncated] ...\n\n` +
+        rawOutput.slice(-half);
     }
 
-    // Truncate if too long
-    if (output.length > MAX_OUTPUT_LENGTH) {
-      const half = Math.floor(MAX_OUTPUT_LENGTH / 2);
-      output = output.slice(0, half) +
-        `\n\n... [${output.length - MAX_OUTPUT_LENGTH} characters truncated] ...\n\n` +
-        output.slice(-half);
-    }
+    output += rawOutput + '\n```';
 
     return output;
+  }
+
+  /**
+   * Parse test output to extract structured results.
+   */
+  private parseTestOutput(output: string, exitCode: number, runner?: string): TestResult {
+    // Try different parsers based on detected runner
+    let result: TestResult | null = null;
+
+    // Try Vitest parser
+    if (!result && (runner === 'vitest' || output.includes('PASS') || output.includes('FAIL'))) {
+      result = this.parseVitestOutput(output);
+    }
+
+    // Try Jest parser (similar to Vitest)
+    if (!result && (runner === 'jest' || output.includes('Test Suites:') || output.includes('Tests:'))) {
+      result = this.parseJestOutput(output);
+    }
+
+    // Try pytest parser
+    if (!result && (runner === 'pytest' || output.includes('passed') || output.includes('failed') || output.includes('pytest'))) {
+      result = this.parsePytestOutput(output);
+    }
+
+    // Try Go test parser
+    if (!result && (runner === 'go' || output.includes('--- PASS:') || output.includes('--- FAIL:'))) {
+      result = this.parseGoTestOutput(output);
+    }
+
+    // Try Cargo test parser
+    if (!result && (runner === 'cargo' || output.includes('test result:'))) {
+      result = this.parseCargoTestOutput(output);
+    }
+
+    // Fallback: minimal parsing
+    if (!result) {
+      result = {
+        passed: 0,
+        failed: exitCode === 0 ? 0 : 1,
+        skipped: 0,
+        total: 1,
+        failures: [],
+        success: exitCode === 0,
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * Parse Vitest output format.
+   */
+  private parseVitestOutput(output: string): TestResult | null {
+    const result: TestResult = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      failures: [],
+      success: true,
+    };
+
+    // Match summary line: "Tests  5 passed | 2 failed | 1 skipped (8)"
+    // or "Test Files  1 passed (1)"
+    const testMatch = output.match(/Tests?\s+(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?(?:\s*\|\s*(\d+)\s+skipped)?/i);
+    if (testMatch) {
+      result.passed = parseInt(testMatch[1], 10) || 0;
+      result.failed = parseInt(testMatch[2], 10) || 0;
+      result.skipped = parseInt(testMatch[3], 10) || 0;
+      result.total = result.passed + result.failed + result.skipped;
+      result.success = result.failed === 0;
+    }
+
+    // Extract duration
+    const durationMatch = output.match(/Duration\s+([\d.]+)s/i);
+    if (durationMatch) {
+      result.duration = parseFloat(durationMatch[1]);
+    }
+
+    // Extract failures
+    const failurePattern = /FAIL\s+(.+?)\s*>\s*(.+?)(?:\n|$)/g;
+    let match;
+    while ((match = failurePattern.exec(output)) !== null) {
+      const file = match[1].trim();
+      const testName = match[2].trim();
+
+      // Try to find error message after the failure
+      const errorStart = output.indexOf(match[0]) + match[0].length;
+      const nextSection = output.slice(errorStart, errorStart + 500);
+      const errorMatch = nextSection.match(/(?:Error|AssertionError):\s*(.+?)(?=\n\s*\n|\n.*(?:FAIL|PASS|✓|✗))/s);
+
+      result.failures.push({
+        name: testName,
+        file,
+        error: errorMatch ? errorMatch[1].trim() : undefined,
+      });
+    }
+
+    return result.total > 0 ? result : null;
+  }
+
+  /**
+   * Parse Jest output format.
+   */
+  private parseJestOutput(output: string): TestResult | null {
+    const result: TestResult = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      failures: [],
+      success: true,
+    };
+
+    // Match: "Tests:       5 passed, 2 failed, 7 total"
+    const testMatch = output.match(/Tests:\s+(?:(\d+)\s+passed,?\s*)?(?:(\d+)\s+failed,?\s*)?(?:(\d+)\s+skipped,?\s*)?(\d+)\s+total/i);
+    if (testMatch) {
+      result.passed = parseInt(testMatch[1], 10) || 0;
+      result.failed = parseInt(testMatch[2], 10) || 0;
+      result.skipped = parseInt(testMatch[3], 10) || 0;
+      result.total = parseInt(testMatch[4], 10) || result.passed + result.failed + result.skipped;
+      result.success = result.failed === 0;
+    }
+
+    // Extract duration: "Time:        5.123 s"
+    const durationMatch = output.match(/Time:\s+([\d.]+)\s*s/i);
+    if (durationMatch) {
+      result.duration = parseFloat(durationMatch[1]);
+    }
+
+    // Extract failures: "● test name"
+    const failurePattern = /●\s+(.+?)(?:\n\n|\n\s+expect)/g;
+    let match;
+    while ((match = failurePattern.exec(output)) !== null) {
+      const testName = match[1].trim();
+      result.failures.push({ name: testName });
+    }
+
+    return result.total > 0 ? result : null;
+  }
+
+  /**
+   * Parse pytest output format.
+   */
+  private parsePytestOutput(output: string): TestResult | null {
+    const result: TestResult = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      failures: [],
+      success: true,
+    };
+
+    // Match: "5 passed, 2 failed, 1 skipped in 1.23s"
+    const summaryMatch = output.match(/(?:=+\s*)?((\d+)\s+passed)?(?:,?\s*(\d+)\s+failed)?(?:,?\s*(\d+)\s+skipped)?(?:,?\s*(\d+)\s+error)?.*?in\s+([\d.]+)s/i);
+    if (summaryMatch) {
+      result.passed = parseInt(summaryMatch[2], 10) || 0;
+      result.failed = (parseInt(summaryMatch[3], 10) || 0) + (parseInt(summaryMatch[5], 10) || 0);
+      result.skipped = parseInt(summaryMatch[4], 10) || 0;
+      result.total = result.passed + result.failed + result.skipped;
+      result.duration = parseFloat(summaryMatch[6]);
+      result.success = result.failed === 0;
+    }
+
+    // Extract failures: "FAILED test_file.py::test_name"
+    const failurePattern = /FAILED\s+([^:\s]+)::([^\s\n]+)/g;
+    let match;
+    while ((match = failurePattern.exec(output)) !== null) {
+      result.failures.push({
+        name: match[2],
+        file: match[1],
+      });
+    }
+
+    return result.total > 0 ? result : null;
+  }
+
+  /**
+   * Parse Go test output format.
+   */
+  private parseGoTestOutput(output: string): TestResult | null {
+    const result: TestResult = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      failures: [],
+      success: true,
+    };
+
+    // Count passes and fails
+    const passMatches = output.match(/--- PASS:/g);
+    const failMatches = output.match(/--- FAIL:/g);
+    const skipMatches = output.match(/--- SKIP:/g);
+
+    result.passed = passMatches?.length || 0;
+    result.failed = failMatches?.length || 0;
+    result.skipped = skipMatches?.length || 0;
+    result.total = result.passed + result.failed + result.skipped;
+    result.success = result.failed === 0;
+
+    // Extract duration from "ok" or "FAIL" lines
+    const durationMatch = output.match(/(?:ok|FAIL)\s+\S+\s+([\d.]+)s/);
+    if (durationMatch) {
+      result.duration = parseFloat(durationMatch[1]);
+    }
+
+    // Extract failures
+    const failurePattern = /--- FAIL:\s+(\S+)/g;
+    let match;
+    while ((match = failurePattern.exec(output)) !== null) {
+      result.failures.push({ name: match[1] });
+    }
+
+    return result.total > 0 ? result : null;
+  }
+
+  /**
+   * Parse Cargo test output format.
+   */
+  private parseCargoTestOutput(output: string): TestResult | null {
+    const result: TestResult = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      failures: [],
+      success: true,
+    };
+
+    // Match: "test result: ok. 5 passed; 0 failed; 1 ignored"
+    const summaryMatch = output.match(/test result:\s*\w+\.\s*(\d+)\s+passed;\s*(\d+)\s+failed;\s*(\d+)\s+ignored/i);
+    if (summaryMatch) {
+      result.passed = parseInt(summaryMatch[1], 10);
+      result.failed = parseInt(summaryMatch[2], 10);
+      result.skipped = parseInt(summaryMatch[3], 10);
+      result.total = result.passed + result.failed + result.skipped;
+      result.success = result.failed === 0;
+    }
+
+    // Extract duration: "finished in 1.23s"
+    const durationMatch = output.match(/finished in ([\d.]+)s/i);
+    if (durationMatch) {
+      result.duration = parseFloat(durationMatch[1]);
+    }
+
+    // Extract failures: "test tests::test_name ... FAILED"
+    const failurePattern = /test\s+(\S+)\s+\.\.\.\s+FAILED/g;
+    let match;
+    while ((match = failurePattern.exec(output)) !== null) {
+      result.failures.push({ name: match[1] });
+    }
+
+    return result.total > 0 ? result : null;
   }
 }

@@ -85,15 +85,28 @@ export class FindReferencesTool extends BaseTool {
 
     // Format results
     const lines: string[] = [];
-    lines.push(`Found ${results.length} reference(s) to "${name}":\n`);
 
     // Group by type
     const imports = results.filter(r => r.type === 'import');
     const typeOnly = results.filter(r => r.type === 'type-only');
     const usages = results.filter(r => r.type === 'usage');
 
+    // Calculate per-file counts
+    const fileCountMap = new Map<string, number>();
+    for (const ref of results) {
+      fileCountMap.set(ref.file, (fileCountMap.get(ref.file) || 0) + 1);
+    }
+    const uniqueFiles = fileCountMap.size;
+
+    // Summary header
+    lines.push(`Found ${results.length} reference(s) to "${name}" across ${uniqueFiles} file(s):`);
+    lines.push(`  - Imports: ${imports.length}`);
+    lines.push(`  - Type-only: ${typeOnly.length}`);
+    lines.push(`  - Usages: ${usages.length}`);
+    lines.push('');
+
     if (imports.length > 0) {
-      lines.push('Imports:');
+      lines.push('## Imports');
       for (const ref of imports) {
         lines.push(`  ${ref.file}:${ref.line}`);
       }
@@ -101,7 +114,7 @@ export class FindReferencesTool extends BaseTool {
     }
 
     if (typeOnly.length > 0) {
-      lines.push('Type-only imports:');
+      lines.push('## Type-only imports');
       for (const ref of typeOnly) {
         lines.push(`  ${ref.file}:${ref.line}`);
       }
@@ -109,12 +122,24 @@ export class FindReferencesTool extends BaseTool {
     }
 
     if (usages.length > 0) {
-      lines.push('Usages:');
+      lines.push('## Usages');
       for (const ref of usages) {
         const contextStr = ref.context ? ` - ${ref.context}` : '';
         lines.push(`  ${ref.file}:${ref.line}${contextStr}`);
       }
       lines.push('');
+    }
+
+    // Show files with most references
+    if (uniqueFiles > 5) {
+      const topFiles = [...fileCountMap.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+
+      lines.push('## Files with most references');
+      for (const [f, count] of topFiles) {
+        lines.push(`  ${f}: ${count} reference(s)`);
+      }
     }
 
     return lines.join('\n').trim();
