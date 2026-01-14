@@ -54,7 +54,7 @@ export interface CommandConfig {
 export type ProviderContext =
   | 'anthropic'
   | 'openai'
-  | 'ollama-local'
+  | 'ollama'
   | 'ollama-cloud'
   | string;
 
@@ -101,7 +101,7 @@ export interface PipelineStep {
 export interface PipelineDefinition {
   /** Human-readable description */
   description?: string;
-  /** Default provider context for role resolution (e.g., 'anthropic', 'openai', 'ollama-local') */
+  /** Default provider context for role resolution (e.g., 'anthropic', 'openai', 'ollama') */
   provider?: string;
   /** Ordered list of steps */
   steps: PipelineStep[];

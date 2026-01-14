@@ -674,11 +674,11 @@ model-roles:
   fast:
     anthropic: haiku
     openai: gpt-5-nano
-    ollama-local: local
+    ollama: local
   capable:
     anthropic: sonnet
     openai: gpt-5
-    ollama-local: local
+    ollama: local
 
 pipelines:
   # Direct model references
@@ -719,7 +719,7 @@ pipelines:
 /pipeline --provider anthropic code-review src/file.ts
 
 # Uses local ollama models
-/pipeline --provider ollama-local code-review src/file.ts
+/pipeline --provider ollama code-review src/file.ts
 ```
 
 **Implemented Commands**:

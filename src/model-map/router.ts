@@ -162,7 +162,7 @@ export class TaskRouter {
   /**
    * Resolve a role to a model name based on provider context.
    * @param role - The role name (e.g., 'fast', 'capable', 'reasoning')
-   * @param providerContext - The provider context (e.g., 'anthropic', 'openai', 'ollama-local')
+   * @param providerContext - The provider context (e.g., 'anthropic', 'openai', 'ollama')
    * @returns The resolved model or undefined if not found
    */
   resolveRole(role: string, providerContext: ProviderContext): ResolvedModel | undefined {

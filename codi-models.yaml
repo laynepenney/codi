@@ -75,17 +75,17 @@ model-roles:
   fast:
     anthropic: haiku
     openai: gpt-5-nano
-    ollama-local: qwen3-lite
+    ollama: qwen3-lite
     ollama-cloud: gemini-3-flash-preview
   capable:
     anthropic: sonnet
     openai: gpt-5
-    ollama-local: llama3
+    ollama: llama3
     ollama-cloud: coder
   reasoning:
     anthropic: opus
     openai: gpt-5
-    ollama-local: llama3
+    ollama: llama3
     ollama-cloud: gpt-oss
 
 pipelines:

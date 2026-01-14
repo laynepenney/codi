@@ -59,7 +59,7 @@ export type { PipelineCallbacks } from './types.js';
  * Options for pipeline execution.
  */
 export interface PipelineExecuteOptions {
-  /** Provider context for role resolution (e.g., 'anthropic', 'openai', 'ollama-local') */
+  /** Provider context for role resolution (e.g., 'anthropic', 'openai', 'ollama') */
   providerContext?: ProviderContext;
   /** Callbacks for progress reporting */
   callbacks?: PipelineCallbacks;
