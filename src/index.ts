@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createInterface, type Interface } from 'readline';
+import { createPasteDebounceHandler } from './paste-debounce.js';
 import { program } from 'commander';
 import chalk from 'chalk';
 import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
@@ -3212,30 +3213,15 @@ async function main() {
   // When lines arrive rapidly (within PASTE_DEBOUNCE_MS), they're buffered
   // and processed as a single multiline input
   const PASTE_DEBOUNCE_MS = 50;
-  let pasteBuffer: string[] = [];
-  let pasteTimeout: NodeJS.Timeout | null = null;
+
+  const onLine = createPasteDebounceHandler({
+    handleInput,
+    rlClosed: () => rlClosed,
+    debounceMs: PASTE_DEBOUNCE_MS,
+  });
 
   // Set up line handler for REPL with paste detection
-  rl.on('line', (input) => {
-    // Don't process if readline was closed
-    if (rlClosed) return;
-
-    // Add to paste buffer
-    pasteBuffer.push(input);
-
-    // Clear existing timeout
-    if (pasteTimeout) {
-      clearTimeout(pasteTimeout);
-    }
-
-    // Set new timeout - when no more lines arrive, process the buffer
-    pasteTimeout = setTimeout(() => {
-      const combinedInput = pasteBuffer.join('\n');
-      pasteBuffer = [];
-      pasteTimeout = null;
-      handleInput(combinedInput);
-    }, PASTE_DEBOUNCE_MS);
-  });
+  rl.on('line', onLine);
 
   console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
   rl.prompt();

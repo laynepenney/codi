@@ -27,6 +27,10 @@
     {
       "pattern": "mkdir *",
       "approvedAt": "2026-01-14T07:47:14.233Z"
+    },
+    {
+      "pattern": "pnpm rebuild *",
+      "approvedAt": "2026-01-14T09:13:49.781Z"
     }
   ],
   "approvedCategories": [
@@ -34,7 +38,8 @@
     "git-commit",
     "install-deps",
     "run-tests",
-    "list-files"
+    "list-files",
+    "read-files"
   ],
   "dangerousPatterns": [],
   "systemPromptAdditions": "",
