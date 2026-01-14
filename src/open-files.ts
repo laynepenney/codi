@@ -6,6 +6,14 @@ export interface OpenFileMeta {
   lastViewedAt: string;
 }
 
+/**
+ * Serializable representation of the open-files working set.
+ *
+ * Notes:
+ * - JSON-friendly so it can be stored on disk as part of a Session.
+ * - Backwards compatible: older sessions may not have this state.
+ * - Keys are normalized paths (see normalizePath).
+ */
 export interface OpenFilesState {
   /** Map of normalized path -> metadata */
   files: Record<string, OpenFileMeta>;

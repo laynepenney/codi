@@ -1,3 +1,11 @@
+## PTY harness (planned)
+For interactive CLI integration tests (e.g., testing the “open files” workflow end-to-end), see:
+- `plans/pty-harness.md`
+
+The plan proposes a `node-pty` based harness that can spawn `codi`, send keystrokes, and assert on output and persisted session artifacts.
+
+---
+
 Adding a New Tool
 ==================
 

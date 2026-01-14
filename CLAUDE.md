@@ -4,6 +4,16 @@ This file provides context for AI assistants working on the Codi codebase.
 
 ## Project Overview
 
+### Open files state
+The codebase includes an experimental “open files” working-set concept:
+- `src/open-files.ts`: `OpenFilesManager` + serializable `OpenFilesState`
+- `src/session.ts`: `Session.openFilesState?: OpenFilesState` and persistence via `saveSession()`
+
+When changing this area:
+- keep `OpenFilesState` backwards-compatible (old sessions may not have it)
+- update tests that assert on session serialization/deserialization
+
+
 **Codi** is an interactive AI coding assistant CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
 
 ## Quick Reference

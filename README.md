@@ -410,6 +410,18 @@ registerCommand(myCommand);
 
 ## Development
 
+### Open files (experimental)
+Codi can track a working set of “open files” for a session. This is intended to power workflows like:
+- remembering which files you were working on between runs
+- pinning important files so they don’t get evicted
+- keeping the working set bounded via LRU eviction
+
+Implementation notes:
+- The in-memory manager lives in `src/open-files.ts` (`OpenFilesManager`).
+- Session persistence uses `openFilesState` on `Session` (see `src/session.ts`).
+- Some commands may currently pass `openFilesState: undefined` until the CLI wiring is completed.
+
+
 ```bash
 # Run in development mode (with TypeScript)
 npm run dev
