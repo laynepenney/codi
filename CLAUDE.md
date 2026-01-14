@@ -77,6 +77,43 @@ src/
 | `src/rag/search.ts` | Semantic code search using embeddings |
 | `src/types.ts` | All TypeScript interfaces |
 
+## Code Flow
+
+### Startup Sequence
+1. `src/index.ts` runs `main()`
+2. Detects project with `detectProject()`
+3. Registers tools + commands
+4. Determines provider (`detectProvider()` or `createProvider()`)
+5. Builds system prompt with project context
+6. Instantiates `Agent` with provider, registry, callbacks
+7. Starts readline prompt loop
+
+### User Input Processing
+- Built-in commands: `/exit`, `/clear`, `/compact`, `/status`, `/context`
+- Slash commands: Parse `/command args`, execute → returns prompt string, send to agent
+- Normal chat: Send raw input to `agent.chat()`
+
+### Agent Loop (`Agent.chat()`)
+1. Append user message to `this.messages`
+2. Compact context if token estimate exceeds threshold
+3. Repeat up to `MAX_ITERATIONS`:
+   - Compute tool definitions if tools enabled
+   - Build system context with optional conversation summary
+   - Call provider `streamChat()`
+   - Extract tool calls (native or from text)
+   - If no tool calls → finish
+   - Otherwise: execute tools, add results to conversation, continue
+
+## Notable Patterns
+
+- **Provider Abstraction**: `BaseProvider` + factory pattern for easy backend additions
+- **Tool Registry**: Decoupled tools with self-describing schemas
+- **Safety Limits**: `MAX_ITERATIONS` prevents infinite loops, `MAX_CONSECUTIVE_ERRORS` stops on repeated failures
+- **Context Compaction**: Token estimation + model-based summarization of older messages
+- **Cross-Provider Normalization**: Internal format supports both string and structured tool blocks
+- **Fallback Tool Extraction**: Parses JSON from text for models without native tool calling
+- **Streaming-First**: Provider `streamChat` for incremental text display
+
 ## Coding Conventions
 
 - **ES Modules**: Use `.js` extension in imports (even for `.ts` files)

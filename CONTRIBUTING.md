@@ -117,7 +117,9 @@ CODI_RUN_PTY_TESTS=1 pnpm test
 ## Documentation
 
 - Update `README.md` for user-facing changes
-- Update `CLAUDE.md` for AI assistant context
+- Update `CLAUDE.md` for AI assistant context and architecture
+- See `docs/TOOLS.md` for tool reference
+- See `docs/ROADMAP.md` for feature roadmap
 - Add inline JSDoc comments for complex functions
 
 ## Questions?
