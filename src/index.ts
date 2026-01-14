@@ -3,8 +3,10 @@
 import { createInterface, type Interface } from 'readline';
 import {
   createPasteDebounceHandler,
+  createPasteInterceptor,
   enableBracketedPaste,
   disableBracketedPaste,
+  DEFAULT_PASTE_DEBOUNCE_MS,
 } from './paste-debounce.js';
 import { program } from 'commander';
 import chalk from 'chalk';
@@ -2247,11 +2249,18 @@ async function main() {
   }
   console.log();
 
+  // Enable bracketed paste mode for better paste detection
+  enableBracketedPaste();
+
+  // Create paste interceptor to capture paste markers before readline strips them
+  const pasteInterceptor = createPasteInterceptor();
+  process.stdin.pipe(pasteInterceptor);
+
   // Create readline interface with history and tab completion
   const history = loadHistory();
   const completer = createCompleter();
   const rl = createInterface({
-    input: process.stdin,
+    input: pasteInterceptor, // Use interceptor instead of raw stdin
     output: process.stdout,
     history,
     historySize: MAX_HISTORY_SIZE,
@@ -2259,9 +2268,6 @@ async function main() {
     prompt: chalk.bold.cyan('\nYou: '),
     completer,
   });
-
-  // Enable bracketed paste mode for better paste detection
-  enableBracketedPaste();
 
   // Track if readline is closed (for piped input)
   let rlClosed = false;
@@ -3230,9 +3236,10 @@ async function main() {
   };
 
   // Paste detection via debouncing
-  // When lines arrive rapidly (within PASTE_DEBOUNCE_MS), they're buffered
+  // When lines arrive rapidly (within debounce window), they're buffered
   // and processed as a single multiline input
-  const PASTE_DEBOUNCE_MS = 50;
+  // Can be overridden via CODI_PASTE_DEBOUNCE_MS environment variable
+  const PASTE_DEBOUNCE_MS = parseInt(process.env.CODI_PASTE_DEBOUNCE_MS || '', 10) || DEFAULT_PASTE_DEBOUNCE_MS;
 
   const onLine = createPasteDebounceHandler({
     handleInput,
