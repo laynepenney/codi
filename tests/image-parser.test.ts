@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect } from 'vitest';
 import { parseImageResult } from '../src/utils/image-parser.js';
 

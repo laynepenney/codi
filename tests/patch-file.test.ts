@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PatchFileTool } from '../src/tools/patch-file.js';
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';

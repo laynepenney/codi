@@ -47,4 +47,4 @@ rsvg-convert -w 1280 social-preview.svg > social-preview.png
 
 ## License
 
-These assets are part of the Codi project and are licensed under MIT.
+These assets are part of the Codi project and are licensed under Apache 2.0.

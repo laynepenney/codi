@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Commands for testing and using context compression.
  */

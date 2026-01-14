@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { readFile } from 'fs/promises';
 import { glob } from 'node:fs/promises';
 import { resolve, join } from 'path';

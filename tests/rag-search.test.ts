@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RAGSearchTool } from '../src/tools/rag-search.js';
 import type { Retriever } from '../src/rag/retriever.js';

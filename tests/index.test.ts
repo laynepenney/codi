@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import * as fs from 'node:fs/promises';

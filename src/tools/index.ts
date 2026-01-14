@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 export { BaseTool } from './base.js';
 export { ToolRegistry, globalRegistry } from './registry.js';
 export { ReadFileTool } from './read-file.js';

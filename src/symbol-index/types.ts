@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Types for the Symbol Index system.
  * Re-exports symbol types from model-map and adds index-specific types.

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Retry utility with exponential backoff for provider API calls.
  */

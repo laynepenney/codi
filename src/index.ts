@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
 
 import { createInterface, type Interface } from 'readline';
 import {

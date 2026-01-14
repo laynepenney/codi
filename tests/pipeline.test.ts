@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PipelineTool } from '../src/tools/pipeline.js';
 import { globalRegistry } from '../src/tools/registry.js';

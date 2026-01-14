@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Semantic path categories for file operation auto-approval.
  * Each category defines a set of patterns that match file paths in that category.

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ollama native provider implementation using the Ollama API directly.
  * This implementation provides better control and features compared to the OpenAI-compatible version.

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Centralized constants for the Codi application.
  * Extracted from agent.ts and bash.ts to provide a single source of truth.

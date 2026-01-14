@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { usageCommand, registerUsageCommands } from '../src/commands/usage-commands.js';
 import type { CommandContext } from '../src/commands/index.js';

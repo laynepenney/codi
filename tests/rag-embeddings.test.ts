@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenAIEmbeddingProvider } from '../src/rag/embeddings/openai.js';
 import { OllamaEmbeddingProvider } from '../src/rag/embeddings/ollama.js';

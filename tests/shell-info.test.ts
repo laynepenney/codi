@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ShellInfoTool } from '../src/tools/shell-info.js';
 import { exec as originalExec } from 'child_process';

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared message conversion utilities for providers.
  * Provides common operations for extracting and transforming message content.

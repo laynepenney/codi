@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * SQLite database wrapper for the symbol index.
  * Handles schema creation, migrations, and low-level queries.

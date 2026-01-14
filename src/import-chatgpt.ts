@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * ChatGPT conversation import module.
  * Converts ChatGPT exported conversations to Codi session format.

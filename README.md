@@ -11,7 +11,7 @@
   <a href="#quick-start"><img src="https://img.shields.io/badge/Claude-Anthropic-blueviolet?style=flat-square" alt="Claude" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/GPT-OpenAI-74aa9c?style=flat-square" alt="OpenAI" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Ollama-Local-orange?style=flat-square" alt="Ollama" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="Apache 2.0 License" /></a>
 </p>
 
 <p align="center">
@@ -451,7 +451,7 @@ See [CLAUDE.md](./CLAUDE.md) for detailed contribution guidelines.
 
 ## License
 
-MIT
+Apache 2.0
 
 ---
 

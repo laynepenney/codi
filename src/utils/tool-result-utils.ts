@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Tool result processing utilities.
  * Extracted from agent.ts for reusability.

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { registerCommand, type Command, type CommandContext } from './index.js';
 
 export const commitCommand: Command = {

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect } from 'vitest';
 import { checkDangerousBash, getBlockingPatterns } from '../src/utils/bash-utils.js';
 import type { DangerousPattern } from '../src/constants.js';

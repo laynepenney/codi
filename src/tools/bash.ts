@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { exec } from 'child_process';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';

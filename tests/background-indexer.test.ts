@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BackgroundIndexer, getBackgroundIndexer } from '../src/symbol-index/background-indexer.js';
 import type { IndexStats } from '../src/symbol-index/types.js';

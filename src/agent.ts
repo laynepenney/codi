@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';

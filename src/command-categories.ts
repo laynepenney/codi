@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Semantic command categories for auto-approval.
  * Each category defines a set of patterns that match commands in that category.

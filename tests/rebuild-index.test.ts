@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RebuildIndexTool } from '../src/symbol-index/tools/rebuild-index.js';
 import type { IndexStats } from '../src/symbol-index/types.js';

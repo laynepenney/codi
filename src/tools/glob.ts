@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { glob } from 'node:fs/promises';
 import { resolve } from 'path';
 import { BaseTool } from './base.js';

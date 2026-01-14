@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RefactorTool } from '../src/tools/refactor.js';
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';

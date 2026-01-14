@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * JSON parsing utilities for handling LLM output.
  * Extracted from agent.ts for reusability.

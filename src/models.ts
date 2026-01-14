@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Static model registry with pricing and capabilities.
  * Used as fallback when API model listing is unavailable.

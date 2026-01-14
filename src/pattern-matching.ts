@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Pattern matching utilities for command approval.
  * Uses glob-like patterns converted to regex.

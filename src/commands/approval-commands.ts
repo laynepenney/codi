@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Approval management commands.
  * Allows users to view and manage approved command patterns and categories.

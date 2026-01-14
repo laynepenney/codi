@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared response parsing utilities for providers.
  * Provides common operations for extracting tool calls, usage, and stop reasons.

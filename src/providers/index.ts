@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { BaseProvider } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';

@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 

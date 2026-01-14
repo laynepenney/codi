@@ -1,3 +1,6 @@
+// Copyright 2026 Layne Penney
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { GenerateDocsTool } from '../src/tools/generate-docs.js';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
