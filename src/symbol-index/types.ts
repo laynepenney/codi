@@ -160,6 +160,12 @@ export interface IndexBuildOptions {
   forceRebuild?: boolean;
   /** Progress callback */
   onProgress?: (processed: number, total: number, file: string) => void;
+  /**
+   * Enable deep indexing with usage-based dependency detection.
+   * This scans all files for symbol usages (like an IDE), but is slower.
+   * Default: false (fast mode - only tracks explicit imports)
+   */
+  deepIndex?: boolean;
 }
 
 /**

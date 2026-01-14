@@ -268,10 +268,11 @@ describe('Symbol Index Validation Suite', () => {
     // Create test project
     createTestProject();
 
-    // Initialize service and build index
+    // Initialize service and build index with deep indexing enabled
+    // (needed for usage-based dependency tests)
     service = new SymbolIndexService(TEST_DIR);
     await service.initialize();
-    await service.rebuild();
+    await service.rebuild({ deepIndex: true });
   });
 
   afterAll(() => {

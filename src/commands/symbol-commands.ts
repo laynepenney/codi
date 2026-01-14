@@ -29,12 +29,13 @@ export const symbolsCommand: Command = {
   name: 'symbols',
   aliases: ['sym', 'index'],
   description: 'Manage the symbol index for AST-based code navigation',
-  usage: '/symbols [rebuild|update|stats|search <name>|clear]',
+  usage: '/symbols [rebuild [--deep]|update|stats|search <name>|clear]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const parts = args.trim().split(/\s+/);
     const action = parts[0] || 'stats';
-    const rest = parts.slice(1).join(' ');
+    const hasDeepFlag = parts.includes('--deep');
+    const rest = parts.filter(p => p !== action && p !== '--deep').join(' ');
 
     // Get project root from context or current directory
     const projectRoot = context.projectInfo?.rootPath || process.cwd();
@@ -49,17 +50,19 @@ export const symbolsCommand: Command = {
       case 'rebuild': {
         const result = await symbolIndexService.rebuild({
           projectRoot,
+          deepIndex: hasDeepFlag,
           onProgress: (processed, total, file) => {
             // Progress callback - could be used for UI updates
           },
         });
 
         const duration = (result.duration / 1000).toFixed(2);
+        const deepStr = hasDeepFlag ? ' (deep)' : '';
         const errorsStr = result.errors.length > 0
           ? `\nErrors (${result.errors.length}):\n${result.errors.slice(0, 5).map(e => `  - ${e}`).join('\n')}${result.errors.length > 5 ? `\n  ... and ${result.errors.length - 5} more` : ''}`
           : '';
 
-        return `__SYMBOLS_REBUILD__:${result.filesProcessed}:${result.symbolsExtracted}:${duration}:${errorsStr}`;
+        return `__SYMBOLS_REBUILD__:${result.filesProcessed}:${result.symbolsExtracted}:${duration}:${deepStr}${errorsStr}`;
       }
 
       case 'update': {

@@ -301,6 +301,7 @@ export class SymbolIndexService {
 
   /**
    * Build or rebuild the full index
+   * @param options.deepIndex - Enable usage-based dependency detection (slower but more complete)
    */
   async rebuild(options: Partial<IndexBuildOptions> = {}): Promise<{
     filesProcessed: number;
@@ -310,6 +311,7 @@ export class SymbolIndexService {
   }> {
     const startTime = Date.now();
     const errors: string[] = [];
+    const deepIndex = options.deepIndex ?? false;
 
     const includePatterns = options.includePatterns ?? DEFAULT_INCLUDE_PATTERNS;
     const excludePatterns = options.excludePatterns ?? DEFAULT_EXCLUDE_PATTERNS;
@@ -327,6 +329,9 @@ export class SymbolIndexService {
     let filesProcessed = 0;
     let symbolsExtracted = 0;
 
+    // Cache file contents to avoid re-reading (used in deep indexing)
+    const fileContents = new Map<string, string>();
+
     // Process files in a transaction
     this.db.transaction(() => {
       for (const filePath of files) {
@@ -334,6 +339,11 @@ export class SymbolIndexService {
           const relativePath = path.relative(this.projectRoot, filePath);
           const content = fs.readFileSync(filePath, 'utf-8');
           const hash = crypto.createHash('md5').update(content).digest('hex');
+
+          // Cache content for later use in deep indexing
+          if (deepIndex) {
+            fileContents.set(relativePath, content);
+          }
 
           // Extract symbols
           const fileInfo = this.extractor.extract(content, relativePath);
@@ -402,13 +412,14 @@ export class SymbolIndexService {
       }
 
       // Build dependency edges (second pass for resolved file IDs)
-      this.buildDependencyEdges();
+      this.buildDependencyEdges(deepIndex, fileContents);
     });
 
     // Update metadata
     const now = new Date().toISOString();
     this.db.setMetadata('last_rebuild', now);
     this.db.setMetadata('last_update', now);
+    this.db.setMetadata('deep_index', deepIndex ? 'true' : 'false');
 
     return {
       filesProcessed,
@@ -420,8 +431,13 @@ export class SymbolIndexService {
 
   /**
    * Build file dependency edges from imports
+   * @param deepIndex - Whether to also build usage-based dependencies
+   * @param fileContents - Cached file contents (to avoid re-reading)
    */
-  private buildDependencyEdges(): void {
+  private buildDependencyEdges(
+    deepIndex: boolean = false,
+    fileContents: Map<string, string> = new Map()
+  ): void {
     const files = this.db.getAllFiles();
     const filePathToId = new Map<string, number>();
 
@@ -432,7 +448,9 @@ export class SymbolIndexService {
     // For each file, resolve its imports and create dependency edges
     for (const file of files) {
       const filePath = path.join(this.projectRoot, file.path);
-      const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
+      // Use cached content if available, otherwise read from disk
+      const content = fileContents.get(file.path) ??
+        (fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '');
       const fileInfo = this.extractor.extract(content, file.path);
 
       for (const imp of fileInfo.imports) {
@@ -452,8 +470,10 @@ export class SymbolIndexService {
       }
     }
 
-    // Build usage-based dependencies (IDE-style symbol tracking)
-    this.buildUsageBasedDependencies(files, filePathToId);
+    // Build usage-based dependencies only if deep indexing is enabled
+    if (deepIndex) {
+      this.buildUsageBasedDependencies(files, filePathToId, fileContents);
+    }
   }
 
   /**
@@ -463,7 +483,8 @@ export class SymbolIndexService {
    */
   private buildUsageBasedDependencies(
     files: Array<{ id: number; path: string }>,
-    filePathToId: Map<string, number>
+    filePathToId: Map<string, number>,
+    fileContents: Map<string, string> = new Map()
   ): void {
     // Get the symbol registry: maps symbol name to files where it's defined
     const symbolRegistry = this.db.getExportedSymbolRegistry();
@@ -473,11 +494,10 @@ export class SymbolIndexService {
     const symbolNames = this.db.getExportedSymbolNames();
     if (symbolNames.length === 0) return;
 
-    // Build a regex that matches any known symbol name
-    // Use word boundaries to avoid false positives
-    // Sort by length descending to match longer names first
+    // Filter to valid identifiers with meaningful length (reduces false positives)
+    // Use length >= 3 to catch common names like "App" but avoid 1-2 char identifiers
     const sortedSymbols = symbolNames
-      .filter(name => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) // Valid identifiers only
+      .filter(name => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) && name.length >= 3)
       .sort((a, b) => b.length - a.length);
 
     if (sortedSymbols.length === 0) return;
@@ -487,16 +507,19 @@ export class SymbolIndexService {
 
     // Process each file
     for (const file of files) {
-      const filePath = path.join(this.projectRoot, file.path);
-      if (!fs.existsSync(filePath)) continue;
-
       try {
-        const content = fs.readFileSync(filePath, 'utf-8');
+        // Use cached content if available
+        let content = fileContents.get(file.path);
+        if (content === undefined) {
+          const filePath = path.join(this.projectRoot, file.path);
+          if (!fs.existsSync(filePath)) continue;
+          content = fs.readFileSync(filePath, 'utf-8');
+        }
 
         // Remove comments and strings to avoid false positives
         const cleanedContent = this.removeCommentsAndStrings(content, file.path);
 
-        // Find all identifiers in the file
+        // Find all identifiers in the file using a single pass
         const identifierRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
         const foundSymbols = new Set<string>();
 
