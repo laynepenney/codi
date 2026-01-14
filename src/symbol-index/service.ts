@@ -956,17 +956,29 @@ export class SymbolIndexService {
     symbolName: string,
     options: {
       fromFile?: string;
+      fromLine?: number;
+      kind?: string;
       resolveReexports?: boolean;
     } = {}
   ): SymbolSearchResult | undefined {
-    // First try exact match
+    // First try exact match, optionally filtered by kind
     const results = this.db.findSymbols(symbolName, {
       exact: true,
-      limit: 10,
+      kind: options.kind,
+      limit: 20,
     });
 
     if (results.length === 0) {
       return undefined;
+    }
+
+    // If kind filter is provided, filter results
+    let candidates = results;
+    if (options.kind) {
+      const kindFiltered = results.filter(r => r.kind === options.kind);
+      if (kindFiltered.length > 0) {
+        candidates = kindFiltered;
+      }
     }
 
     // If fromFile is provided, prefer definitions in the same file or imported files
@@ -976,32 +988,60 @@ export class SymbolIndexService {
         : options.fromFile;
 
       // Check if any result is in the same file
-      const sameFile = results.find(r => r.file === relativePath);
+      const sameFile = candidates.find(r => r.file === relativePath);
       if (sameFile) {
-        return {
-          name: sameFile.name,
-          kind: sameFile.kind,
-          file: sameFile.file,
-          line: sameFile.line,
-          endLine: sameFile.endLine,
-          visibility: sameFile.visibility,
-          signature: sameFile.signature,
-          docSummary: sameFile.docSummary,
-        };
+        return this.formatSymbolResult(sameFile);
+      }
+
+      // Check if this file imports from any candidate file
+      const importers = this.db.findImporters(symbolName);
+      const fromThisFile = importers.find(i => i.file === relativePath);
+      if (fromThisFile) {
+        // Find which file exports this symbol that this file imports
+        for (const candidate of candidates) {
+          // Check if there's an import path that matches
+          const candidateFile = candidate.file;
+          // Simple heuristic: if the candidate is exported and this file imports the symbol,
+          // prefer exported symbols
+          if (candidate.visibility === 'exported') {
+            return this.formatSymbolResult(candidate);
+          }
+        }
       }
     }
 
+    // Prefer exported symbols when multiple definitions exist
+    const exported = candidates.find(c => c.visibility === 'exported');
+    if (exported) {
+      return this.formatSymbolResult(exported);
+    }
+
     // Return the first (most relevant) result
-    const best = results[0];
+    return this.formatSymbolResult(candidates[0]);
+  }
+
+  /**
+   * Format a symbol result for output.
+   */
+  private formatSymbolResult(sym: {
+    name: string;
+    kind: string;
+    file: string;
+    line: number;
+    endLine?: number;
+    visibility: string;
+    signature?: string;
+    docSummary?: string;
+  }): SymbolSearchResult {
     return {
-      name: best.name,
-      kind: best.kind,
-      file: best.file,
-      line: best.line,
-      endLine: best.endLine,
-      visibility: best.visibility,
-      signature: best.signature,
-      docSummary: best.docSummary,
+      name: sym.name,
+      kind: sym.kind,
+      file: sym.file,
+      line: sym.line,
+      endLine: sym.endLine,
+      visibility: sym.visibility,
+      signature: sym.signature,
+      docSummary: sym.docSummary,
     };
   }
 

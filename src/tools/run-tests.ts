@@ -39,7 +39,9 @@ export class RunTestsTool extends BaseTool {
   getDefinition(): ToolDefinition {
     return {
       name: 'run_tests',
-      description: 'Run project tests and get results. Automatically detects test runner (npm/yarn/pnpm test, jest, vitest, pytest, etc.) based on project configuration.',
+      description:
+        'Run project tests and get results. Automatically detects test runner (npm/yarn/pnpm test, jest, vitest, pytest, etc.) based on project configuration. ' +
+        'Use changed_files: true to automatically run tests related to files changed in git.',
       input_schema: {
         type: 'object',
         properties: {
@@ -50,6 +52,10 @@ export class RunTestsTool extends BaseTool {
           filter: {
             type: 'string',
             description: 'Filter tests by name or pattern (optional)',
+          },
+          changed_files: {
+            type: 'boolean',
+            description: 'Auto-detect changed files from git and run related tests. Default: false',
           },
           timeout: {
             type: 'number',
@@ -67,7 +73,8 @@ export class RunTestsTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<string> {
     const command = input.command as string | undefined;
-    const filter = input.filter as string | undefined;
+    let filter = input.filter as string | undefined;
+    const changedFiles = (input.changed_files as boolean) ?? false;
     const timeoutSec = input.timeout as number | undefined;
     const cwd = (input.cwd as string) || process.cwd();
 
@@ -75,6 +82,14 @@ export class RunTestsTool extends BaseTool {
 
     if (!existsSync(cwd)) {
       throw new Error(`Directory not found: ${cwd}`);
+    }
+
+    // If changed_files is true, detect changed files from git and generate filter
+    if (changedFiles && !filter) {
+      const detectedFilter = await this.detectChangedFilesFilter(cwd);
+      if (detectedFilter) {
+        filter = detectedFilter;
+      }
     }
 
     // If command is provided, use it directly (try to detect runner from command)
@@ -261,6 +276,92 @@ export class RunTestsTool extends BaseTool {
     if (script.includes('mocha')) return 'mocha';
     if (script.includes('pytest')) return 'pytest';
     return 'unknown';
+  }
+
+  /**
+   * Detect changed files from git and generate a test filter pattern.
+   */
+  private async detectChangedFilesFilter(cwd: string): Promise<string | undefined> {
+    try {
+      // Get staged and unstaged changes
+      const { stdout: statusOutput } = await execAsync('git status --porcelain', {
+        cwd,
+        timeout: 5000,
+      });
+
+      if (!statusOutput.trim()) {
+        return undefined;
+      }
+
+      // Parse git status output
+      const lines = statusOutput.trim().split('\n');
+      const changedFiles: string[] = [];
+
+      for (const line of lines) {
+        // Git status format: "XY filename" where X=staged, Y=unstaged
+        const match = line.match(/^.{2}\s+(.+)$/);
+        if (match) {
+          const filePath = match[1].trim();
+          // Only include source files, not test files themselves
+          if (this.isSourceFile(filePath) && !this.isTestFile(filePath)) {
+            changedFiles.push(filePath);
+          }
+        }
+      }
+
+      if (changedFiles.length === 0) {
+        return undefined;
+      }
+
+      // Generate filter pattern based on changed file names
+      // Most test runners support filtering by filename or pattern
+      const patterns = changedFiles.map(f => this.fileToTestPattern(f)).filter(Boolean);
+
+      if (patterns.length === 0) {
+        return undefined;
+      }
+
+      // Join patterns - format depends on test runner but most support regex-like patterns
+      // For simplicity, return first few patterns joined with |
+      return patterns.slice(0, 5).join('|');
+    } catch {
+      // Git not available or not a git repo
+      return undefined;
+    }
+  }
+
+  /**
+   * Check if a file is a source file (not config, etc.)
+   */
+  private isSourceFile(filePath: string): boolean {
+    const sourceExtensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.kt', '.rb'];
+    return sourceExtensions.some(ext => filePath.endsWith(ext));
+  }
+
+  /**
+   * Check if a file is likely a test file.
+   */
+  private isTestFile(filePath: string): boolean {
+    const testPatterns = [
+      '.test.', '.spec.', '_test.', '_spec.',
+      '/test/', '/tests/', '/__tests__/',
+      'test_', 'spec_'
+    ];
+    return testPatterns.some(p => filePath.includes(p));
+  }
+
+  /**
+   * Convert a source file path to a test filter pattern.
+   */
+  private fileToTestPattern(filePath: string): string {
+    // Extract the base name without extension
+    const parts = filePath.split('/');
+    const fileName = parts[parts.length - 1];
+    const baseName = fileName.replace(/\.[^.]+$/, '');
+
+    // Return the base name as a pattern - this will match related tests
+    // e.g., "paste-debounce" will match "paste-debounce.test.ts"
+    return baseName;
   }
 
   /**

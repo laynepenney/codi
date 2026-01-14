@@ -17,7 +17,10 @@ export class PatchFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
     return {
       name: 'patch_file',
-      description: 'Apply a unified diff patch to a file. Useful for making multiple changes at once. The patch should be in standard unified diff format.',
+      description:
+        'Apply one or more unified diff patches to a file. Useful for making multiple changes at once. ' +
+        'Supports both single patch (via "patch" param) or multiple patches (via "patches" array). ' +
+        'Patches should be in standard unified diff format.',
       input_schema: {
         type: 'object',
         properties: {
@@ -27,53 +30,102 @@ export class PatchFileTool extends BaseTool {
           },
           patch: {
             type: 'string',
-            description: 'The unified diff patch to apply. Lines starting with "-" are removed, "+" are added, " " are context.',
+            description: 'Single unified diff patch to apply. Use this OR "patches" array.',
+          },
+          patches: {
+            type: 'array',
+            description: 'Array of patches to apply in order. Use this OR single "patch" param.',
+            items: {
+              type: 'object',
+              properties: {
+                diff: {
+                  type: 'string',
+                  description: 'The unified diff content',
+                },
+                description: {
+                  type: 'string',
+                  description: 'Optional description of what this patch does',
+                },
+              },
+              required: ['diff'],
+            },
           },
         },
-        required: ['path', 'patch'],
+        required: ['path'],
       },
     };
   }
 
   async execute(input: Record<string, unknown>): Promise<string> {
-    const path = input.path as string;
-    const patch = input.patch as string;
+    const filePath = input.path as string;
+    const singlePatch = input.patch as string | undefined;
+    const patchesArray = input.patches as Array<{ diff: string; description?: string }> | undefined;
 
-    if (!path) {
+    if (!filePath) {
       throw new Error('Path is required');
     }
 
-    if (!patch) {
-      throw new Error('Patch is required');
+    if (!singlePatch && !patchesArray) {
+      throw new Error('Either "patch" or "patches" is required');
     }
 
-    const resolvedPath = resolve(process.cwd(), path);
+    if (singlePatch && patchesArray) {
+      throw new Error('Provide either "patch" or "patches", not both');
+    }
+
+    const resolvedPath = resolve(process.cwd(), filePath);
 
     if (!existsSync(resolvedPath)) {
       throw new Error(`File not found: ${resolvedPath}`);
     }
 
+    // Normalize to array format
+    const patches: Array<{ diff: string; description?: string }> = singlePatch
+      ? [{ diff: singlePatch }]
+      : patchesArray!;
+
     const content = await readFile(resolvedPath, 'utf-8');
-    const lines = content.split('\n');
+    let lines = content.split('\n');
 
-    // Parse the patch
-    const hunks = this.parsePatch(patch);
+    let totalAdded = 0;
+    let totalRemoved = 0;
+    let totalHunks = 0;
+    const results: string[] = [];
 
-    if (hunks.length === 0) {
-      throw new Error('No valid hunks found in patch');
-    }
+    // Apply each patch in order
+    for (let i = 0; i < patches.length; i++) {
+      const { diff, description } = patches[i];
 
-    // Apply hunks in reverse order to preserve line numbers
-    const sortedHunks = [...hunks].sort((a, b) => b.oldStart - a.oldStart);
+      // Parse the patch
+      const hunks = this.parsePatch(diff);
 
-    let linesAdded = 0;
-    let linesRemoved = 0;
+      if (hunks.length === 0) {
+        const msg = description
+          ? `Patch ${i + 1} (${description}): No valid hunks found`
+          : `Patch ${i + 1}: No valid hunks found`;
+        results.push(msg);
+        continue;
+      }
 
-    for (const hunk of sortedHunks) {
-      const result = this.applyHunk(lines, hunk);
-      lines.splice(0, lines.length, ...result.lines);
-      linesAdded += result.added;
-      linesRemoved += result.removed;
+      // Apply hunks in reverse order to preserve line numbers
+      const sortedHunks = [...hunks].sort((a, b) => b.oldStart - a.oldStart);
+
+      let linesAdded = 0;
+      let linesRemoved = 0;
+
+      for (const hunk of sortedHunks) {
+        const result = this.applyHunk(lines, hunk);
+        lines = result.lines;
+        linesAdded += result.added;
+        linesRemoved += result.removed;
+      }
+
+      totalAdded += linesAdded;
+      totalRemoved += linesRemoved;
+      totalHunks += hunks.length;
+
+      const patchLabel = description ? `${description}` : `Patch ${i + 1}`;
+      results.push(`${patchLabel}: ${hunks.length} hunk(s), +${linesAdded}/-${linesRemoved}`);
     }
 
     const newContent = lines.join('\n');
@@ -81,15 +133,20 @@ export class PatchFileTool extends BaseTool {
     // Record change for undo
     recordChange({
       operation: 'edit',
-      filePath: path,
+      filePath,
       newContent,
-      description: `Patched ${path}: ${hunks.length} hunk(s), +${linesAdded}/-${linesRemoved} lines`,
+      description: `Patched ${filePath}: ${patches.length} patch(es), ${totalHunks} hunk(s), +${totalAdded}/-${totalRemoved} lines`,
     });
 
     // Write the patched file
     await writeFile(resolvedPath, newContent, 'utf-8');
 
-    return `Patched ${path}: ${hunks.length} hunk(s) applied, +${linesAdded}/-${linesRemoved} lines`;
+    // Format output
+    if (patches.length === 1) {
+      return `Patched ${filePath}: ${totalHunks} hunk(s) applied, +${totalAdded}/-${totalRemoved} lines`;
+    }
+
+    return `Patched ${filePath} with ${patches.length} patches:\n${results.map(r => `  - ${r}`).join('\n')}\nTotal: ${totalHunks} hunk(s), +${totalAdded}/-${totalRemoved} lines`;
   }
 
   private parsePatch(patch: string): Hunk[] {

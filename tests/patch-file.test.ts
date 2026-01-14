@@ -31,8 +31,9 @@ describe('PatchFileTool', () => {
       expect(def.description).toContain('unified diff patch');
       expect(def.input_schema.properties).toHaveProperty('path');
       expect(def.input_schema.properties).toHaveProperty('patch');
+      expect(def.input_schema.properties).toHaveProperty('patches');
       expect(def.input_schema.required).toContain('path');
-      expect(def.input_schema.required).toContain('patch');
+      expect(def.input_schema.required).not.toContain('patch'); // patch is optional (can use patches array)
     });
   });
 
@@ -44,7 +45,7 @@ describe('PatchFileTool', () => {
 
     it('throws error when patch is missing', async () => {
       await expect(tool.execute({ path: 'test.txt' }))
-        .rejects.toThrow('Patch is required');
+        .rejects.toThrow('Either "patch" or "patches" is required');
     });
 
     it('throws error when file does not exist', async () => {
@@ -54,14 +55,17 @@ describe('PatchFileTool', () => {
       })).rejects.toThrow('File not found');
     });
 
-    it('throws error when no valid hunks found', async () => {
+    it('returns message when no valid hunks found', async () => {
       const filePath = join(testDir, 'test.txt');
       writeFileSync(filePath, 'hello world');
 
-      await expect(tool.execute({
+      const result = await tool.execute({
         path: filePath,
         patch: 'not a valid patch',
-      })).rejects.toThrow('No valid hunks found in patch');
+      });
+
+      // With multi-patch support, invalid patches don't throw - they're reported in results
+      expect(result).toContain('0 hunk(s) applied');
     });
 
     it('applies a simple single-line patch', async () => {

@@ -29,3 +29,5 @@ export { GotoDefinitionTool } from './tools/goto-definition.js';
 export { GetDependencyGraphTool } from './tools/get-dependency-graph.js';
 export { GetInheritanceTool } from './tools/get-inheritance.js';
 export { GetCallGraphTool } from './tools/get-call-graph.js';
+export { ShowImpactTool } from './tools/show-impact.js';
+export { GetIndexStatusTool } from './tools/get-index-status.js';

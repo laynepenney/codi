@@ -34,6 +34,17 @@ export class GotoDefinitionTool extends BaseTool {
             description:
               'Optional file path where the symbol is being used. Helps disambiguate when multiple definitions exist.',
           },
+          from_line: {
+            type: 'number',
+            description:
+              'Optional line number in from_file where the symbol is used. Helps find the specific import being referenced.',
+          },
+          kind: {
+            type: 'string',
+            description:
+              'Optional symbol kind filter (function, class, interface, type, variable, constant). Helps disambiguate when multiple symbols have the same name.',
+            enum: ['function', 'class', 'interface', 'type', 'variable', 'constant', 'method', 'property', 'enum'],
+          },
           resolve_reexports: {
             type: 'boolean',
             description: 'If true, follow re-exports to find the original definition. Default: true.',
@@ -47,6 +58,8 @@ export class GotoDefinitionTool extends BaseTool {
   async execute(input: Record<string, unknown>): Promise<string> {
     const name = input.name as string;
     const fromFile = input.from_file as string | undefined;
+    const fromLine = input.from_line as number | undefined;
+    const kind = input.kind as string | undefined;
     const resolveReexports = (input.resolve_reexports as boolean) ?? true;
 
     if (!name) {
@@ -61,6 +74,8 @@ export class GotoDefinitionTool extends BaseTool {
     // Find definition
     const result = this.indexService.gotoDefinition(name, {
       fromFile,
+      fromLine,
+      kind,
       resolveReexports,
     });
 

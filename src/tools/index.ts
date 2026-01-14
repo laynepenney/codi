@@ -13,6 +13,8 @@ export { AnalyzeImageTool } from './analyze-image.js';
 export { RunTestsTool } from './run-tests.js';
 export { RAGSearchTool } from './rag-search.js';
 export { WebSearchTool } from './web-search.js';
+export { RefactorTool } from './refactor.js';
+export { ShellInfoTool } from './shell-info.js';
 
 // Symbol index tools
 export {
@@ -22,6 +24,8 @@ export {
   GetDependencyGraphTool,
   GetInheritanceTool,
   GetCallGraphTool,
+  ShowImpactTool,
+  GetIndexStatusTool,
 } from '../symbol-index/index.js';
 
 import { globalRegistry } from './registry.js';
@@ -38,6 +42,8 @@ import { AnalyzeImageTool } from './analyze-image.js';
 import { RunTestsTool } from './run-tests.js';
 import { RAGSearchTool } from './rag-search.js';
 import { WebSearchTool } from './web-search.js';
+import { RefactorTool } from './refactor.js';
+import { ShellInfoTool } from './shell-info.js';
 import type { Retriever } from '../rag/retriever.js';
 import type { SymbolIndexService } from '../symbol-index/service.js';
 import {
@@ -47,6 +53,8 @@ import {
   GetDependencyGraphTool,
   GetInheritanceTool,
   GetCallGraphTool,
+  ShowImpactTool,
+  GetIndexStatusTool,
 } from '../symbol-index/index.js';
 
 /**
@@ -76,6 +84,12 @@ export function registerDefaultTools(): void {
 
   // Web search
   globalRegistry.register(new WebSearchTool());
+
+  // Refactoring
+  globalRegistry.register(new RefactorTool());
+
+  // Environment info
+  globalRegistry.register(new ShellInfoTool());
 }
 
 /**
@@ -91,11 +105,13 @@ export function registerRAGSearchTool(retriever: Retriever): RAGSearchTool {
 /**
  * Register symbol index tools with a symbol index service.
  */
-export function registerSymbolIndexTools(indexService: SymbolIndexService): void {
+export function registerSymbolIndexTools(indexService: SymbolIndexService, projectRoot?: string): void {
   globalRegistry.register(new FindSymbolTool(indexService));
   globalRegistry.register(new FindReferencesTool(indexService));
   globalRegistry.register(new GotoDefinitionTool(indexService));
   globalRegistry.register(new GetDependencyGraphTool(indexService));
   globalRegistry.register(new GetInheritanceTool(indexService));
   globalRegistry.register(new GetCallGraphTool(indexService));
+  globalRegistry.register(new ShowImpactTool(indexService));
+  globalRegistry.register(new GetIndexStatusTool(indexService, projectRoot || process.cwd()));
 }
