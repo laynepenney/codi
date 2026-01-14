@@ -14,6 +14,15 @@ This roadmap outlines planned improvements to Codi's tool suite based on real-wo
 - `bash`: Structured output with exit code, duration, and separate stdout/stderr sections
 - `find_references`: Added summary counts by type and "files with most references" section
 
+**Phases 1-5 Implemented:**
+- `goto_definition`: Added `kind` and `from_line` parameters for symbol disambiguation
+- `show_impact`: New tool for analyzing change impact on dependent files
+- `patch_file`: Multi-patch support via `patches` array parameter
+- `refactor`: New atomic search-and-replace tool with regex support and dry-run mode
+- `run_tests`: Added `changed_files` param for git-aware test filtering
+- `shell_info`: New tool for capturing environment information
+- `get_index_status`: New tool for checking index freshness and listing stale files
+
 ---
 
 ## Phase 1: Search & Navigation Enhancements
@@ -44,56 +53,71 @@ search_codebase({
 
 | Tool | Improvement | Status |
 |------|-------------|--------|
-| `goto_definition` | Add optional `line`/`column` parameters | Pending |
+| `goto_definition` | Added `kind` filter and `from_line` parameters | Done |
 | `find_references` | Group by type with per-file counts | Done |
-| NEW: `show_impact` | Show dependent files and diff preview | Pending |
+| `show_impact` | New tool: analyze change impact and dependent files | Done |
 
 ---
 
 ## Phase 2: Batch Operations & Refactoring
 
+**Status: Complete**
+
 ### 2.1 Multi-Patch Support
 
-**Current limitation:** `patch_file` only accepts one patch at a time, requiring multiple round-trips for multi-location changes.
+**Status: Done**
 
-**Proposed:**
+`patch_file` now accepts either a single `patch` or a `patches` array:
+
 ```typescript
 patch_file({
   path: "src/index.ts",
   patches: [
-    { diff: "..." },  // Add CLI option
-    { diff: "..." }   // Update help text
+    { diff: "...", description: "Add CLI option" },
+    { diff: "...", description: "Update help text" }
   ]
 })
 ```
 
 ### 2.2 Atomic Refactor Tool
 
-New tool for search-and-replace across the codebase:
+**Status: Done**
+
+New `refactor` tool for search-and-replace across the codebase:
 
 ```typescript
 refactor({
-  searchQuery: "PASTE_DEBOUNCE_MS",
-  replaceWith: "DEFAULT_PASTE_DEBOUNCE_MS",
-  scope?: "src/"  // optional directory scope
+  search: "PASTE_DEBOUNCE_MS",
+  replace: "DEFAULT_PASTE_DEBOUNCE_MS",
+  scope: "src/",        // optional directory scope
+  file_pattern: "*.ts", // optional glob filter
+  is_regex: false,      // enable regex mode
+  dry_run: true,        // preview changes without applying
+  max_files: 50         // safety limit
 })
-// Returns: { filesChanged: 3, conflicts: [], summary: "..." }
+// Returns: summary of files changed with diff preview
 ```
-
-Internally uses semantic search + `edit_file`, applies all changes atomically.
 
 ---
 
 ## Phase 3: Testing Integration
 
-**Status: Partially Complete**
+**Status: Complete**
 
 ### 3.1 Smart Test Filtering
 
 | Feature | Status |
 |---------|--------|
 | Filter by pattern | Done (existing `filter` param) |
-| Auto-detect from git status (`changedFiles`) | Pending |
+| Auto-detect from git status (`changed_files`) | Done |
+
+The `changed_files` parameter auto-detects modified files from git status and runs only related tests:
+
+```typescript
+run_tests({
+  changed_files: true  // auto-detect and filter tests
+})
+```
 
 ### 3.2 Structured Test Output
 
@@ -154,24 +178,29 @@ Features:
 
 ### 4.2 Environment Snapshot Tool
 
-**Status: Pending**
+**Status: Done**
 
-New tool to capture runtime environment:
+New `shell_info` tool to capture runtime environment:
 
 ```typescript
 shell_info({
-  commands: ["node -v", "pnpm -v", "git --version"]
+  commands: ["node -v", "pnpm -v", "git --version"],
+  include_defaults: true,  // include common version checks
+  cwd: "/path/to/project"  // optional working directory
 })
-// Returns: { "node -v": "v22.0.0", "pnpm -v": "9.0.0", ... }
 ```
 
-Useful for debugging environment-specific issues.
+Returns formatted environment info with available/unavailable sections. Default commands check: node, npm, pnpm, yarn, git, python, go, rustc, java.
 
 ---
 
 ## Phase 5: Indexing & Performance
 
+**Status: Partially Complete**
+
 ### 5.1 Persistent Project Index
+
+**Status: Pending**
 
 **Current:** RAG indexing runs on startup, symbol index requires manual rebuild.
 
@@ -183,16 +212,21 @@ Useful for debugging environment-specific issues.
 
 ### 5.2 Index Freshness Detection
 
+**Status: Done**
+
+New `get_index_status` tool:
+
 ```typescript
-get_index_status()
-// Returns: {
-//   version: "abc123",
-//   lastUpdated: "2024-01-14T10:00:00Z",
-//   filesIndexed: 150,
-//   stale: false,
-//   stalePaths: []  // files modified since last index
-// }
+get_index_status({
+  check_freshness: true,  // check for stale files
+  max_stale_files: 20     // limit listed stale files
+})
 ```
+
+Returns:
+- Statistics: files indexed, total symbols, imports, dependencies, index size
+- Timing: last full rebuild, last update (relative times)
+- Freshness: lists files modified since last index update
 
 ---
 
@@ -271,11 +305,11 @@ User-configurable toolset via `.codi-tools.json`:
 
 | Phase | Effort | Impact | Priority | Status |
 |-------|--------|--------|----------|--------|
-| Phase 1: Search & Navigation | Medium | High | **P0** | **Partial** |
-| Phase 2: Batch Operations | Medium | High | **P0** | Pending |
-| Phase 3: Testing Integration | Low | Medium | **P1** | **Partial** |
-| Phase 4: Shell & Environment | Low | Medium | **P1** | **Partial** |
-| Phase 5: Indexing & Performance | High | High | **P1** | Pending |
+| Phase 1: Search & Navigation | Medium | High | **P0** | **Complete** |
+| Phase 2: Batch Operations | Medium | High | **P0** | **Complete** |
+| Phase 3: Testing Integration | Low | Medium | **P1** | **Complete** |
+| Phase 4: Shell & Environment | Low | Medium | **P1** | **Complete** |
+| Phase 5: Indexing & Performance | High | High | **P1** | **Partial** |
 | Phase 6: Standardization | Medium | Medium | **P2** | Pending |
 | Phase 7: Documentation & Config | Low | Low | **P2** | Pending |
 
