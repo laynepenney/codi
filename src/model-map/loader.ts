@@ -424,17 +424,20 @@ export function getExampleModelMap(): string {
       fast: {
         anthropic: 'haiku',
         openai: 'gpt-5-nano',
-        'ollama': 'local',
+        ollama: 'local',
+        'ollama-cloud': 'cloud-fast',
       },
       capable: {
         anthropic: 'sonnet',
         openai: 'gpt-5',
-        'ollama': 'local',
+        ollama: 'local',
+        'ollama-cloud': 'cloud-coder',
       },
       reasoning: {
         anthropic: 'opus',
         openai: 'gpt-5',
-        'ollama': 'local',
+        ollama: 'local',
+        'ollama-cloud': 'cloud-reasoning',
       },
     },
     tasks: {

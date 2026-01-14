@@ -341,9 +341,13 @@ model-roles:
   fast:
     anthropic: haiku
     openai: gpt-5-nano
+    ollama: local
+    ollama-cloud: cloud-fast
   capable:
     anthropic: sonnet
     openai: gpt-5
+    ollama: local
+    ollama-cloud: cloud-coder
 
 pipelines:
   code-review:
