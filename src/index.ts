@@ -799,6 +799,25 @@ function handleSessionOutput(output: string): void {
       break;
     }
 
+    case '__CONFIG_HELP__': {
+      console.log(chalk.bold('\nUsage:'));
+      console.log(chalk.dim('  /config <subcommand>'));
+      console.log(chalk.bold('\nSubcommands:'));
+      console.log(chalk.dim('  init      Create a starter config file'));
+      console.log(chalk.dim('  show      Display the current effective configuration'));
+      console.log(chalk.dim('  example   Print an example configuration'));
+      console.log(chalk.bold('\nOptions:'));
+      console.log(chalk.dim('  -h, --help  Show this help'));
+      break;
+    }
+
+    case '__CONFIG_UNKNOWN_OPTION__': {
+      const option = parts.slice(1).join(':');
+      console.log(chalk.red(`\nUnknown option: ${option}`));
+      console.log(chalk.dim('Run /config --help for usage.'));
+      break;
+    }
+
     default:
       console.log(chalk.dim(output));
   }
