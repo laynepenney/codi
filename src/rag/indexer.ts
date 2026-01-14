@@ -194,7 +194,7 @@ export class BackgroundIndexer {
 
   /**
    * Index all matching files in the project.
-   * Uses parallel processing and only re-indexes changed files.
+   * Uses parallel processing for embedding generation, sequential writes to vector store.
    */
   async indexAll(): Promise<IndexStats> {
     if (this.isIndexing) {
@@ -214,7 +214,7 @@ export class BackgroundIndexer {
       for (const cachedFile of this.indexedFiles.keys()) {
         if (!allFilesSet.has(cachedFile)) {
           this.indexedFiles.delete(cachedFile);
-          // Remove from vector store
+          // Remove from vector store (sequential)
           await this.vectorStore.deleteByFile(cachedFile);
         }
       }
@@ -231,25 +231,46 @@ export class BackgroundIndexer {
 
       let processed = 0;
 
-      // Process files in parallel batches
+      // Process files in parallel batches for embedding generation
+      // but write to vector store sequentially
       for (let i = 0; i < filesToIndex.length; i += this.parallelJobs) {
         const batch = filesToIndex.slice(i, i + this.parallelJobs);
 
-        // Process batch in parallel
-        await Promise.all(
+        // Step 1: Generate embeddings in parallel (slow API calls)
+        const batchResults = await Promise.all(
           batch.map(async (file) => {
             try {
-              await this.indexFile(file);
-              this.updateFileCache(file);
+              const result = await this.prepareFileForIndexing(file);
+              return { file, result, error: null };
             } catch (err) {
-              // Log error but continue with other files
-              console.error(`Failed to index ${file}: ${err}`);
+              return { file, result: null, error: err };
             }
-
-            processed++;
-            this.onProgress?.(processed, filesToIndex.length, path.relative(this.projectPath, file));
           })
         );
+
+        // Step 2: Write to vector store sequentially (avoids concurrent write conflicts)
+        for (const { file, result, error } of batchResults) {
+          if (error) {
+            console.error(`Failed to index ${file}: ${error}`);
+          } else if (result && result.chunks.length > 0) {
+            try {
+              // Delete existing chunks for this file
+              await this.vectorStore.deleteByFile(file);
+              // Write new chunks
+              await this.vectorStore.batchUpsert(result.chunks, result.embeddings);
+              this.totalChunks += result.chunks.length;
+              this.updateFileCache(file);
+            } catch (err) {
+              console.error(`Failed to write index for ${file}: ${err}`);
+            }
+          } else {
+            // File was processed but had no chunks (empty/binary/excluded)
+            this.updateFileCache(file);
+          }
+
+          processed++;
+          this.onProgress?.(processed, filesToIndex.length, path.relative(this.projectPath, file));
+        }
       }
 
       this.lastIndexed = new Date();
@@ -263,13 +284,17 @@ export class BackgroundIndexer {
   }
 
   /**
-   * Index a single file.
+   * Prepare a file for indexing by reading, chunking, and generating embeddings.
+   * This can be run in parallel as it doesn't write to the vector store.
    */
-  async indexFile(filePath: string): Promise<number> {
+  private async prepareFileForIndexing(filePath: string): Promise<{
+    chunks: import('./types.js').CodeChunk[];
+    embeddings: number[][];
+  } | null> {
     // Skip excluded paths (safety check in case glob filter misses some)
     const relativePath = path.relative(this.projectPath, filePath);
     if (this.isExcludedPath(relativePath)) {
-      return 0;
+      return null;
     }
 
     // Read file content
@@ -277,41 +302,42 @@ export class BackgroundIndexer {
 
     // Skip binary or very large files
     if (this.isBinaryContent(content) || content.length > 1000000) {
+      return null;
+    }
+
+    // Chunk the file
+    const chunks = this.chunker.chunk(content, filePath, this.projectPath);
+
+    if (chunks.length === 0) {
+      return null;
+    }
+
+    // Generate embeddings for all chunks
+    const texts = chunks.map((c) => c.content);
+    const embeddings = await this.embeddingProvider.embed(texts);
+
+    return { chunks, embeddings };
+  }
+
+  /**
+   * Index a single file.
+   * Used for incremental updates from file watcher.
+   */
+  async indexFile(filePath: string): Promise<number> {
+    const result = await this.prepareFileForIndexing(filePath);
+
+    if (!result || result.chunks.length === 0) {
       return 0;
     }
 
     // Delete existing chunks for this file
     await this.vectorStore.deleteByFile(filePath);
 
-    // Chunk the file
-    const chunks = this.chunker.chunk(content, filePath, this.projectPath);
+    // Write new chunks using batch upsert
+    await this.vectorStore.batchUpsert(result.chunks, result.embeddings);
+    this.totalChunks += result.chunks.length;
 
-    if (chunks.length === 0) {
-      return 0;
-    }
-
-    // Generate embeddings in batches
-    const batchSize = 10;
-    let indexed = 0;
-
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
-      const texts = batch.map((c) => c.content);
-
-      try {
-        const embeddings = await this.embeddingProvider.embed(texts);
-
-        for (let j = 0; j < batch.length; j++) {
-          await this.vectorStore.upsert(batch[j], embeddings[j]);
-          indexed++;
-          this.totalChunks++;
-        }
-      } catch (err) {
-        console.error(`Failed to embed chunks for ${filePath}: ${err}`);
-      }
-    }
-
-    return indexed;
+    return result.chunks.length;
   }
 
   /**
