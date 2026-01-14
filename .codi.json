@@ -13,7 +13,10 @@
       "approvedAt": "2026-01-14T04:54:02.371Z"
     }
   ],
-  "approvedCategories": [],
+  "approvedCategories": [
+    "git-safe",
+    "git-commit"
+  ],
   "dangerousPatterns": [],
   "systemPromptAdditions": "",
   "commandAliases": {
@@ -44,7 +47,8 @@
   },
   "mcpServers": {},
   "approvedPathCategories": [
-    "source-ts"
+    "source-ts",
+    "docs"
   ],
   "approvedPathPatterns": [
     {
