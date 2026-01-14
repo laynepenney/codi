@@ -64,6 +64,7 @@ function formatStats(stats: IndexStats): string {
 
 /**
  * /index command - Trigger reindexing.
+ * This is an operational command - it prints output directly and doesn't call the AI.
  */
 export const indexCommand: Command = {
   name: 'index',
@@ -80,16 +81,18 @@ Examples:
   /index --clear   - Clear and rebuild from scratch
   /index --status  - Show current indexing status`,
 
-  taskType: 'background',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     if (!indexer) {
-      return `RAG system is not enabled.
+      console.log(`
+RAG system is not enabled.
 
 To enable RAG:
-1. Set OPENAI_API_KEY environment variable (for OpenAI embeddings)
-   or ensure Ollama is running with nomic-embed-text model
-2. Add "rag": { "enabled": true } to your .codi.json
-3. Restart Codi`;
+  1. Set OPENAI_API_KEY environment variable (for OpenAI embeddings)
+     or ensure Ollama is running with nomic-embed-text model
+  2. Add "rag": { "enabled": true } to your .codi.json
+  3. Restart Codi
+`);
+      return null;
     }
 
     const shouldClear = args.includes('--clear');
@@ -97,12 +100,15 @@ To enable RAG:
 
     if (statusOnly) {
       const stats = await indexer.getStats();
-      return formatStats(stats);
+      console.log('\n' + formatStats(stats) + '\n');
+      return null;
     }
 
     if (indexer.isIndexingInProgress()) {
       const stats = await indexer.getStats();
-      return `Indexing is already in progress.\n\n${formatStats(stats)}`;
+      console.log('\nIndexing is already in progress.\n');
+      console.log(formatStats(stats) + '\n');
+      return null;
     }
 
     if (shouldClear) {
@@ -121,14 +127,16 @@ To enable RAG:
         console.error(`\nIndexing failed: ${err.message}`);
       });
 
-    return shouldClear
-      ? 'Cleared index and started rebuilding. Progress will be shown as files are indexed.'
-      : 'Started incremental indexing. Progress will be shown as files are indexed.';
+    console.log(shouldClear
+      ? '\nCleared index and started rebuilding. Progress will be shown as files are indexed.\n'
+      : '\nStarted incremental indexing. Progress will be shown as files are indexed.\n');
+    return null;
   },
 };
 
 /**
  * /rag command - Show RAG status and configuration.
+ * This is an informational command - it prints output directly and doesn't call the AI.
  */
 export const ragCommand: Command = {
   name: 'rag',
@@ -147,69 +155,73 @@ Examples:
   /rag config    - Show configuration
   /rag files     - List indexed files`,
 
-  taskType: 'fast',
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     const action = args.trim().toLowerCase();
 
     if (action === 'help') {
-      return `**RAG (Retrieval-Augmented Generation) System**
+      console.log(`
+RAG (Retrieval-Augmented Generation) System
 
 RAG enables semantic code search by indexing your codebase with embeddings.
 The AI can then search for relevant code snippets when answering questions.
 
-**Commands:**
-- /index - Build or rebuild the code index
-- /rag - Show status and statistics
-- /rag config - Show configuration
-- /rag files - List indexed files
+Commands:
+  /index        - Build or rebuild the code index
+  /rag          - Show status and statistics
+  /rag config   - Show configuration
+  /rag files    - List indexed files
 
-**How it works:**
-1. Code files are chunked into functions, classes, and blocks
-2. Each chunk is converted to a vector embedding
-3. When you ask a question, similar code is retrieved
-4. The AI uses this context to give better answers
+How it works:
+  1. Code files are chunked into functions, classes, and blocks
+  2. Each chunk is converted to a vector embedding
+  3. When you ask a question, similar code is retrieved
+  4. The AI uses this context to give better answers
 
-**Configuration (.codi.json):**
-\`\`\`json
-{
-  "rag": {
-    "enabled": true,
-    "embeddingProvider": "auto",
-    "topK": 5,
-    "minScore": 0.7
+Configuration (.codi.json):
+  {
+    "rag": {
+      "enabled": true,
+      "embeddingProvider": "auto",
+      "topK": 5,
+      "minScore": 0.7
+    }
   }
-}
-\`\`\``;
+`);
+      return null;
     }
 
     if (!indexer || !ragConfig) {
-      return `RAG system is not enabled.
+      console.log(`
+RAG system is not enabled.
 
 To enable RAG, add this to your .codi.json:
-\`\`\`json
-{
-  "rag": {
-    "enabled": true
+  {
+    "rag": {
+      "enabled": true
+    }
   }
-}
-\`\`\`
 
-Then restart Codi with an OpenAI API key set or Ollama running.`;
+Then restart Codi with an OpenAI API key set or Ollama running.
+`);
+      return null;
     }
 
     if (action === 'config') {
-      const lines: string[] = ['**RAG Configuration**\n'];
-      lines.push(`Enabled: ${ragConfig.enabled}`);
-      lines.push(`Embedding provider: ${ragConfig.embeddingProvider}`);
-      lines.push(`OpenAI model: ${ragConfig.openaiModel}`);
-      lines.push(`Ollama model: ${ragConfig.ollamaModel}`);
-      lines.push(`Top K results: ${ragConfig.topK}`);
-      lines.push(`Min similarity score: ${ragConfig.minScore}`);
-      lines.push(`Auto-index on startup: ${ragConfig.autoIndex}`);
-      lines.push(`Watch for file changes: ${ragConfig.watchFiles}`);
-      lines.push(`\nInclude patterns: ${ragConfig.includePatterns.length} patterns`);
-      lines.push(`Exclude patterns: ${ragConfig.excludePatterns.length} patterns`);
-      return lines.join('\n');
+      console.log(`
+RAG Configuration
+
+  Enabled:              ${ragConfig.enabled}
+  Embedding provider:   ${ragConfig.embeddingProvider}
+  OpenAI model:         ${ragConfig.openaiModel}
+  Ollama model:         ${ragConfig.ollamaModel}
+  Top K results:        ${ragConfig.topK}
+  Min similarity score: ${ragConfig.minScore}
+  Auto-index on startup: ${ragConfig.autoIndex}
+  Watch for file changes: ${ragConfig.watchFiles}
+  Include patterns:     ${ragConfig.includePatterns.length} patterns
+  Exclude patterns:     ${ragConfig.excludePatterns.length} patterns
+`);
+      return null;
     }
 
     if (action === 'files') {
@@ -218,30 +230,33 @@ Then restart Codi with an OpenAI API key set or Ollama running.`;
         const files = await vectorStore.getIndexedFiles();
 
         if (files.length === 0) {
-          return 'No files indexed yet. Run /index to build the index.';
+          console.log('\nNo files indexed yet. Run /index to build the index.\n');
+          return null;
         }
 
-        const lines: string[] = [`**Indexed Files (${files.length} total)**\n`];
+        console.log(`\nIndexed Files (${files.length} total)\n`);
 
         // Show first 50 files
         const displayFiles = files.slice(0, 50);
         for (const file of displayFiles) {
-          lines.push(`- ${file}`);
+          console.log(`  ${file}`);
         }
 
         if (files.length > 50) {
-          lines.push(`\n... and ${files.length - 50} more files`);
+          console.log(`\n  ... and ${files.length - 50} more files`);
         }
-
-        return lines.join('\n');
+        console.log('');
+        return null;
       } catch (err) {
-        return `Failed to list files: ${err}`;
+        console.log(`\nFailed to list files: ${err}\n`);
+        return null;
       }
     }
 
     // Default: show status
     const stats = await indexer.getStats();
-    return formatStats(stats);
+    console.log('\n' + formatStats(stats) + '\n');
+    return null;
   },
 };
 
