@@ -5,12 +5,15 @@ import { BaseProvider } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
 import { OllamaCloudProvider } from './ollama-cloud.js';
+import { MockProvider } from './mock.js';
 import type { ProviderConfig } from '../types.js';
 
 export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
 export { OllamaCloudProvider } from './ollama-cloud.js';
+export { MockProvider } from './mock.js';
+export type { MockProviderConfig, MockResponse, MockCall, MockResponsesFile } from './mock.js';
 
 export interface CreateProviderOptions extends ProviderConfig {
   type: string;
@@ -33,6 +36,17 @@ providerFactories.set('runpod', (options) => createRunPodProvider(
   options.apiKey
 ));
 providerFactories.set('ollama-cloud', (options) => new OllamaCloudProvider(options));
+providerFactories.set('mock', () => {
+  // Support file-based configuration for E2E tests
+  const responsesFile = process.env.CODI_MOCK_FILE;
+  const logFile = process.env.CODI_MOCK_LOG;
+
+  if (responsesFile) {
+    return new MockProvider({ responsesFile, logFile });
+  }
+
+  return new MockProvider({ logFile });
+});
 
 /**
  * Register a new provider factory.
