@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join, basename } from 'path';
 import type { ProjectInfo } from './commands/index.js';
 
@@ -201,13 +201,11 @@ export function loadContextFile(rootPath: string = process.cwd()): {
   content: string | null;
   path: string | null;
 } {
-  const fs = require('fs');
-
   for (const candidate of CONTEXT_FILE_CANDIDATES) {
     const fullPath = join(rootPath, candidate);
     if (existsSync(fullPath)) {
       try {
-        const content = fs.readFileSync(fullPath, 'utf-8');
+        const content = readFileSync(fullPath, 'utf-8');
         return { content, path: fullPath };
       } catch {
         // Try next candidate
