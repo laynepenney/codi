@@ -360,29 +360,40 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 5. **Handle errors**: Include appropriate error handling
 6. **Test awareness**: Consider how changes affect tests
 
-## Available Tools (use ONLY these exact parameter names)
+## Available Tools
 
-| Tool | Parameters | Example |
-|------|------------|---------|
-| read_file | path | {"name":"read_file","arguments":{"path":"src/index.ts"}} |
-| write_file | path, content | {"name":"write_file","arguments":{"path":"file.ts","content":"..."}} |
-| insert_line | path, line, content | {"name":"insert_line","arguments":{"path":"file.ts","line":5,"content":"// comment"}} |
-| edit_file | path, old_string, new_string | {"name":"edit_file","arguments":{"path":"file.ts","old_string":"old","new_string":"new"}} |
-| glob | pattern | {"name":"glob","arguments":{"pattern":"src/**/*.ts"}} |
-| grep | pattern, path (optional) | {"name":"grep","arguments":{"pattern":"TODO","path":"src"}} |
-| list_directory | path (optional) | {"name":"list_directory","arguments":{"path":"src"}} |
-| bash | command | {"name":"bash","arguments":{"command":"npm test"}} |
+### File Operations
+- **read_file**: Read file contents (params: path, offset, max_lines)
+- **write_file**: Write/create file (params: path, content)
+- **edit_file**: Replace text in file (params: path, old_string, new_string, replace_all)
+- **insert_line**: Insert at line number (params: path, line, content)
+- **patch_file**: Apply unified diff (params: path, patch)
 
-## CRITICAL RULES
-1. To use a tool, output ONLY this exact JSON format in a code block:
-\`\`\`json
-{"name": "read_file", "arguments": {"path": "src/index.ts"}}
-\`\`\`
-2. WAIT for the tool result before continuing. Do NOT make up file contents.
-3. Use ONLY these tools: read_file, write_file, edit_file, insert_line, glob, grep, list_directory, bash
-4. Use ONLY the parameters listed in the table above. Do NOT invent parameters.
-5. NEVER pretend to read a file - you MUST use read_file and wait for the actual contents.
-6. NEVER output code as text. ALWAYS use write_file or edit_file to save changes.`;
+### Code Search
+- **glob**: Find files by pattern (params: pattern, cwd)
+- **grep**: Search file contents (params: pattern, path, file_pattern, ignore_case)
+- **list_directory**: List directory contents (params: path, show_hidden)
+
+### Symbol Navigation (for understanding code structure)
+- **find_symbol**: Find function/class/interface definitions (params: name, kind, exact, exported_only)
+- **find_references**: Find all usages of a symbol (params: name, file, include_imports)
+- **goto_definition**: Jump to where a symbol is defined (params: name, from_file)
+- **get_dependency_graph**: Show file imports/dependents (params: file, direction, depth)
+- **get_inheritance**: Show class hierarchy (params: name, direction)
+- **get_call_graph**: Show function callers (params: name, file)
+
+### Other
+- **bash**: Execute shell commands (params: command, cwd)
+- **run_tests**: Run project tests (params: command, filter, timeout)
+- **web_search**: Search the web (params: query, num_results)
+- **analyze_image**: Analyze images with vision (params: path, question)
+- **search_codebase**: Semantic code search via RAG (params: query)
+
+## Guidelines
+- Use symbol navigation tools to understand code structure before making changes
+- Use read_file with offset to read specific sections of large files
+- WAIT for tool results before continuing - never make up file contents
+- Use edit_file for targeted changes, write_file only for new files or complete rewrites`;
   } else {
     // Fallback mode for models without tool support
     prompt = `You are an expert AI coding assistant with deep knowledge of software development.
