@@ -9,6 +9,11 @@ export interface Command {
   execute: (args: string, context: CommandContext) => Promise<string | null>;
 }
 
+function shouldShowHelp(args: string): boolean {
+  const trimmed = args.trim().toLowerCase();
+  return trimmed === 'help' || trimmed === '--help' || trimmed === '-h' || trimmed === '?';
+}
+
 /**
  * Session state passed to commands via context.
  * This replaces the global state pattern in session-commands.ts.
@@ -42,10 +47,25 @@ export interface ProjectInfo {
 const commands: Map<string, Command> = new Map();
 
 export function registerCommand(command: Command): void {
-  commands.set(command.name, command);
+  // Wrap the command so every command supports a standard help subcommand.
+  // This avoids duplicating help logic across individual command files.
+  const wrapped: Command = {
+    ...command,
+    execute: async (args: string, context: CommandContext): Promise<string | null> => {
+      if (shouldShowHelp(args)) {
+        const usage = command.usage?.trim();
+        if (usage) return usage;
+        return `No help available for /${command.name}.`;
+      }
+
+      return command.execute(args, context);
+    },
+  };
+
+  commands.set(command.name, wrapped);
   if (command.aliases) {
     for (const alias of command.aliases) {
-      commands.set(alias, command);
+      commands.set(alias, wrapped);
     }
   }
 }
