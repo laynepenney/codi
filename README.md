@@ -214,6 +214,23 @@ codi --provider runpod --endpoint-id your-endpoint-id
 
 </details>
 
+<details>
+<summary><strong>🔍 Symbol Index (Code Navigation)</strong></summary>
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/symbols rebuild [--deep] [--jobs N]` | `/sym`, `/index` | Rebuild the symbol index |
+| `/symbols update` | - | Incremental update of changed files |
+| `/symbols stats` | - | Show index statistics |
+| `/symbols search <name>` | - | Search for symbols by name |
+| `/symbols clear` | - | Clear the index |
+
+The symbol index enables IDE-like code navigation for the AI:
+- **Deep mode** (`--deep`): Tracks usage-based dependencies across files
+- **Parallel processing** (`--jobs N`): Speed up indexing with multiple workers
+
+</details>
+
 ---
 
 ## Tools
@@ -234,6 +251,21 @@ The AI has access to these tools for interacting with your codebase:
 | `web_search` | Search the web (no API key needed) |
 | `refactor` | Multi-file search and replace |
 | `generate_docs` | Extract documentation from source files |
+
+### Symbol Index Tools
+
+The AI can use these tools for IDE-like code navigation:
+
+| Tool | Description |
+|------|-------------|
+| `find_symbol` | Find symbol definitions by name (functions, classes, types) |
+| `find_references` | Find all files that import or use a symbol |
+| `get_dependency_graph` | Show file-level import/export dependencies |
+| `get_call_graph` | Show potential callers of a function |
+| `rebuild_index` | Rebuild the symbol index |
+| `get_index_status` | Check index status and freshness |
+
+> **Note:** Run `/symbols rebuild` to build the index before using symbol tools.
 
 ### Safety Features
 
