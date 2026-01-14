@@ -27,6 +27,7 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "better-sqlite3": "^12.6.0",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
@@ -37,7 +38,8 @@
     "openai": "^4.70.0",
     "ora": "^8.1.0",
     "ts-morph": "^27.0.2",
-    "vectra": "0.11.1"
+    "vectra": "0.11.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

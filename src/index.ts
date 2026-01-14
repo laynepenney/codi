@@ -296,6 +296,7 @@ import { formatDiffForTerminal, truncateDiff } from './diff.js';
 import { VERSION } from './version.js';
 import { spinner } from './spinner.js';
 import { logger, parseLogLevel, LogLevel } from './logger.js';
+import { MCPClientManager, startMCPServer } from './mcp/index.js';
 
 // CLI setup
 program
@@ -315,6 +316,8 @@ program
   .option('-c, --compress', 'Enable context compression (reduces token usage)')
   .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
   .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')
+  .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
+  .option('--no-mcp', 'Disable MCP server connections (ignore mcpServers in config)')
   .parse();
 
 const options = program.opts();
@@ -1970,6 +1973,16 @@ function handleSymbolsOutput(output: string): void {
  * @returns A promise that resolves when the interactive loop exits.
  */
 async function main() {
+  // Check if running as MCP server (stdio transport)
+  if (options.mcpServer) {
+    // Register tools so they can be exposed
+    registerDefaultTools();
+
+    // Start MCP server (blocks until connection closes)
+    await startMCPServer();
+    return;
+  }
+
   console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
@@ -2047,6 +2060,42 @@ async function main() {
   const loadedPlugins = await loadPluginsFromDirectory();
   if (loadedPlugins.length > 0) {
     console.log(chalk.dim(`Plugins: ${loadedPlugins.length} loaded (${loadedPlugins.map(p => p.plugin.name).join(', ')})`));
+  }
+
+  // Initialize MCP clients if configured and not disabled
+  let mcpManager: MCPClientManager | null = null;
+  if (options.mcp !== false && workspaceConfig?.mcpServers) {
+    const serverConfigs = Object.entries(workspaceConfig.mcpServers)
+      .filter(([_, config]) => config.enabled !== false);
+
+    if (serverConfigs.length > 0) {
+      mcpManager = new MCPClientManager();
+      let connectedCount = 0;
+
+      for (const [name, config] of serverConfigs) {
+        try {
+          await mcpManager.connect({
+            name,
+            command: config.command,
+            args: config.args,
+            env: config.env,
+            cwd: config.cwd,
+          });
+          connectedCount++;
+        } catch (err) {
+          console.error(chalk.yellow(`MCP '${name}': ${err instanceof Error ? err.message : err}`));
+        }
+      }
+
+      if (connectedCount > 0) {
+        // Get tools from MCP servers and register them
+        const mcpTools = await mcpManager.getAllTools();
+        for (const tool of mcpTools) {
+          globalRegistry.register(tool);
+        }
+        console.log(chalk.dim(`MCP: ${connectedCount} server(s), ${mcpTools.length} tool(s)`));
+      }
+    }
   }
 
   // Initialize RAG system if enabled
@@ -2179,6 +2228,10 @@ async function main() {
     // Shutdown RAG indexer if running
     if (ragIndexer) {
       ragIndexer.shutdown();
+    }
+    // Cleanup MCP connections
+    if (mcpManager) {
+      mcpManager.disconnectAll().catch(() => {});
     }
     console.log(chalk.dim('\nGoodbye!'));
     process.exit(0);
@@ -2412,6 +2465,10 @@ async function main() {
     // Handle built-in commands
     if (trimmed === '/exit' || trimmed === '/quit') {
       console.log(chalk.dim('\nGoodbye!'));
+      // Cleanup MCP connections
+      if (mcpManager) {
+        await mcpManager.disconnectAll();
+      }
       rl.close();
       process.exit(0);
     }

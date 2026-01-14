@@ -124,6 +124,22 @@ export interface WorkspaceConfig {
     /** Watch for file changes (default: true) */
     watchFiles?: boolean;
   };
+
+  /** MCP (Model Context Protocol) server configurations */
+  mcpServers?: {
+    [name: string]: {
+      /** Command to start the MCP server (e.g., "npx", "python") */
+      command: string;
+      /** Arguments to pass to the command */
+      args?: string[];
+      /** Environment variables (supports ${VAR} syntax for env substitution) */
+      env?: Record<string, string>;
+      /** Working directory for the server process */
+      cwd?: string;
+      /** Whether this server is enabled (default: true) */
+      enabled?: boolean;
+    };
+  };
 }
 
 /**
@@ -392,6 +408,21 @@ export function getExampleConfig(): string {
       minScore: 0.7,
       autoIndex: true,
       watchFiles: true,
+    },
+    mcpServers: {
+      // Example: filesystem server for enhanced file operations
+      // filesystem: {
+      //   command: 'npx',
+      //   args: ['@modelcontextprotocol/server-filesystem', '.'],
+      //   enabled: true,
+      // },
+      // Example: GitHub server for repo operations
+      // github: {
+      //   command: 'npx',
+      //   args: ['@modelcontextprotocol/server-github'],
+      //   env: { GITHUB_TOKEN: '${GITHUB_TOKEN}' },
+      //   enabled: true,
+      // },
     },
   };
 
