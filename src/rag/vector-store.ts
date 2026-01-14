@@ -186,26 +186,35 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
-    // vectra's queryItems signature: (vector, query, topK, filter?, isBm25?)
-    // The query string is for BM25 search - we pass empty string for pure vector search
-    const results = await this.index.queryItems(embedding, '', topK);
+    try {
+      // vectra's queryItems signature: (vector, query, topK, filter?, isBm25?)
+      // The query string is for BM25 search - we pass empty string for pure vector search
+      const results = await this.index.queryItems(embedding, '', topK);
 
-    return results
-      .filter((r) => r.score >= minScore)
-      .map((r) => ({
-        chunk: {
-          id: r.item.id,
-          content: r.item.metadata.content,
-          filePath: r.item.metadata.filePath,
-          relativePath: r.item.metadata.relativePath,
-          startLine: r.item.metadata.startLine,
-          endLine: r.item.metadata.endLine,
-          language: r.item.metadata.language,
-          type: r.item.metadata.chunkType as CodeChunk['type'],
-          name: r.item.metadata.name || undefined,
-        },
-        score: r.score,
-      }));
+      return results
+        .filter((r) => r.score >= minScore)
+        .map((r) => ({
+          chunk: {
+            id: r.item.id,
+            content: r.item.metadata.content,
+            filePath: r.item.metadata.filePath,
+            relativePath: r.item.metadata.relativePath,
+            startLine: r.item.metadata.startLine,
+            endLine: r.item.metadata.endLine,
+            language: r.item.metadata.language,
+            type: r.item.metadata.chunkType as CodeChunk['type'],
+            name: r.item.metadata.name || undefined,
+          },
+          score: r.score,
+        }));
+    } catch (error) {
+      // Index might be corrupted - try to recover
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        await this.repairIndex();
+        return [];
+      }
+      throw error;
+    }
   }
 
   /**
@@ -216,14 +225,23 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
-    const items = await this.index.listItems();
-    const files = new Set<string>();
+    try {
+      const items = await this.index.listItems();
+      const files = new Set<string>();
 
-    for (const item of items) {
-      files.add(item.metadata.filePath);
+      for (const item of items) {
+        files.add(item.metadata.filePath);
+      }
+
+      return Array.from(files);
+    } catch (error) {
+      // Index might be corrupted - try to recover
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        await this.repairIndex();
+        return [];
+      }
+      throw error;
     }
-
-    return Array.from(files);
   }
 
   /**
@@ -234,7 +252,6 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
-    const stats = await this.index.getIndexStats();
     let sizeBytes = 0;
 
     // Calculate directory size
@@ -249,10 +266,49 @@ export class VectorStore {
       }
     }
 
-    return {
-      itemCount: stats.items,
-      sizeBytes,
-    };
+    try {
+      const stats = await this.index.getIndexStats();
+      return {
+        itemCount: stats.items,
+        sizeBytes,
+      };
+    } catch (error) {
+      // Index might be corrupted - try to recover
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        await this.repairIndex();
+        return { itemCount: 0, sizeBytes: 0 };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Repair a corrupted index by clearing and recreating it.
+   */
+  private async repairIndex(): Promise<void> {
+    console.error('RAG index corrupted, recreating...');
+
+    // Delete corrupted files
+    if (fs.existsSync(this.indexPath)) {
+      const files = fs.readdirSync(this.indexPath);
+      for (const file of files) {
+        const filePath = path.join(this.indexPath, file);
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          // Ignore delete errors
+        }
+      }
+    }
+
+    // Recreate index
+    this.index = new LocalIndex<ChunkMetadata>(this.indexPath);
+    await this.index.createIndex({
+      version: 1,
+      metadata_config: {
+        indexed: ['filePath', 'language', 'chunkType'],
+      },
+    });
   }
 
   /**
