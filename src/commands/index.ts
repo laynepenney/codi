@@ -53,9 +53,18 @@ export function registerCommand(command: Command): void {
     ...command,
     execute: async (args: string, context: CommandContext): Promise<string | null> => {
       if (shouldShowHelp(args)) {
+        // Display help locally and return null to avoid API calls
         const usage = command.usage?.trim();
-        if (usage) return usage;
-        return `No help available for /${command.name}.`;
+        if (usage) {
+          console.log(`\nUsage: ${usage}`);
+          if (command.description) {
+            console.log(`\n${command.description}`);
+          }
+          console.log();
+        } else {
+          console.log(`\nNo help available for /${command.name}.\n`);
+        }
+        return null;
       }
 
       return command.execute(args, context);
