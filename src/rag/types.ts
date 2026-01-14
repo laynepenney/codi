@@ -106,7 +106,7 @@ export interface RAGConfig {
  * Default RAG configuration.
  */
 export const DEFAULT_RAG_CONFIG: RAGConfig = {
-  enabled: false,
+  enabled: true, // Enabled by default for semantic code search
   embeddingProvider: 'auto',
   openaiModel: 'text-embedding-3-small',
   ollamaModel: 'nomic-embed-text',

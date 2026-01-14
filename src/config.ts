@@ -220,7 +220,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   noTools: false,
   extractToolsFromText: true,
   commandAliases: {},
-  enableCompression: false,
+  enableCompression: true, // Enabled by default for token savings
   toolsConfig: {
     disabled: [],
     defaults: {},

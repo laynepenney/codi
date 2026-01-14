@@ -323,7 +323,7 @@ program
   .option('--debug', 'Show API and context details')
   .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
-  .option('-c, --compress', 'Enable context compression (reduces token usage)')
+  .option('-c, --compress', 'Context compression (enabled by default, use --no-compress to disable)')
   .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
   .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
@@ -2156,27 +2156,30 @@ async function main() {
     }
   }
 
-  // Initialize RAG system if enabled
+  // Initialize RAG system (enabled by default unless explicitly disabled)
   let ragIndexer: BackgroundIndexer | null = null;
   let ragRetriever: Retriever | null = null;
 
-  if (workspaceConfig?.rag?.enabled) {
+  // RAG is enabled by default - only skip if explicitly disabled
+  const ragEnabled = workspaceConfig?.rag?.enabled !== false;
+
+  if (ragEnabled) {
     try {
-      // Build RAG config from workspace config
+      // Build RAG config from workspace config (or use defaults)
       const ragConfig: RAGConfig = {
         ...DEFAULT_RAG_CONFIG,
         enabled: true,
-        embeddingProvider: workspaceConfig.rag.embeddingProvider ?? DEFAULT_RAG_CONFIG.embeddingProvider,
-        openaiModel: workspaceConfig.rag.openaiModel ?? DEFAULT_RAG_CONFIG.openaiModel,
-        ollamaModel: workspaceConfig.rag.ollamaModel ?? DEFAULT_RAG_CONFIG.ollamaModel,
-        ollamaBaseUrl: workspaceConfig.rag.ollamaBaseUrl ?? DEFAULT_RAG_CONFIG.ollamaBaseUrl,
-        topK: workspaceConfig.rag.topK ?? DEFAULT_RAG_CONFIG.topK,
-        minScore: workspaceConfig.rag.minScore ?? DEFAULT_RAG_CONFIG.minScore,
-        includePatterns: workspaceConfig.rag.includePatterns ?? DEFAULT_RAG_CONFIG.includePatterns,
-        excludePatterns: workspaceConfig.rag.excludePatterns ?? DEFAULT_RAG_CONFIG.excludePatterns,
-        autoIndex: workspaceConfig.rag.autoIndex ?? DEFAULT_RAG_CONFIG.autoIndex,
-        watchFiles: workspaceConfig.rag.watchFiles ?? DEFAULT_RAG_CONFIG.watchFiles,
-        parallelJobs: workspaceConfig.rag.parallelJobs,
+        embeddingProvider: workspaceConfig?.rag?.embeddingProvider ?? DEFAULT_RAG_CONFIG.embeddingProvider,
+        openaiModel: workspaceConfig?.rag?.openaiModel ?? DEFAULT_RAG_CONFIG.openaiModel,
+        ollamaModel: workspaceConfig?.rag?.ollamaModel ?? DEFAULT_RAG_CONFIG.ollamaModel,
+        ollamaBaseUrl: workspaceConfig?.rag?.ollamaBaseUrl ?? DEFAULT_RAG_CONFIG.ollamaBaseUrl,
+        topK: workspaceConfig?.rag?.topK ?? DEFAULT_RAG_CONFIG.topK,
+        minScore: workspaceConfig?.rag?.minScore ?? DEFAULT_RAG_CONFIG.minScore,
+        includePatterns: workspaceConfig?.rag?.includePatterns ?? DEFAULT_RAG_CONFIG.includePatterns,
+        excludePatterns: workspaceConfig?.rag?.excludePatterns ?? DEFAULT_RAG_CONFIG.excludePatterns,
+        autoIndex: workspaceConfig?.rag?.autoIndex ?? DEFAULT_RAG_CONFIG.autoIndex,
+        watchFiles: workspaceConfig?.rag?.watchFiles ?? DEFAULT_RAG_CONFIG.watchFiles,
+        parallelJobs: workspaceConfig?.rag?.parallelJobs,
       };
 
       const embeddingProvider = createEmbeddingProvider(ragConfig);
@@ -2208,7 +2211,13 @@ async function main() {
       setRAGConfig(ragConfig);
       registerRAGSearchTool(ragRetriever);
     } catch (err) {
-      console.error(chalk.red(`Failed to initialize RAG: ${err instanceof Error ? err.message : err}`));
+      // Gracefully handle missing embedding provider
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('No embedding provider') || errMsg.includes('OPENAI_API_KEY') || errMsg.includes('Ollama')) {
+        console.log(chalk.dim(`RAG: disabled (no embedding provider available)`));
+      } else {
+        console.error(chalk.red(`Failed to initialize RAG: ${errMsg}`));
+      }
     }
   }
 
@@ -2381,7 +2390,7 @@ async function main() {
     approvedPathCategories: resolvedConfig.approvedPathCategories,
     customDangerousPatterns,
     logLevel,
-    enableCompression: options.compress || resolvedConfig.enableCompression,
+    enableCompression: options.compress ?? resolvedConfig.enableCompression,
     onText: (text) => {
       // Stop spinner when we start receiving text
       if (!isStreaming) {

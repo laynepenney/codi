@@ -87,13 +87,14 @@ Examples:
   execute: async (args: string, _context: CommandContext): Promise<string | null> => {
     if (!indexer) {
       console.log(`
-RAG system is not enabled.
+RAG system is not available.
 
-To enable RAG:
+RAG is enabled by default but requires an embedding provider:
   1. Set OPENAI_API_KEY environment variable (for OpenAI embeddings)
      or ensure Ollama is running with nomic-embed-text model
-  2. Add "rag": { "enabled": true } to your .codi.json
-  3. Restart Codi
+  2. Restart Codi
+
+To disable RAG: add "rag": { "enabled": false } to your .codi.json
 `);
       return null;
     }
