@@ -20,15 +20,15 @@ When changing this area:
 
 ```bash
 # Development
-npm run dev              # Run with TypeScript directly
-npm run build            # Compile to JavaScript
-npm test                 # Run tests
-npm run test:watch       # Watch mode
+pnpm dev              # Run with TypeScript directly
+pnpm build            # Compile to JavaScript
+pnpm test             # Run tests
+pnpm test:watch       # Watch mode
 
 # Testing with different providers
-ANTHROPIC_API_KEY=... npm run dev
-OPENAI_API_KEY=... npm run dev -- --provider openai
-npm run dev -- --provider ollama --model llama3.2
+ANTHROPIC_API_KEY=... pnpm dev
+OPENAI_API_KEY=... pnpm dev -- --provider openai
+pnpm dev -- --provider ollama --model llama3.2
 ```
 
 ## Architecture Overview
@@ -121,7 +121,7 @@ registerCommand(myCommand);
 
 ## Testing
 
-Tests use **Vitest** and are located in `tests/`. Run with `npm test`.
+Tests use **Vitest** and are located in `tests/`. Run with `pnpm test`.
 
 Key test areas:
 - Tool execution and error handling

@@ -39,7 +39,7 @@ CODI_RUN_PTY_TESTS=1 pnpm test
 ```
 
 # Optional: Link globally
-npm link
+pnpm link --global
 ```
 
 ## Quick Start
@@ -47,26 +47,26 @@ npm link
 ### With Claude API (Recommended)
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
-npm run dev
+pnpm dev
 ```
 
 ### With OpenAI API
 ```bash
 export OPENAI_API_KEY="your-key-here"
-npm run dev -- --provider openai
+pnpm dev -- --provider openai
 ```
 
 ### With Ollama (Local/Free)
 ```bash
 # Install Ollama from https://ollama.ai
 ollama pull llama3.2
-npm run dev -- --provider ollama --model llama3.2
+pnpm dev -- --provider ollama --model llama3.2
 ```
 
 ### With RunPod Serverless
 ```bash
 export RUNPOD_API_KEY="your-key-here"
-npm run dev -- --provider runpod --endpoint-id your-endpoint-id
+pnpm dev -- --provider runpod --endpoint-id your-endpoint-id
 ```
 
 ## CLI Options
@@ -436,19 +436,19 @@ Implementation notes:
 
 ```bash
 # Run in development mode (with TypeScript)
-npm run dev
+pnpm dev
 
 # Run tests
-npm test
+pnpm test
 
 # Run tests in watch mode
-npm run test:watch
+pnpm test:watch
 
 # Build for production
-npm run build
+pnpm build
 
 # Start production build
-npm start
+pnpm start
 ```
 
 ## Roadmap / Planned Features
@@ -589,7 +589,7 @@ Model roles allow you to create provider-agnostic pipelines. The same pipeline w
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Run tests (`npm test`)
+4. Run tests (`pnpm test`)
 5. Commit your changes (`git commit -m 'Add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request

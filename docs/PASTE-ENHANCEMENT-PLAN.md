@@ -170,7 +170,7 @@ describe('Paste Detection', () => {
 
 ```bash
 # Build
-npm run build
+pnpm build
 
 # Test manually
 codi

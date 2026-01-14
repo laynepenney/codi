@@ -60,18 +60,8 @@ class MyTool extends BaseTool {
 export declare class MyTool implements BaseTool;
 
 ```
-5.  **Start Testing It**: To execute your newly added tool, run npm commands with tool name after running the start command.
+5.  **Test Your Tool**: Run tests to ensure your tool works correctly:
 
     ```bash
-npm run start --tool my-tool
-
-# Or use it dynamically from your main script:
-const { getTools } = require('../tools/toolRegistry')
-getTools().then((MyToolTools) => {
-    return MyToolTools.find()
-        .subscribe(
-            (r) => { console.log(r.name) },
-            (e) => { console.error(e) }
-        );
-}).catch();
+pnpm test -- tests/my-tool.test.ts
 ```
