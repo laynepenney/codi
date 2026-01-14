@@ -1,6 +1,6 @@
 {
-  "provider": "openai",
-  "model": "gpt-5.2",
+  "provider": "ollama-native",
+  "model": "gpt-oss:120b-cloud",
   "autoApprove": [
     "read_file",
     "glob",
@@ -63,7 +63,7 @@
   },
   "rag": {
     "enabled": true,
-    "embeddingProvider": "auto",
+    "embeddingProvider": "ollama",
     "topK": 5,
     "minScore": 0.7,
     "autoIndex": true,
