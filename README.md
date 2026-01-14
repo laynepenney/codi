@@ -15,16 +15,28 @@ Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local
 
 ## Installation
 
+## Requirements
+- Node `>=22 <23`
+- pnpm (via Corepack)
+
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/codi.git
 cd codi
 
 # Install dependencies
-npm install
+corepack enable
+pnpm install
 
 # Build the project
-npm run build
+pnpm run build
+
+### PTY integration tests
+Some CLI integration tests require a real TTY (powered by `node-pty`) and are skipped by default. Enable them locally with:
+
+```bash
+CODI_RUN_PTY_TESTS=1 pnpm test
+```
 
 # Optional: Link globally
 npm link

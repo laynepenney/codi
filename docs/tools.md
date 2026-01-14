@@ -1,8 +1,15 @@
-## PTY harness (planned)
-For interactive CLI integration tests (e.g., testing the “open files” workflow end-to-end), see:
-- `plans/pty-harness.md`
+## PTY harness
+For interactive CLI integration tests (running the CLI in a *real TTY* and asserting on interactive output), use:
+- `tests/helpers/pty.ts` (`PtyHarness`)
 
-The plan proposes a `node-pty` based harness that can spawn `codi`, send keystrokes, and assert on output and persisted session artifacts.
+### Enabling PTY tests
+PTY tests are **skipped by default** because `node-pty` can be flaky/unavailable in some CI/sandbox environments.
+
+Enable them locally with:
+
+```bash
+CODI_RUN_PTY_TESTS=1 pnpm test
+```
 
 ---
 
