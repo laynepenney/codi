@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" width="200" height="60">
+  <defs>
+    <linearGradient id="gradient-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#A78BFA"/>
+      <stop offset="100%" style="stop-color:#60A5FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Terminal bracket icon -->
+  <g transform="translate(10, 10)">
+    <!-- Outer rounded square -->
+    <rect x="0" y="0" width="40" height="40" rx="8" fill="url(#gradient-dark)"/>
+
+    <!-- Terminal prompt > -->
+    <path d="M12 14 L22 20 L12 26" stroke="#1a1a2e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+    <!-- Cursor line -->
+    <line x1="24" y1="26" x2="32" y2="26" stroke="#1a1a2e" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- AI sparkle -->
+    <circle cx="34" cy="10" r="3" fill="#1a1a2e" opacity="0.9"/>
+    <circle cx="38" cy="6" r="1.5" fill="#1a1a2e" opacity="0.7"/>
+  </g>
+
+  <!-- Text "Codi" -->
+  <text x="60" y="40" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="700" fill="url(#gradient-dark)">Codi</text>
+</svg>
