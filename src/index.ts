@@ -373,6 +373,7 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 - **glob**: Find files by pattern (params: pattern, cwd)
 - **grep**: Search file contents (params: pattern, path, file_pattern, ignore_case)
 - **list_directory**: List directory contents (params: path, show_hidden)
+- **search_codebase**: Semantic code search via RAG (params: query)
 
 ### Symbol Navigation (for understanding code structure)
 - **find_symbol**: Find function/class/interface definitions (params: name, kind, exact, exported_only)
@@ -387,7 +388,6 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 - **run_tests**: Run project tests (params: command, filter, timeout)
 - **web_search**: Search the web (params: query, num_results)
 - **analyze_image**: Analyze images with vision (params: path, question)
-- **search_codebase**: Semantic code search via RAG (params: query)
 
 ## Guidelines
 - Use symbol navigation tools to understand code structure before making changes
