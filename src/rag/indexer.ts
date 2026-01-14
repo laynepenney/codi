@@ -120,6 +120,12 @@ export class BackgroundIndexer {
    * Index a single file.
    */
   async indexFile(filePath: string): Promise<number> {
+    // Skip excluded paths (safety check in case glob filter misses some)
+    const relativePath = path.relative(this.projectPath, filePath);
+    if (this.isExcludedPath(relativePath)) {
+      return 0;
+    }
+
     // Read file content
     const content = await fs.promises.readFile(filePath, 'utf-8');
 
@@ -168,16 +174,31 @@ export class BackgroundIndexer {
   private async findFilesToIndex(): Promise<string[]> {
     const files: string[] = [];
 
+    // Ensure node_modules and other common directories are always excluded
+    // Use both patterns for compatibility with different glob versions
+    const ignorePatterns = [
+      ...this.config.excludePatterns,
+      '**/node_modules/**',
+      'node_modules/**',
+      '**/.git/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/.next/**',
+    ];
+
     for (const pattern of this.config.includePatterns) {
       const matches = await glob(pattern, {
         cwd: this.projectPath,
-        ignore: this.config.excludePatterns,
+        ignore: ignorePatterns,
         absolute: true,
         nodir: true,
+        dot: false,  // Don't match dotfiles by default
       });
 
       for (const file of matches) {
-        if (!files.includes(file)) {
+        // Double-check with hardcoded exclusion list
+        const relativePath = path.relative(this.projectPath, file);
+        if (!files.includes(file) && !this.isExcludedPath(relativePath)) {
           files.push(file);
         }
       }
@@ -202,6 +223,38 @@ export class BackgroundIndexer {
     }
 
     return nonPrintable / sampleSize > 0.1;
+  }
+
+  /**
+   * Check if a path should be excluded (hardcoded safety check).
+   * This catches files that might slip through glob's ignore patterns.
+   */
+  private isExcludedPath(relativePath: string): boolean {
+    // Normalize path separators for cross-platform
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+
+    // Hardcoded exclusions that should always be skipped
+    const hardcodedExclusions = [
+      'node_modules/',
+      '.git/',
+      'dist/',
+      'build/',
+      '.next/',
+      '__pycache__/',
+      '.venv/',
+      'venv/',
+      'target/',
+      'vendor/',
+      '.bundle/',
+    ];
+
+    for (const exclusion of hardcodedExclusions) {
+      if (normalizedPath.startsWith(exclusion) || normalizedPath.includes(`/${exclusion}`)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
