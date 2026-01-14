@@ -1,6 +1,6 @@
 {
   "name": "codi",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models",
   "type": "module",
   "main": "dist/index.js",

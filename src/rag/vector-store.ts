@@ -73,6 +73,27 @@ export class VectorStore {
           indexed: ['filePath', 'language', 'chunkType'],
         },
       });
+    } else {
+      // Verify index integrity by trying to read stats
+      await this.verifyIndexHealth();
+    }
+  }
+
+  /**
+   * Verify index health by attempting to read from it.
+   * If corrupted, repair automatically.
+   */
+  private async verifyIndexHealth(): Promise<void> {
+    if (!this.index) return;
+
+    try {
+      // Try to read stats - this will fail if index is corrupted
+      await this.index.getIndexStats();
+    } catch (error) {
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        console.error('RAG index corrupted, repairing...');
+        await this.repairIndex();
+      }
     }
   }
 
@@ -84,20 +105,28 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
-    await this.index.upsertItem({
-      id: chunk.id,
-      vector: embedding,
-      metadata: {
-        filePath: chunk.filePath,
-        relativePath: chunk.relativePath,
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-        language: chunk.language,
-        chunkType: chunk.type,
-        name: chunk.name || '',
-        content: chunk.content,
-      },
-    });
+    try {
+      await this.index.upsertItem({
+        id: chunk.id,
+        vector: embedding,
+        metadata: {
+          filePath: chunk.filePath,
+          relativePath: chunk.relativePath,
+          startLine: chunk.startLine,
+          endLine: chunk.endLine,
+          language: chunk.language,
+          chunkType: chunk.type,
+          name: chunk.name || '',
+          content: chunk.content,
+        },
+      });
+    } catch (error) {
+      // Check if index is corrupted
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        await this.repairIndex();
+      }
+      throw error;
+    }
   }
 
   /**
@@ -115,9 +144,9 @@ export class VectorStore {
       throw new Error('Chunks and embeddings arrays must have same length');
     }
 
-    await this.index.beginUpdate();
-
     try {
+      await this.index.beginUpdate();
+
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         await this.index.upsertItem({
@@ -138,7 +167,18 @@ export class VectorStore {
 
       await this.index.endUpdate();
     } catch (error) {
-      this.index.cancelUpdate();
+      // Try to cancel any pending update
+      try {
+        this.index.cancelUpdate();
+      } catch {
+        // Ignore cancel errors
+      }
+
+      // Check if index is corrupted
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        await this.repairIndex();
+        // Don't retry - let the caller handle it on next indexing run
+      }
       throw error;
     }
   }
@@ -151,25 +191,36 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
-    // Find all items with this file path
-    const items = await this.index.listItemsByMetadata({
-      filePath: { $eq: filePath },
-    });
-
-    if (items.length === 0) {
-      return 0;
-    }
-
-    await this.index.beginUpdate();
-
     try {
+      // Find all items with this file path
+      const items = await this.index.listItemsByMetadata({
+        filePath: { $eq: filePath },
+      });
+
+      if (items.length === 0) {
+        return 0;
+      }
+
+      await this.index.beginUpdate();
+
       for (const item of items) {
         await this.index.deleteItem(item.id);
       }
       await this.index.endUpdate();
       return items.length;
     } catch (error) {
-      this.index.cancelUpdate();
+      // Try to cancel any pending update
+      try {
+        this.index.cancelUpdate();
+      } catch {
+        // Ignore cancel errors
+      }
+
+      // Check if index is corrupted
+      if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
+        await this.repairIndex();
+        return 0; // Index was corrupted and repaired, nothing to delete
+      }
       throw error;
     }
   }

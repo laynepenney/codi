@@ -204,6 +204,15 @@ export class BackgroundIndexer {
     this.isIndexing = true;
 
     try {
+      // Check if index was repaired (empty but cache has files)
+      // If so, clear the cache to force re-indexing
+      const storeStats = await this.vectorStore.getStats();
+      if (storeStats.itemCount === 0 && this.indexedFiles.size > 0) {
+        console.log('Index was repaired, clearing cache to re-index all files...');
+        this.indexedFiles.clear();
+        this.totalChunks = 0;
+      }
+
       const allFiles = await this.findFilesToIndex();
 
       // Filter to only files that need re-indexing
