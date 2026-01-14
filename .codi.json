@@ -11,11 +11,30 @@
     {
       "pattern": "cd *",
       "approvedAt": "2026-01-14T04:54:02.371Z"
+    },
+    {
+      "pattern": "pnpm -v*",
+      "approvedAt": "2026-01-14T07:42:09.341Z"
+    },
+    {
+      "pattern": "brew *",
+      "approvedAt": "2026-01-14T07:42:34.001Z"
+    },
+    {
+      "pattern": "node *",
+      "approvedAt": "2026-01-14T07:43:25.561Z"
+    },
+    {
+      "pattern": "mkdir *",
+      "approvedAt": "2026-01-14T07:47:14.233Z"
     }
   ],
   "approvedCategories": [
     "git-safe",
-    "git-commit"
+    "git-commit",
+    "install-deps",
+    "run-tests",
+    "list-files"
   ],
   "dangerousPatterns": [],
   "systemPromptAdditions": "",
