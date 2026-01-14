@@ -749,6 +749,37 @@ pipelines:
 - [ ] Config hot-reload support (watch file changes)
 - [ ] Cost tracking per model/pipeline
 
+#### 19. Symbol Index - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features** (in `src/symbol-index/`):
+- SQLite-based symbol index using better-sqlite3
+- Regex-based symbol extraction for TypeScript/JavaScript and Kotlin
+- TypeScript path alias resolution via tsconfig.json parsing
+- IDE-style usage-based dependency detection (optional deep mode)
+- Parallel processing for deep indexing with configurable jobs
+
+**Commands**:
+| Command | Description |
+|---------|-------------|
+| `/symbols rebuild [--deep] [--jobs N]` | Rebuild the symbol index |
+| `/symbols update` | Incremental update |
+| `/symbols stats` | Show index statistics |
+| `/symbols search <name>` | Search for symbols |
+| `/symbols clear` | Clear the index |
+
+**MCP Tools**:
+- `find_symbol` - Find symbols by name (fuzzy search)
+- `find_references` - Find where a symbol is used
+- `get_dependency_graph` - Show file dependencies
+
+**Potential Future Enhancements**:
+- [ ] Custom include/exclude patterns in `.codi.json` config
+- [ ] Optional node_modules indexing for specific packages (power users)
+- [ ] Symbol rename/refactor support
+- [ ] Call graph tracking
+
 #### 15. Code Snippets Library
 **What**: Save and reuse code snippets.
 

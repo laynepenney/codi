@@ -471,6 +471,28 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /filehistory       - Show file change history'));
   console.log(chalk.dim('  /filehistory clear - Clear all history'));
 
+  console.log(chalk.bold('\nMemory:'));
+  console.log(chalk.dim('  /remember [cat:] <fact> - Remember a fact for future sessions'));
+  console.log(chalk.dim('  /forget <pattern>  - Remove memories matching pattern'));
+  console.log(chalk.dim('  /memories [query]  - List or search stored memories'));
+  console.log(chalk.dim('  /profile [set k v] - View or update user profile'));
+
+  console.log(chalk.bold('\nModels:'));
+  console.log(chalk.dim('  /models [provider] - List available models'));
+  console.log(chalk.dim('  /switch <model>    - Switch to a different model'));
+  console.log(chalk.dim('  /modelmap          - Show model map configuration'));
+  console.log(chalk.dim('  /pipeline [name]   - Execute multi-model pipeline'));
+
+  console.log(chalk.bold('\nUsage & Cost:'));
+  console.log(chalk.dim('  /usage [period]    - Show token usage and costs'));
+
+  console.log(chalk.bold('\nCode Navigation:'));
+  console.log(chalk.dim('  /symbols [action]  - Manage symbol index (rebuild, stats, search)'));
+  console.log(chalk.dim('  /rag [action]      - Manage RAG semantic search index'));
+
+  console.log(chalk.bold('\nImport:'));
+  console.log(chalk.dim('  /import <file>     - Import ChatGPT conversation exports'));
+
   if (projectInfo) {
     console.log(chalk.bold('\nProject:'));
     console.log(
