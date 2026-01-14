@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 import { createInterface, type Interface } from 'readline';
-import { createPasteDebounceHandler } from './paste-debounce.js';
+import {
+  createPasteDebounceHandler,
+  enableBracketedPaste,
+  disableBracketedPaste,
+} from './paste-debounce.js';
 import { program } from 'commander';
 import chalk from 'chalk';
 import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
@@ -2245,10 +2249,15 @@ async function main() {
     completer,
   });
 
+  // Enable bracketed paste mode for better paste detection
+  enableBracketedPaste();
+
   // Track if readline is closed (for piped input)
   let rlClosed = false;
   rl.on('close', () => {
     rlClosed = true;
+    // Disable bracketed paste mode before exit
+    disableBracketedPaste();
     // Shutdown RAG indexer if running
     if (ragIndexer) {
       ragIndexer.shutdown();
@@ -3229,6 +3238,7 @@ async function main() {
 
 // Handle uncaught errors gracefully
 process.on('uncaughtException', (error) => {
+  disableBracketedPaste();
   console.error(chalk.red(`\nUncaught exception: ${error.message}`));
   if (process.env.DEBUG) {
     console.error(error.stack);
@@ -3237,6 +3247,7 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason) => {
+  disableBracketedPaste();
   console.error(chalk.red(`\nUnhandled rejection: ${reason}`));
   process.exit(1);
 });
