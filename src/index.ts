@@ -899,7 +899,53 @@ function handleConfigOutput(output: string): void {
     }
 
     default:
-      console.log(chalk.dim(output));
+      // Handle __INIT_RESULT__ separately since it uses | delimiter
+      if (output.startsWith('__INIT_RESULT__|')) {
+        handleInitOutput(output);
+      } else {
+        console.log(chalk.dim(output));
+      }
+  }
+}
+
+/**
+ * Handle init command output messages.
+ */
+function handleInitOutput(output: string): void {
+  const parts = output.split('|');
+  // Skip first part (__INIT_RESULT__)
+  const results = parts.slice(1);
+
+  console.log(chalk.bold('\nCodi Initialization:'));
+
+  let createdCount = 0;
+  let existsCount = 0;
+
+  for (const result of results) {
+    const [fileType, status, filePath] = result.split(':');
+    const fileName = fileType === 'config' ? '.codi.json' : 'codi-models.yaml';
+
+    switch (status) {
+      case 'created':
+        console.log(chalk.green(`  ✓ Created ${fileName}`));
+        console.log(chalk.dim(`    ${filePath}`));
+        createdCount++;
+        break;
+      case 'exists':
+        console.log(chalk.yellow(`  ○ ${fileName} already exists`));
+        console.log(chalk.dim(`    ${filePath}`));
+        existsCount++;
+        break;
+      case 'error':
+        console.log(chalk.red(`  ✗ Failed to create ${fileName}: ${filePath}`));
+        break;
+    }
+  }
+
+  if (createdCount > 0) {
+    console.log(chalk.dim('\nEdit these files to customize Codi for your project.'));
+  } else if (existsCount > 0 && createdCount === 0) {
+    console.log(chalk.dim('\nAll config files already exist.'));
   }
 }
 
@@ -2638,7 +2684,7 @@ async function main() {
                 return;
               }
               // Handle config command outputs
-              if (result.startsWith('__CONFIG_')) {
+              if (result.startsWith('__CONFIG_') || result.startsWith('__INIT_RESULT__')) {
                 handleConfigOutput(result);
                 rl.prompt();
                 return;
