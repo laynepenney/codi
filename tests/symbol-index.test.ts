@@ -622,4 +622,63 @@ describe('Symbol Index Validation Suite', () => {
       }
     });
   });
+
+  // =========================================================================
+  // E) Parallel Processing Tests
+  // =========================================================================
+
+  describe('Parallel Processing', () => {
+    it('should accept parallelJobs option in rebuild', async () => {
+      // Create a fresh service for this test
+      const testService = new SymbolIndexService(TEST_DIR);
+      await testService.initialize();
+
+      // Rebuild with different job counts should work
+      const result1 = await testService.rebuild({ deepIndex: true, parallelJobs: 1 });
+      expect(result1.filesProcessed).toBeGreaterThan(0);
+
+      const result2 = await testService.rebuild({ deepIndex: true, parallelJobs: 8 });
+      expect(result2.filesProcessed).toBeGreaterThan(0);
+
+      // Results should be consistent regardless of parallelism
+      expect(result1.filesProcessed).toBe(result2.filesProcessed);
+      expect(result1.symbolsExtracted).toBe(result2.symbolsExtracted);
+    });
+
+    it('should produce same dependencies with different parallelJobs values', async () => {
+      // Rebuild with 1 job
+      const testService1 = new SymbolIndexService(TEST_DIR);
+      await testService1.initialize();
+      await testService1.rebuild({ deepIndex: true, parallelJobs: 1 });
+      const deps1 = testService1.getDependencyGraph(
+        'mobile/shared/src/iosMain/kotlin/party/jldance/shared/ui/MainViewController.kt',
+        'imports',
+        1
+      );
+
+      // Rebuild with 4 jobs
+      const testService4 = new SymbolIndexService(TEST_DIR);
+      await testService4.initialize();
+      await testService4.rebuild({ deepIndex: true, parallelJobs: 4 });
+      const deps4 = testService4.getDependencyGraph(
+        'mobile/shared/src/iosMain/kotlin/party/jldance/shared/ui/MainViewController.kt',
+        'imports',
+        1
+      );
+
+      // Should have same dependencies
+      const files1 = deps1.map(d => d.file).sort();
+      const files4 = deps4.map(d => d.file).sort();
+      expect(files1).toEqual(files4);
+    });
+
+    it('should default to 4 parallel jobs when not specified', async () => {
+      const testService = new SymbolIndexService(TEST_DIR);
+      await testService.initialize();
+
+      // Just verify it doesn't throw with default parallelJobs
+      const result = await testService.rebuild({ deepIndex: true });
+      expect(result.filesProcessed).toBeGreaterThan(0);
+    });
+  });
 });

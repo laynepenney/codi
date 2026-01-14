@@ -29,13 +29,29 @@ export const symbolsCommand: Command = {
   name: 'symbols',
   aliases: ['sym', 'index'],
   description: 'Manage the symbol index for AST-based code navigation',
-  usage: '/symbols [rebuild [--deep]|update|stats|search <name>|clear]',
+  usage: '/symbols [rebuild [--deep] [--jobs N]|update|stats|search <name>|clear]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const parts = args.trim().split(/\s+/);
     const action = parts[0] || 'stats';
     const hasDeepFlag = parts.includes('--deep');
-    const rest = parts.filter(p => p !== action && p !== '--deep').join(' ');
+
+    // Parse --jobs N flag
+    let parallelJobs = 4; // default
+    const jobsIndex = parts.indexOf('--jobs');
+    if (jobsIndex !== -1 && parts[jobsIndex + 1]) {
+      const jobsValue = parseInt(parts[jobsIndex + 1], 10);
+      if (!isNaN(jobsValue) && jobsValue > 0) {
+        parallelJobs = Math.min(jobsValue, 16); // Cap at 16 jobs
+      }
+    }
+
+    const rest = parts.filter((p, i) =>
+      p !== action &&
+      p !== '--deep' &&
+      p !== '--jobs' &&
+      (jobsIndex === -1 || i !== jobsIndex + 1)
+    ).join(' ');
 
     // Get project root from context or current directory
     const projectRoot = context.projectInfo?.rootPath || process.cwd();
@@ -51,13 +67,14 @@ export const symbolsCommand: Command = {
         const result = await symbolIndexService.rebuild({
           projectRoot,
           deepIndex: hasDeepFlag,
+          parallelJobs,
           onProgress: (processed, total, file) => {
             // Progress callback - could be used for UI updates
           },
         });
 
         const duration = (result.duration / 1000).toFixed(2);
-        const deepStr = hasDeepFlag ? ' (deep)' : '';
+        const deepStr = hasDeepFlag ? ` (deep, ${parallelJobs} jobs)` : '';
         const errorsStr = result.errors.length > 0
           ? `\nErrors (${result.errors.length}):\n${result.errors.slice(0, 5).map(e => `  - ${e}`).join('\n')}${result.errors.length > 5 ? `\n  ... and ${result.errors.length - 5} more` : ''}`
           : '';

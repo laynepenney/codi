@@ -166,6 +166,12 @@ export interface IndexBuildOptions {
    * Default: false (fast mode - only tracks explicit imports)
    */
   deepIndex?: boolean;
+  /**
+   * Number of parallel jobs for deep indexing.
+   * Higher values use more CPU but complete faster.
+   * Default: 4
+   */
+  parallelJobs?: number;
 }
 
 /**

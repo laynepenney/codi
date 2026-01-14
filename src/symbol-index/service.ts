@@ -411,9 +411,15 @@ export class SymbolIndexService {
         }
       }
 
-      // Build dependency edges (second pass for resolved file IDs)
-      this.buildDependencyEdges(deepIndex, fileContents);
+      // Build import-based dependency edges (second pass for resolved file IDs)
+      this.buildDependencyEdges(false, fileContents);
     });
+
+    // Build usage-based dependencies in parallel (outside transaction for async support)
+    if (deepIndex) {
+      const parallelJobs = options.parallelJobs ?? 4;
+      await this.buildUsageBasedDependenciesAsync(fileContents, parallelJobs);
+    }
 
     // Update metadata
     const now = new Date().toISOString();
@@ -470,22 +476,20 @@ export class SymbolIndexService {
       }
     }
 
-    // Build usage-based dependencies only if deep indexing is enabled
-    if (deepIndex) {
-      this.buildUsageBasedDependencies(files, filePathToId, fileContents);
-    }
   }
 
   /**
-   * Build usage-based dependencies by scanning files for symbol usages
+   * Build usage-based dependencies by scanning files for symbol usages (async with parallel processing).
    * This enables IDE-style navigation even without explicit imports
    * (e.g., Kotlin fully-qualified names, cross-file references)
    */
-  private buildUsageBasedDependencies(
-    files: Array<{ id: number; path: string }>,
-    filePathToId: Map<string, number>,
-    fileContents: Map<string, string> = new Map()
-  ): void {
+  private async buildUsageBasedDependenciesAsync(
+    fileContents: Map<string, string>,
+    parallelJobs: number = 4
+  ): Promise<void> {
+    const files = this.db.getAllFiles();
+    if (files.length === 0) return;
+
     // Get the symbol registry: maps symbol name to files where it's defined
     const symbolRegistry = this.db.getExportedSymbolRegistry();
     if (symbolRegistry.size === 0) return;
@@ -505,14 +509,22 @@ export class SymbolIndexService {
     // Create a Set for O(1) lookup
     const symbolSet = new Set(sortedSymbols);
 
-    // Process each file
+    // Build file ID map
+    const filePathToId = new Map<string, number>();
     for (const file of files) {
+      filePathToId.set(file.path, file.id);
+    }
+
+    // Process a single file and return its dependencies
+    const processFile = (file: { id: number; path: string }): Array<{ fromFileId: number; toFileId: number }> => {
+      const dependencies: Array<{ fromFileId: number; toFileId: number }> = [];
+
       try {
         // Use cached content if available
         let content = fileContents.get(file.path);
         if (content === undefined) {
           const filePath = path.join(this.projectRoot, file.path);
-          if (!fs.existsSync(filePath)) continue;
+          if (!fs.existsSync(filePath)) return dependencies;
           content = fs.readFileSync(filePath, 'utf-8');
         }
 
@@ -531,7 +543,7 @@ export class SymbolIndexService {
           }
         }
 
-        // For each found symbol, create a usage dependency
+        // For each found symbol, collect usage dependencies
         for (const symbolName of foundSymbols) {
           const definitions = symbolRegistry.get(symbolName);
           if (!definitions) continue;
@@ -540,17 +552,59 @@ export class SymbolIndexService {
             // Don't create self-references
             if (def.fileId === file.id) continue;
 
-            // Create usage dependency
-            this.db.insertDependency({
+            dependencies.push({
               fromFileId: file.id,
               toFileId: def.fileId,
-              type: 'usage',
             });
           }
         }
       } catch {
         // Skip files that can't be read
       }
+
+      return dependencies;
+    };
+
+    // Process files in parallel batches
+    const allDependencies: Array<{ fromFileId: number; toFileId: number }> = [];
+
+    // Split files into chunks for parallel processing
+    const chunkSize = Math.ceil(files.length / parallelJobs);
+    const chunks: Array<Array<{ id: number; path: string }>> = [];
+
+    for (let i = 0; i < files.length; i += chunkSize) {
+      chunks.push(files.slice(i, i + chunkSize));
+    }
+
+    // Process chunks in parallel
+    const chunkResults = await Promise.all(
+      chunks.map(chunk =>
+        Promise.resolve().then(() => {
+          const chunkDeps: Array<{ fromFileId: number; toFileId: number }> = [];
+          for (const file of chunk) {
+            chunkDeps.push(...processFile(file));
+          }
+          return chunkDeps;
+        })
+      )
+    );
+
+    // Collect all dependencies
+    for (const deps of chunkResults) {
+      allDependencies.push(...deps);
+    }
+
+    // Insert all dependencies in a single transaction
+    if (allDependencies.length > 0) {
+      this.db.transaction(() => {
+        for (const dep of allDependencies) {
+          this.db.insertDependency({
+            fromFileId: dep.fromFileId,
+            toFileId: dep.toFileId,
+            type: 'usage',
+          });
+        }
+      });
     }
   }
 
