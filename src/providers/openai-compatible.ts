@@ -348,25 +348,61 @@ export class OpenAICompatibleProvider extends BaseProvider {
    * Validate and fix tool_call/tool_result pairing for OpenAI API compatibility.
    * OpenAI requires that 'tool' role messages immediately follow an assistant
    * message with tool_calls, and each tool message must reference a valid tool_call_id.
+   *
+   * This method handles two cases:
+   * 1. Orphaned tool messages (results without matching calls) - removes them
+   * 2. Orphaned tool_calls (calls without matching results) - removes the tool_calls
    */
   private validateToolPairing(messages: OpenAI.ChatCompletionMessageParam[]): OpenAI.ChatCompletionMessageParam[] {
+    // First pass: collect all available tool result IDs
+    const availableToolResults = new Set<string>();
+    for (const msg of messages) {
+      if (msg.role === 'tool') {
+        const toolMsg = msg as OpenAI.ChatCompletionToolMessageParam;
+        availableToolResults.add(toolMsg.tool_call_id);
+      }
+    }
+
+    // Second pass: process messages, filtering out orphaned tool_calls and results
     const result: OpenAI.ChatCompletionMessageParam[] = [];
     let pendingToolCallIds = new Set<string>();
 
     for (const msg of messages) {
       if (msg.role === 'assistant') {
-        // If there are pending tool_call_ids that weren't consumed, they're orphaned
-        // (This shouldn't happen in well-formed conversations, but clear them anyway)
+        // Clear any pending tool_call_ids from previous assistant message
         pendingToolCallIds.clear();
 
-        // Track tool_call_ids from this assistant message
         const assistantMsg = msg as OpenAI.ChatCompletionAssistantMessageParam;
-        if (assistantMsg.tool_calls) {
-          for (const tc of assistantMsg.tool_calls) {
-            pendingToolCallIds.add(tc.id);
+
+        if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
+          // Filter tool_calls to only those that have corresponding results
+          const validToolCalls = assistantMsg.tool_calls.filter(tc =>
+            availableToolResults.has(tc.id)
+          );
+
+          if (validToolCalls.length > 0) {
+            // Track the valid tool_call_ids for matching with results
+            for (const tc of validToolCalls) {
+              pendingToolCallIds.add(tc.id);
+            }
+
+            // Add assistant message with only valid tool_calls
+            result.push({
+              ...assistantMsg,
+              tool_calls: validToolCalls,
+            } as OpenAI.ChatCompletionMessageParam);
+          } else if (assistantMsg.content) {
+            // No valid tool_calls but has content - keep as text-only message
+            result.push({
+              role: 'assistant',
+              content: assistantMsg.content,
+            } as OpenAI.ChatCompletionMessageParam);
           }
+          // If no valid tool_calls and no content, skip the message entirely
+        } else {
+          // No tool_calls, just add the message as-is
+          result.push(msg);
         }
-        result.push(msg);
       } else if (msg.role === 'tool') {
         // Only include tool messages that have a matching pending tool_call_id
         const toolMsg = msg as OpenAI.ChatCompletionToolMessageParam;
