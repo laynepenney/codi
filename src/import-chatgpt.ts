@@ -249,6 +249,8 @@ export function importConversation(
       projectName: `ChatGPT Import: ${parsed.title}`,
       provider: 'chatgpt-import',
       model: 'gpt-4',
+      // No open files context for imported sessions
+      openFilesState: undefined,
     });
 
     return {

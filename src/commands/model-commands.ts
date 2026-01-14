@@ -24,8 +24,25 @@ export const modelsCommand: Command = {
   description: 'List available models for each provider',
   usage: '/models [provider] [--local]',
   taskType: 'fast',
-  execute: async (args: string, _context: CommandContext): Promise<string> => {
-    const parts = args.trim().toLowerCase().split(/\s+/).filter(p => p);
+  execute: async (args: string, _context: CommandContext): Promise<string | null> => {
+    const trimmed = args.trim();
+
+    // Handle help flag locally without API call
+    if (trimmed === '-h' || trimmed === '--help') {
+      console.log('\nUsage: /models [provider] [--local]');
+      console.log('\nList available models for each provider.');
+      console.log('\nOptions:');
+      console.log('  provider    Filter by provider: anthropic, openai, ollama');
+      console.log('  --local     Show only local Ollama models');
+      console.log('\nExamples:');
+      console.log('  /models              List all available models');
+      console.log('  /models anthropic    List only Anthropic models');
+      console.log('  /models --local      List only local Ollama models');
+      console.log();
+      return null;
+    }
+
+    const parts = trimmed.toLowerCase().split(/\s+/).filter(p => p);
     const providerFilter = parts.find(p => !p.startsWith('--'));
     const localOnly = parts.includes('--local');
 
@@ -67,8 +84,24 @@ export const switchCommand: Command = {
   description: 'Switch to a different model during a session',
   usage: '/switch <provider> [model]  or  /switch <model> (for current provider)',
   taskType: 'fast',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    const parts = args.trim().split(/\s+/).filter(p => p);
+  execute: async (args: string, context: CommandContext): Promise<string | null> => {
+    const trimmed = args.trim();
+
+    // Handle help flag locally without API call
+    if (trimmed === '-h' || trimmed === '--help') {
+      console.log('\nUsage: /switch <provider> [model]  or  /switch <model>');
+      console.log('\nSwitch to a different model during a session.');
+      console.log('\nExamples:');
+      console.log('  /switch                      Show current model and available providers');
+      console.log('  /switch openai gpt-4o        Switch to OpenAI GPT-4o');
+      console.log('  /switch anthropic            Switch to Anthropic (default model)');
+      console.log('  /switch claude-3-5-haiku     Switch model within current provider');
+      console.log('  /switch ollama llama3.2      Switch to local Ollama model');
+      console.log();
+      return null;
+    }
+
+    const parts = trimmed.split(/\s+/).filter(p => p);
 
     if (parts.length === 0) {
       // Show current model and available providers
@@ -203,8 +236,26 @@ export const modelMapCommand: Command = {
   description: 'Show and manage model map configuration (codi-models.yaml)',
   usage: '/modelmap [init|show|example]',
   taskType: 'fast',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    const action = args.trim().toLowerCase() || 'show';
+  execute: async (args: string, context: CommandContext): Promise<string | null> => {
+    const trimmed = args.trim().toLowerCase();
+
+    // Handle help flag locally without API call
+    if (trimmed === '-h' || trimmed === '--help') {
+      console.log('\nUsage: /modelmap [init|show|example]');
+      console.log('\nShow and manage model map configuration (codi-models.yaml).');
+      console.log('\nActions:');
+      console.log('  show      Show current model map configuration (default)');
+      console.log('  init      Create a new codi-models.yaml file');
+      console.log('  example   Show example configuration');
+      console.log('\nExamples:');
+      console.log('  /modelmap          Show current configuration');
+      console.log('  /modelmap init     Create codi-models.yaml');
+      console.log('  /modelmap example  Show example YAML');
+      console.log();
+      return null;
+    }
+
+    const action = trimmed || 'show';
 
     switch (action) {
       case 'init': {
@@ -316,7 +367,31 @@ export const pipelineCommand: Command = {
   description: 'Execute a multi-model pipeline',
   usage: '/pipeline [--provider <context>] [--all] [--v2] [--v3] [--v4] [--triage] [--concurrency N] [name] [input]',
   taskType: 'complex',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
+  execute: async (args: string, context: CommandContext): Promise<string | null> => {
+    const trimmed = args.trim();
+
+    // Handle help flag locally without API call
+    if (trimmed === '-h' || trimmed === '--help') {
+      console.log('\nUsage: /pipeline [options] [name] [input]');
+      console.log('\nExecute a multi-model pipeline defined in codi-models.yaml.');
+      console.log('\nOptions:');
+      console.log('  --provider <ctx>   Use models from specified provider context');
+      console.log('  --all, --iterative Process all files in iterative mode');
+      console.log('  --v2               Use intelligent grouping + parallel processing');
+      console.log('  --v3               Use triage + adaptive processing + agentic steps');
+      console.log('  --v4               Use symbolication + enhanced triage');
+      console.log('  --triage           Enable file triage scoring');
+      console.log('  --triage-only      Show triage scores without running pipeline');
+      console.log('  --concurrency N    Set parallel processing concurrency (default: 4)');
+      console.log('\nExamples:');
+      console.log('  /pipeline                        List available pipelines');
+      console.log('  /pipeline code-review            Show pipeline info');
+      console.log('  /pipeline code-review src/       Execute pipeline on src/');
+      console.log('  /pipeline --provider anthropic code-review src/');
+      console.log();
+      return null;
+    }
+
     const agent = context.agent;
     const modelMap = agent?.getModelMap();
 

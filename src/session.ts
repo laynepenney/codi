@@ -18,6 +18,12 @@ export interface Session {
   model?: string;
   messages: Message[];
   conversationSummary: string | null;
+
+  /**
+   * Persistent list of user/agent "open" files (pinned + recent).
+   * Used for context injection and for preserving relevant history.
+   */
+  openFilesState?: import('./open-files.js').OpenFilesState;
 }
 
 /**
@@ -75,6 +81,7 @@ export function saveSession(
     projectName?: string;
     provider?: string;
     model?: string;
+    openFilesState?: import('./open-files.js').OpenFilesState;
   } = {}
 ): { path: string; isNew: boolean } {
   ensureSessionsDir();
@@ -104,6 +111,7 @@ export function saveSession(
     model: options.model,
     messages,
     conversationSummary,
+    openFilesState: options.openFilesState,
   };
 
   fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));

@@ -18,8 +18,26 @@ export const configCommand: Command = {
   description: 'View or initialize workspace configuration',
   usage: '/config [init|show|example]',
   taskType: 'fast',
-  execute: async (args: string, _context: CommandContext): Promise<string> => {
-    const action = args.trim().split(/\s+/)[0] || 'show';
+  execute: async (args: string, _context: CommandContext): Promise<string | null> => {
+    const trimmed = args.trim();
+
+    // Handle help flag locally without API call
+    if (trimmed === '-h' || trimmed === '--help') {
+      console.log('\nUsage: /config [init|show|example]');
+      console.log('\nView or initialize workspace configuration (.codi.json).');
+      console.log('\nActions:');
+      console.log('  show      Show current configuration (default)');
+      console.log('  init      Create a new .codi.json file');
+      console.log('  example   Show example configuration');
+      console.log('\nExamples:');
+      console.log('  /config          Show current configuration');
+      console.log('  /config init     Create .codi.json');
+      console.log('  /config example  Show example JSON');
+      console.log();
+      return null;
+    }
+
+    const action = trimmed.split(/\s+/)[0] || 'show';
 
     switch (action) {
       case 'init': {

@@ -132,6 +132,31 @@ describe('Session Management', () => {
       expect(writtenData.messages).toHaveLength(1);
     });
 
+    it('persists openFilesState when provided', () => {
+      mockFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      const messages: Message[] = [{ role: 'user', content: 'Test' }];
+      const openFilesState = {
+        version: 1,
+        openFiles: [
+          {
+            path: 'src/index.ts',
+            isActive: true,
+            openedAt: '2026-01-14T00:00:00.000Z',
+          },
+        ],
+      };
+
+      saveSession('with-open-files', messages, null, {
+        openFilesState: openFilesState as any,
+      });
+
+      const writtenData = JSON.parse(
+        (mockFs.writeFileSync as any).mock.calls[0][1]
+      );
+      expect(writtenData.openFilesState).toEqual(openFilesState);
+    });
+
     it('sanitizes session name for filesystem', () => {
       mockFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
 

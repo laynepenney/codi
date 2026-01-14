@@ -55,6 +55,7 @@ export const saveCommand: Command = {
       projectName: context.projectInfo?.name || '',
       provider: context.sessionState?.provider || '',
       model: context.sessionState?.model || '',
+      openFilesState: undefined,
     });
 
     // Update session name via callback or local state
