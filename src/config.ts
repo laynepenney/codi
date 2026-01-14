@@ -435,8 +435,8 @@ export function mergeToolInput(
  */
 export function getExampleConfig(): string {
   const example: WorkspaceConfig = {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    provider: 'ollama-cloud',
+    model: 'gpt-oss:120b-cloud',
     autoApprove: ['read_file', 'glob', 'grep', 'list_directory'],
     approvedPatterns: [],
     approvedCategories: [],
@@ -447,7 +447,7 @@ export function getExampleConfig(): string {
       b: '/build',
     },
     projectContext: '',
-    enableCompression: false,
+    enableCompression: true,
     models: {
       summarize: {
         provider: 'ollama',
@@ -461,7 +461,7 @@ export function getExampleConfig(): string {
       importanceThreshold: 0.4,
     },
     rag: {
-      enabled: false,
+      enabled: true,
       embeddingProvider: 'auto',
       topK: 5,
       minScore: 0.7,

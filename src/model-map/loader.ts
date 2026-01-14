@@ -419,6 +419,26 @@ export function getExampleModelMap(): string {
         model: 'llama3.2',
         description: 'Free local model',
       },
+      'cloud-coder': {
+        provider: 'ollama-cloud',
+        model: 'qwen3-coder:480b-cloud',
+        description: 'Cloud coder',
+      },
+      'qwen3-lite': {
+        provider: 'ollama',
+        model: 'qwen3:8b',
+        description: 'qwen lite',
+      },
+      'cloud-fast': {
+        provider: 'ollama-cloud',
+        model: 'gemini-3-flash-preview:cloud',
+        description: 'gemini cloud fast',
+      },
+      'cloud-reasoning': {
+        provider: 'ollama-cloud',
+        model: 'gpt-oss:120b-cloud',
+        description: 'cloud gpt oss 120b-cloud',
+      },
     },
     'model-roles': {
       fast: {
@@ -442,15 +462,15 @@ export function getExampleModelMap(): string {
     },
     tasks: {
       fast: {
-        model: 'haiku',
+        model: 'cloud-fast',
         description: 'Quick tasks (commits, summaries)',
       },
       code: {
-        model: 'sonnet',
+        model: 'cloud-coder',
         description: 'Standard coding tasks',
       },
       complex: {
-        model: 'opus',
+        model: 'cloud-reasoning',
         description: 'Architecture, debugging',
       },
       summarize: {
@@ -468,11 +488,11 @@ export function getExampleModelMap(): string {
     pipelines: {
       'smart-refactor': {
         description: 'Analyze, plan, implement, review',
-        provider: 'anthropic', // default provider context
+        provider: 'anthropic',
         steps: [
           {
             name: 'analyze',
-            role: 'fast', // uses haiku for anthropic, gpt-5-nano for openai
+            role: 'fast',
             prompt: 'Analyze refactoring opportunities: {input}',
             output: 'analysis',
           },
