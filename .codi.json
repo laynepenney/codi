@@ -1,5 +1,5 @@
 {
-  "provider": "ollama-native",
+  "provider": "ollama-cloud",
   "model": "gpt-oss:120b-cloud",
   "autoApprove": [
     "read_file",

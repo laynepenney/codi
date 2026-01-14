@@ -4,13 +4,13 @@
 import { BaseProvider } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
-import { OllamaNativeProvider } from './ollama-native.js';
+import { OllamaCloudProvider } from './ollama-cloud.js';
 import type { ProviderConfig } from '../types.js';
 
 export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
-export { OllamaNativeProvider } from './ollama-native.js';
+export { OllamaCloudProvider } from './ollama-cloud.js';
 
 export interface CreateProviderOptions extends ProviderConfig {
   type: string;
@@ -32,7 +32,7 @@ providerFactories.set('runpod', (options) => createRunPodProvider(
   options.model || 'default',
   options.apiKey
 ));
-providerFactories.set('ollama-native', (options) => new OllamaNativeProvider(options));
+providerFactories.set('ollama-cloud', (options) => new OllamaCloudProvider(options));
 
 /**
  * Register a new provider factory.
@@ -134,12 +134,12 @@ export function detectProvider(): BaseProvider {
     );
   }
 
-  // Check if user wants to use native Ollama
-  const useNativeOllama = process.env.OLLAMA_NATIVE === 'true' || process.env.CODI_PROVIDER === 'ollama-native';
-  
-  if (useNativeOllama) {
-    console.log('Using Ollama Native provider');
-    return new OllamaNativeProvider();
+  // Check if user wants to use Ollama Cloud
+  const useOllamaCloud = process.env.OLLAMA_CLOUD === 'true' || process.env.CODI_PROVIDER === 'ollama-cloud';
+
+  if (useOllamaCloud) {
+    console.log('Using Ollama Cloud provider');
+    return new OllamaCloudProvider();
   }
 
   // Default to Ollama for local usage

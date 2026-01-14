@@ -9,7 +9,7 @@ import * as path from 'path';
  * Can be defined in .codi.json or .codi/config.json in the project root.
  */
 export interface WorkspaceConfig {
-  /** Provider to use (anthropic, openai, ollama, ollama-native, runpod) */
+  /** Provider to use (anthropic, openai, ollama, ollama-cloud, runpod) */
   provider?: string;
 
   /** Model name to use */
@@ -266,7 +266,7 @@ export function validateConfig(config: WorkspaceConfig): string[] {
   const warnings: string[] = [];
 
   // Validate provider
-  const validProviders = ['anthropic', 'openai', 'ollama', 'ollama-native', 'runpod', 'auto'];
+  const validProviders = ['anthropic', 'openai', 'ollama', 'ollama-cloud', 'runpod', 'auto'];
   if (config.provider && !validProviders.includes(config.provider)) {
     warnings.push(`Unknown provider "${config.provider}". Valid: ${validProviders.join(', ')}`);
   }

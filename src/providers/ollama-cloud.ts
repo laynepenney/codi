@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ollama native provider implementation using the Ollama API directly.
- * This implementation provides better control and features compared to the OpenAI-compatible version.
+ * Ollama Cloud provider implementation using the Ollama API directly.
+ * Optimized for hosted Ollama services with rate limiting and retry logic.
+ * Use 'ollama' provider for local usage, 'ollama-cloud' for hosted services.
  */
 
 import { BaseProvider } from './base.js';
@@ -72,7 +73,7 @@ interface OllamaModelInfo {
   };
 }
 
-export class OllamaNativeProvider extends BaseProvider {
+export class OllamaCloudProvider extends BaseProvider {
   private readonly baseUrl: string;
   private readonly model: string;
   private readonly temperature: number;
@@ -99,8 +100,8 @@ export class OllamaNativeProvider extends BaseProvider {
       jitter: true,
       ...config.retry,
     };
-    // Get shared rate limiter for Ollama provider
-    this.rateLimiter = getProviderRateLimiter('ollama');
+    // Get shared rate limiter for Ollama Cloud provider
+    this.rateLimiter = getProviderRateLimiter('ollama-cloud');
   }
 
   /**
@@ -111,7 +112,7 @@ export class OllamaNativeProvider extends BaseProvider {
   }
 
   getName(): string {
-    return 'Ollama Native';
+    return 'Ollama Cloud';
   }
 
   getModel(): string {
