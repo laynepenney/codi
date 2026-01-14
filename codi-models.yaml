@@ -13,7 +13,7 @@ models:
     model: claude-opus-4-20250514
     description: Most capable for complex reasoning
   llama3:
-    provider: ollama-cloud
+    provider: ollama
     model: llama3.2
     description: Free local model
   coder:
@@ -29,7 +29,7 @@ models:
     model: gpt-5.2
     description: Latest GPT-5, best for coding
   qwen3-lite:
-    provider: ollama-cloud
+    provider: ollama
     model: qwen3:8b
     description: qwen lite
   gemini-3-flash-preview:

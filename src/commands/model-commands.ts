@@ -80,72 +80,100 @@ export const modelsCommand: Command = {
 
 /**
  * /switch command - Switch to a different model during a session.
+ * Supports model map integration: `/switch haiku` looks up named models.
  */
 export const switchCommand: Command = {
   name: 'switch',
   aliases: ['use', 'model-switch'],
   description: 'Switch to a different model during a session',
-  usage: '/switch <provider> [model]  or  /switch <model> (for current provider)',
+  usage: '/switch <name|provider> [model]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     const trimmed = args.trim();
 
     // Handle help flag locally without API call
     if (trimmed === '-h' || trimmed === '--help') {
-      console.log('\nUsage: /switch <provider> [model]  or  /switch <model>');
+      console.log('\nUsage: /switch <name|provider> [model]');
       console.log('\nSwitch to a different model during a session.');
-      console.log('\nExamples:');
-      console.log('  /switch                      Show current model and available providers');
-      console.log('  /switch openai gpt-4o        Switch to OpenAI GPT-4o');
-      console.log('  /switch anthropic            Switch to Anthropic (default model)');
-      console.log('  /switch claude-3-5-haiku     Switch model within current provider');
-      console.log('  /switch ollama llama3.2      Switch to local Ollama model');
+      console.log('\nWith model map (codi-models.yaml):');
+      console.log('  /switch haiku              Switch to named model "haiku"');
+      console.log('  /switch sonnet             Switch to named model "sonnet"');
+      console.log('  /switch llama3             Switch to named model "llama3"');
+      console.log('\nWithout model map:');
+      console.log('  /switch openai gpt-4o      Switch to OpenAI GPT-4o');
+      console.log('  /switch anthropic          Switch to Anthropic (default model)');
+      console.log('  /switch ollama llama3.2    Switch to local Ollama model');
+      console.log('\nOther:');
+      console.log('  /switch                    Show current model and available options');
       console.log();
       return null;
     }
 
     const parts = trimmed.split(/\s+/).filter(p => p);
-
-    if (parts.length === 0) {
-      // Show current model and available providers
-      const agent = context.agent;
-      if (!agent) {
-        return '__SWITCH_ERROR__|No agent available';
-      }
-      const provider = agent.getProvider();
-      const availableProviders = getProviderTypes().join(', ');
-      return `__SWITCH_CURRENT__|${provider.getName()}|${provider.getModel()}|${availableProviders}`;
-    }
-
     const agent = context.agent;
+
     if (!agent) {
       return '__SWITCH_ERROR__|No agent available';
     }
 
+    // Get model map if available
+    const modelMap = agent.getModelMap();
+    const namedModels = modelMap?.config.models || {};
+    const namedModelNames = Object.keys(namedModels);
+
+    if (parts.length === 0) {
+      // Show current model, available providers, and named models
+      const provider = agent.getProvider();
+      const availableProviders = getProviderTypes().join(', ');
+      const namedModelsStr = namedModelNames.length > 0 ? namedModelNames.join(', ') : '';
+      return `__SWITCH_CURRENT__|${provider.getName()}|${provider.getModel()}|${availableProviders}|${namedModelsStr}`;
+    }
+
     let providerType: string;
     let modelName: string | undefined;
+    let baseUrl: string | undefined;
+    let namedModelUsed: string | undefined;
 
-    // Check if first arg is a known provider
-    const knownProviders = getProviderTypes();
-    if (knownProviders.includes(parts[0].toLowerCase())) {
-      providerType = parts[0].toLowerCase();
-      modelName = parts[1]; // May be undefined
+    // First, check if the argument is a named model in the model map
+    const firstArg = parts[0];
+    if (namedModels[firstArg]) {
+      const namedModel = namedModels[firstArg];
+      providerType = namedModel.provider;
+      modelName = namedModel.model;
+      baseUrl = namedModel.baseUrl;
+      namedModelUsed = firstArg;
     } else {
-      // Assume it's a model name for the current provider
-      const currentProvider = agent.getProvider();
-      providerType = currentProvider.getName().toLowerCase();
-      modelName = parts[0];
+      // Check if first arg is a known provider
+      const knownProviders = getProviderTypes();
+      if (knownProviders.includes(firstArg.toLowerCase())) {
+        providerType = firstArg.toLowerCase();
+        modelName = parts[1]; // May be undefined
+      } else {
+        // Assume it's a model name for the current provider
+        const currentProvider = agent.getProvider();
+        providerType = currentProvider.getName().toLowerCase();
+        // Map provider display names to types
+        if (providerType === 'anthropic') providerType = 'anthropic';
+        else if (providerType === 'openai') providerType = 'openai';
+        else if (providerType === 'ollama') providerType = 'ollama';
+        else if (providerType === 'ollama cloud') providerType = 'ollama-cloud';
+        else if (providerType === 'runpod') providerType = 'runpod';
+        modelName = firstArg;
+      }
     }
 
     try {
       const newProvider = createProvider({
         type: providerType,
         model: modelName,
+        baseUrl,
       });
 
       agent.setProvider(newProvider);
 
-      return `__SWITCH_SUCCESS__|${newProvider.getName()}|${newProvider.getModel()}`;
+      // Include named model info in success message if used
+      const namedInfo = namedModelUsed ? `|named:${namedModelUsed}` : '';
+      return `__SWITCH_SUCCESS__|${newProvider.getName()}|${newProvider.getModel()}${namedInfo}`;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return `__SWITCH_ERROR__|${message}`;

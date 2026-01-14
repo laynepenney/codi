@@ -1282,7 +1282,15 @@ function handleSwitchOutput(output: string): void {
     case '__SWITCH_SUCCESS__': {
       const provider = parts[1];
       const model = parts[2];
-      console.log(chalk.green(`\nSwitched to ${chalk.bold(provider)} (${chalk.cyan(model)})`));
+      // Check for named model info (e.g., "named:haiku")
+      const namedPart = parts.find(p => p.startsWith('named:'));
+      const namedModel = namedPart ? namedPart.replace('named:', '') : null;
+
+      if (namedModel) {
+        console.log(chalk.green(`\nSwitched to ${chalk.bold(namedModel)} → ${provider} (${chalk.cyan(model)})`));
+      } else {
+        console.log(chalk.green(`\nSwitched to ${chalk.bold(provider)} (${chalk.cyan(model)})`));
+      }
       break;
     }
 
@@ -1296,10 +1304,20 @@ function handleSwitchOutput(output: string): void {
       const provider = parts[1];
       const model = parts[2];
       const availableProviders = parts[3];
+      const namedModels = parts[4] || '';
+
       console.log(chalk.bold('\nCurrent Model:'));
       console.log(`  Provider: ${chalk.cyan(provider)}`);
       console.log(`  Model: ${chalk.cyan(model)}`);
-      console.log(chalk.dim(`\nAvailable providers: ${availableProviders}`));
+
+      // Show named models from model map if available
+      if (namedModels) {
+        console.log(chalk.bold('\nNamed Models') + chalk.dim(' (from codi-models.yaml):'));
+        console.log(`  ${chalk.cyan(namedModels)}`);
+        console.log(chalk.dim('\nUsage: /switch <name>  (e.g., /switch haiku)'));
+      }
+
+      console.log(chalk.dim(`\nProviders: ${availableProviders}`));
       console.log(chalk.dim('Usage: /switch <provider> [model]'));
       break;
     }
