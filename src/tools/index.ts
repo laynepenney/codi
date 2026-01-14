@@ -28,6 +28,7 @@ export {
   GetCallGraphTool,
   ShowImpactTool,
   GetIndexStatusTool,
+  RebuildIndexTool,
 } from '../symbol-index/index.js';
 
 import { globalRegistry } from './registry.js';
@@ -59,6 +60,7 @@ import {
   GetCallGraphTool,
   ShowImpactTool,
   GetIndexStatusTool,
+  RebuildIndexTool,
 } from '../symbol-index/index.js';
 
 /**
@@ -116,6 +118,7 @@ export function registerRAGSearchTool(retriever: Retriever): RAGSearchTool {
  * Register symbol index tools with a symbol index service.
  */
 export function registerSymbolIndexTools(indexService: SymbolIndexService, projectRoot?: string): void {
+  const root = projectRoot || process.cwd();
   globalRegistry.register(new FindSymbolTool(indexService));
   globalRegistry.register(new FindReferencesTool(indexService));
   globalRegistry.register(new GotoDefinitionTool(indexService));
@@ -123,5 +126,6 @@ export function registerSymbolIndexTools(indexService: SymbolIndexService, proje
   globalRegistry.register(new GetInheritanceTool(indexService));
   globalRegistry.register(new GetCallGraphTool(indexService));
   globalRegistry.register(new ShowImpactTool(indexService));
-  globalRegistry.register(new GetIndexStatusTool(indexService, projectRoot || process.cwd()));
+  globalRegistry.register(new GetIndexStatusTool(indexService, root));
+  globalRegistry.register(new RebuildIndexTool(root));
 }

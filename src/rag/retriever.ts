@@ -69,6 +69,7 @@ export class Retriever {
 
   /**
    * Format results for context injection.
+   * Includes symbol context (symbolName, symbolKind) when available.
    */
   formatForContext(results: RetrievalResult[]): string {
     if (results.length === 0) {
@@ -90,8 +91,11 @@ export class Retriever {
         `### ${chunk.relativePath}:${chunk.startLine}-${chunk.endLine} (${matchPercent}% match)`
       );
 
+      // Symbol context - show both symbolName and symbolKind
       if (chunk.name) {
-        lines.push(`**${chunk.type}:** \`${chunk.name}\``);
+        lines.push(`**Symbol:** \`${chunk.name}\` (${chunk.type})`);
+      } else {
+        lines.push(`**Kind:** ${chunk.type}`);
       }
 
       lines.push('```' + chunk.language);
@@ -109,6 +113,7 @@ export class Retriever {
 
   /**
    * Format results as a simple list (for tool output).
+   * Includes symbol context (symbolName, symbolKind) when available.
    */
   formatAsToolOutput(results: RetrievalResult[]): string {
     if (results.length === 0) {
@@ -121,11 +126,16 @@ export class Retriever {
       const { chunk, score } = results[i];
       const matchPercent = Math.round(score * 100);
 
-      lines.push(`${i + 1}. ${chunk.relativePath}:${chunk.startLine}-${chunk.endLine}`);
-      lines.push(`   Match: ${matchPercent}%`);
+      // Build location string with symbol context
+      let locationStr = `${i + 1}. ${chunk.relativePath}:${chunk.startLine}-${chunk.endLine}`;
+      lines.push(locationStr);
+      lines.push(`   Score: ${matchPercent}%`);
 
+      // Symbol context - always show symbolKind, include symbolName when available
       if (chunk.name) {
-        lines.push(`   ${chunk.type}: ${chunk.name}`);
+        lines.push(`   Symbol: ${chunk.name} (${chunk.type})`);
+      } else {
+        lines.push(`   Kind: ${chunk.type}`);
       }
 
       lines.push('');

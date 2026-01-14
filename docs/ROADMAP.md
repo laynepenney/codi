@@ -35,14 +35,14 @@ This roadmap outlines planned improvements to Codi's tool suite based on real-wo
 
 ### 1.1 Richer Code Search (`search_codebase`)
 
-**Status: Partially Complete**
+**Status: Complete**
 
 | Feature | Description | Status |
 |---------|-------------|--------|
 | Semantic ranking | Scores already returned in output | Done |
 | Result filtering | `max_results` and `min_score` parameters | Done |
 | File/directory scope | `file_pattern` (glob) and `dir` parameters | Done |
-| Symbol context | Return symbolName, symbolKind with results | Pending |
+| Symbol context | Return symbolName, symbolKind with results | Done |
 
 **Current API:**
 ```typescript
@@ -202,19 +202,32 @@ Returns formatted environment info with available/unavailable sections. Default 
 
 ## Phase 5: Indexing & Performance
 
-**Status: Partially Complete**
+**Status: Complete**
 
 ### 5.1 Persistent Project Index
 
-**Status: Pending**
+**Status: Done**
 
-**Current:** RAG indexing runs on startup, symbol index requires manual rebuild.
+**Implementation:**
+- `BackgroundIndexer` class manages automatic index maintenance
+- File watcher (chokidar) detects changes and triggers incremental updates
+- `rebuild_index` tool allows AI to trigger full or incremental rebuilds
+- Index stored in `~/.codi/symbol-index/<project>-<hash>/symbols.db`
+- `index_version` exposed via `get_index_status` tool
 
-**Proposed:**
-- Background indexer that maintains `.codi/index.json`
-- Incremental updates on file changes (file watcher)
-- Expose `rebuild_index()` tool and `index_version` metadata
-- Turn O(N) scans into O(log N) lookups
+**Usage:**
+```typescript
+rebuild_index({
+  mode: 'incremental',  // or 'full', 'deep'
+  clear: false          // clear existing index first
+})
+```
+
+**Features:**
+- Auto-initialization on startup
+- Debounced file watching (1 second default)
+- Incremental updates for efficiency
+- Deep indexing option for usage-based dependencies
 
 ### 5.2 Index Freshness Detection
 
@@ -350,7 +363,7 @@ Helper functions:
 | Phase 2: Batch Operations | Medium | High | **P0** | **Complete** |
 | Phase 3: Testing Integration | Low | Medium | **P1** | **Complete** |
 | Phase 4: Shell & Environment | Low | Medium | **P1** | **Complete** |
-| Phase 5: Indexing & Performance | High | High | **P1** | **Partial** |
+| Phase 5: Indexing & Performance | High | High | **P1** | **Complete** |
 | Phase 6: Standardization | Medium | Medium | **P2** | **Complete** |
 | Phase 7: Documentation & Config | Low | Low | **P2** | **Complete** |
 

@@ -6,6 +6,13 @@
 
 export { SymbolDatabase, getIndexDirectory } from './database.js';
 export { SymbolIndexService } from './service.js';
+export {
+  BackgroundIndexer,
+  getBackgroundIndexer,
+  initializeBackgroundIndexer,
+  stopBackgroundIndexer,
+  type BackgroundIndexerOptions,
+} from './background-indexer.js';
 export type {
   IndexMetadata,
   IndexedFile,
@@ -31,3 +38,4 @@ export { GetInheritanceTool } from './tools/get-inheritance.js';
 export { GetCallGraphTool } from './tools/get-call-graph.js';
 export { ShowImpactTool } from './tools/show-impact.js';
 export { GetIndexStatusTool } from './tools/get-index-status.js';
+export { RebuildIndexTool } from './tools/rebuild-index.js';
