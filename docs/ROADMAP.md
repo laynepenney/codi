@@ -23,6 +23,12 @@ This roadmap outlines planned improvements to Codi's tool suite based on real-wo
 - `shell_info`: New tool for capturing environment information
 - `get_index_status`: New tool for checking index freshness and listing stale files
 
+**Phases 6-7 Implemented:**
+- `StructuredResult<T>`: Unified result interface with `ok`, `data`, `error`, `warnings`
+- `pipeline`: New tool for chaining multiple tool calls with stop-on-failure
+- `generate_docs`: New tool for extracting JSDoc/docstrings to markdown
+- Per-tool configuration via `tools.disabled` and `tools.defaults` in `.codi.json`
+
 ---
 
 ## Phase 1: Search & Navigation Enhancements
@@ -232,72 +238,107 @@ Returns:
 
 ## Phase 6: Standardization & Error Handling
 
+**Status: Complete**
+
 ### 6.1 Unified Result Object
 
-All tools should return a standardized result:
+**Status: Done**
+
+`StructuredResult<T>` interface with helper functions:
 
 ```typescript
-interface ToolResult<T> {
+interface StructuredResult<T> {
   ok: boolean;
   data?: T;           // present when ok === true
   error?: string;     // error message when ok === false
   warnings?: string[];
 }
-```
 
-Benefits:
-- Consistent error handling across all tools
-- AI can reliably branch on `result.ok`
-- Warnings don't block execution but are surfaced
+// Helper functions
+success<T>(data: T, warnings?: string[]): StructuredResult<T>
+failure(error: string, warnings?: string[]): StructuredResult<never>
+formatResult<T>(result: StructuredResult<T>): string
+```
 
 ### 6.2 Tool Execution Pipeline
 
-New meta-tool for chained operations:
+**Status: Done**
+
+New `pipeline` tool for chained operations:
 
 ```typescript
 pipeline({
   steps: [
-    { tool: "edit_file", args: { path: "...", old_string: "...", new_string: "..." } },
-    { tool: "run_tests", args: { filter: "paste" } },
-    { tool: "bash", args: { command: "git add -A" } }
+    { tool: "edit_file", args: { path: "...", old_string: "...", new_string: "..." }, name: "Update config" },
+    { tool: "run_tests", args: { filter: "config" }, name: "Run tests" },
+    { tool: "bash", args: { command: "git add -A" }, name: "Stage changes" }
   ],
-  stopOnFailure: true
+  stop_on_failure: true,  // default: true
+  dry_run: false          // validate without executing
 })
-// Returns combined log, short-circuits on failure
 ```
+
+Features:
+- Named steps for clear logging
+- Stop-on-failure or continue-through-errors modes
+- Dry-run validation
+- Structured output with per-step results and timing
 
 ---
 
 ## Phase 7: Documentation & Configuration
 
+**Status: Complete**
+
 ### 7.1 Auto-Documentation Tool
+
+**Status: Done**
+
+New `generate_docs` tool:
 
 ```typescript
 generate_docs({
   file: "src/paste-debounce.ts",
-  symbol?: "createPasteDebounceHandler",
-  format: "markdown"
+  symbol: "createPasteDebounceHandler",  // optional, document specific symbol
+  format: "markdown",                     // or "json"
+  include_private: false                  // include _prefixed symbols
 })
 ```
 
-Extracts JSDoc/TSDoc comments, infers descriptions, updates README or creates docs files.
+Features:
+- Parses JSDoc/TSDoc from TypeScript/JavaScript
+- Parses docstrings from Python
+- Extracts @param, @returns, @example tags
+- Groups output by symbol kind (classes, functions, types)
+- JSON output for programmatic use
 
 ### 7.2 Tool Configuration
 
-User-configurable toolset via `.codi-tools.json`:
+**Status: Done**
+
+Per-tool configuration in `.codi.json`:
 
 ```json
 {
-  "disabled": ["web_search"],
-  "search_codebase": {
-    "default_max_results": 20,
-    "default_min_score": 0.6
-  },
-  "run_tests": {
-    "default_timeout": 120
+  "tools": {
+    "disabled": ["web_search"],
+    "defaults": {
+      "search_codebase": {
+        "max_results": 20,
+        "min_score": 0.6
+      },
+      "run_tests": {
+        "timeout": 120
+      }
+    }
   }
 }
 ```
+
+Helper functions:
+- `isToolDisabled(toolName, config)` - check if tool is disabled
+- `getToolDefaults(toolName, config)` - get default settings
+- `mergeToolInput(toolName, input, config)` - merge input with defaults
 
 ---
 
@@ -310,8 +351,8 @@ User-configurable toolset via `.codi-tools.json`:
 | Phase 3: Testing Integration | Low | Medium | **P1** | **Complete** |
 | Phase 4: Shell & Environment | Low | Medium | **P1** | **Complete** |
 | Phase 5: Indexing & Performance | High | High | **P1** | **Partial** |
-| Phase 6: Standardization | Medium | Medium | **P2** | Pending |
-| Phase 7: Documentation & Config | Low | Low | **P2** | Pending |
+| Phase 6: Standardization | Medium | Medium | **P2** | **Complete** |
+| Phase 7: Documentation & Config | Low | Low | **P2** | **Complete** |
 
 ---
 
