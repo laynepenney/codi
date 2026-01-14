@@ -373,7 +373,11 @@ export class GenerateDocsTool extends BaseTool {
 
     for (const kind of sortedKinds) {
       const kindEntries = byKind[kind];
-      const kindTitle = kind.charAt(0).toUpperCase() + kind.slice(1) + 's';
+      // Proper pluralization (class -> Classes, not Classs)
+      const capitalizedKind = kind.charAt(0).toUpperCase() + kind.slice(1);
+      const kindTitle = kind.endsWith('s') || kind.endsWith('ss')
+        ? capitalizedKind + 'es'
+        : capitalizedKind + 's';
 
       lines.push(`## ${kindTitle}`);
       lines.push('');
