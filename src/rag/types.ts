@@ -95,6 +95,8 @@ export interface RAGConfig {
   autoIndex: boolean;
   /** Whether to watch for file changes */
   watchFiles: boolean;
+  /** Number of parallel indexing jobs (default: 4, max: 16) */
+  parallelJobs?: number;
 }
 
 /**

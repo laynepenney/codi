@@ -2118,6 +2118,7 @@ async function main() {
         excludePatterns: workspaceConfig.rag.excludePatterns ?? DEFAULT_RAG_CONFIG.excludePatterns,
         autoIndex: workspaceConfig.rag.autoIndex ?? DEFAULT_RAG_CONFIG.autoIndex,
         watchFiles: workspaceConfig.rag.watchFiles ?? DEFAULT_RAG_CONFIG.watchFiles,
+        parallelJobs: workspaceConfig.rag.parallelJobs,
       };
 
       const embeddingProvider = createEmbeddingProvider(ragConfig);

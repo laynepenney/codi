@@ -2,10 +2,15 @@
  * Background Indexer
  *
  * Indexes project files in the background with file watching support.
+ * Features:
+ * - Parallel processing with configurable concurrency
+ * - Incremental indexing (only re-indexes changed files)
+ * - Persistent cache of file modification times
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { glob } from 'glob';
 import type {
   RAGConfig,
@@ -17,6 +22,24 @@ import type {
 import type { BaseEmbeddingProvider } from './embeddings/base.js';
 import { VectorStore } from './vector-store.js';
 import { CodeChunker } from './chunker.js';
+
+/** Default number of parallel indexing jobs */
+const DEFAULT_PARALLEL_JOBS = 4;
+
+/** Maximum parallel jobs allowed */
+const MAX_PARALLEL_JOBS = 16;
+
+/** File metadata for incremental indexing */
+interface FileMetadata {
+  mtime: number;
+  size: number;
+}
+
+/** Cached index state */
+interface IndexCache {
+  files: Record<string, FileMetadata>;
+  lastIndexed: string | null;
+}
 
 /**
  * Background indexer with file watching.
@@ -35,6 +58,9 @@ export class BackgroundIndexer {
   private totalFiles: number = 0;
   private totalChunks: number = 0;
   private initialized: boolean = false;
+  private indexedFiles: Map<string, FileMetadata> = new Map();
+  private cacheFilePath: string;
+  private parallelJobs: number = DEFAULT_PARALLEL_JOBS;
 
   /** Progress callback */
   onProgress: IndexProgressCallback | null = null;
@@ -56,6 +82,16 @@ export class BackgroundIndexer {
       maxChunkSize: config.maxChunkSize * 4, // Approximate chars from tokens
       chunkOverlap: config.chunkOverlap * 4,
     });
+
+    // Set up cache file in the same location as the vector store
+    const indexDir = this.vectorStore.getPath();
+    this.cacheFilePath = path.join(path.dirname(indexDir), path.basename(indexDir) + '-cache.json');
+
+    // Set parallel jobs from config or default
+    this.parallelJobs = Math.min(
+      Math.max(1, config.parallelJobs ?? DEFAULT_PARALLEL_JOBS),
+      MAX_PARALLEL_JOBS
+    );
   }
 
   /**
@@ -65,6 +101,7 @@ export class BackgroundIndexer {
     if (this.initialized) return;
 
     await this.vectorStore.initialize();
+    this.loadCache();
     this.initialized = true;
 
     if (this.config.watchFiles) {
@@ -80,7 +117,84 @@ export class BackgroundIndexer {
   }
 
   /**
+   * Load the index cache from disk.
+   */
+  private loadCache(): void {
+    try {
+      if (fs.existsSync(this.cacheFilePath)) {
+        const data = fs.readFileSync(this.cacheFilePath, 'utf-8');
+        const cache: IndexCache = JSON.parse(data);
+
+        // Restore indexed files map
+        for (const [filePath, metadata] of Object.entries(cache.files)) {
+          this.indexedFiles.set(filePath, metadata);
+        }
+
+        // Restore last indexed time
+        if (cache.lastIndexed) {
+          this.lastIndexed = new Date(cache.lastIndexed);
+        }
+
+        this.totalFiles = this.indexedFiles.size;
+      }
+    } catch (err) {
+      // Cache is corrupted or missing, start fresh
+      this.indexedFiles.clear();
+    }
+  }
+
+  /**
+   * Save the index cache to disk.
+   */
+  private saveCache(): void {
+    try {
+      const cache: IndexCache = {
+        files: Object.fromEntries(this.indexedFiles),
+        lastIndexed: this.lastIndexed?.toISOString() ?? null,
+      };
+      fs.writeFileSync(this.cacheFilePath, JSON.stringify(cache, null, 2));
+    } catch (err) {
+      // Ignore cache save errors
+    }
+  }
+
+  /**
+   * Check if a file needs to be re-indexed.
+   */
+  private needsReindex(filePath: string): boolean {
+    try {
+      const stat = fs.statSync(filePath);
+      const cached = this.indexedFiles.get(filePath);
+
+      if (!cached) {
+        return true; // New file
+      }
+
+      // Check if file has been modified
+      return stat.mtimeMs !== cached.mtime || stat.size !== cached.size;
+    } catch {
+      return true; // File might not exist, let indexFile handle it
+    }
+  }
+
+  /**
+   * Update the cache for a file.
+   */
+  private updateFileCache(filePath: string): void {
+    try {
+      const stat = fs.statSync(filePath);
+      this.indexedFiles.set(filePath, {
+        mtime: stat.mtimeMs,
+        size: stat.size,
+      });
+    } catch {
+      // File might have been deleted
+    }
+  }
+
+  /**
    * Index all matching files in the project.
+   * Uses parallel processing and only re-indexes changed files.
    */
   async indexAll(): Promise<IndexStats> {
     if (this.isIndexing) {
@@ -88,26 +202,58 @@ export class BackgroundIndexer {
     }
 
     this.isIndexing = true;
-    this.totalFiles = 0;
-    this.totalChunks = 0;
 
     try {
-      const files = await this.findFilesToIndex();
-      this.totalFiles = files.length;
+      const allFiles = await this.findFilesToIndex();
 
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        this.onProgress?.(i + 1, files.length, path.relative(this.projectPath, file));
+      // Filter to only files that need re-indexing
+      const filesToIndex = allFiles.filter((file) => this.needsReindex(file));
 
-        try {
-          await this.indexFile(file);
-        } catch (err) {
-          // Log error but continue with other files
-          console.error(`Failed to index ${file}: ${err}`);
+      // Also remove files from cache that no longer exist
+      const allFilesSet = new Set(allFiles);
+      for (const cachedFile of this.indexedFiles.keys()) {
+        if (!allFilesSet.has(cachedFile)) {
+          this.indexedFiles.delete(cachedFile);
+          // Remove from vector store
+          await this.vectorStore.deleteByFile(cachedFile);
         }
       }
 
+      this.totalFiles = allFiles.length;
+
+      if (filesToIndex.length === 0) {
+        // Nothing to index, everything is cached
+        this.lastIndexed = new Date();
+        const stats = await this.getStats();
+        this.onComplete?.(stats);
+        return stats;
+      }
+
+      let processed = 0;
+
+      // Process files in parallel batches
+      for (let i = 0; i < filesToIndex.length; i += this.parallelJobs) {
+        const batch = filesToIndex.slice(i, i + this.parallelJobs);
+
+        // Process batch in parallel
+        await Promise.all(
+          batch.map(async (file) => {
+            try {
+              await this.indexFile(file);
+              this.updateFileCache(file);
+            } catch (err) {
+              // Log error but continue with other files
+              console.error(`Failed to index ${file}: ${err}`);
+            }
+
+            processed++;
+            this.onProgress?.(processed, filesToIndex.length, path.relative(this.projectPath, file));
+          })
+        );
+      }
+
       this.lastIndexed = new Date();
+      this.saveCache();
       const stats = await this.getStats();
       this.onComplete?.(stats);
       return stats;

@@ -123,6 +123,8 @@ export interface WorkspaceConfig {
     autoIndex?: boolean;
     /** Watch for file changes (default: true) */
     watchFiles?: boolean;
+    /** Number of parallel indexing jobs (default: 4, max: 16) */
+    parallelJobs?: number;
   };
 
   /** MCP (Model Context Protocol) server configurations */
