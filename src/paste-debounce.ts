@@ -89,9 +89,23 @@ export class PasteInterceptor extends Transform {
 
 /**
  * Create a paste interceptor stream to use between stdin and readline.
+ * Copies TTY properties from stdin so readline's tab completion works.
  */
 export function createPasteInterceptor(): PasteInterceptor {
-  return new PasteInterceptor();
+  const interceptor = new PasteInterceptor();
+
+  // Copy TTY properties from stdin to the interceptor.
+  // Readline checks input.isTTY to enable features like tab completion.
+  if (process.stdin.isTTY) {
+    (interceptor as unknown as { isTTY: boolean }).isTTY = true;
+    // Also copy setRawMode if available (needed for proper key handling)
+    if (typeof process.stdin.setRawMode === 'function') {
+      (interceptor as unknown as { setRawMode: typeof process.stdin.setRawMode }).setRawMode =
+        process.stdin.setRawMode.bind(process.stdin);
+    }
+  }
+
+  return interceptor;
 }
 
 /**

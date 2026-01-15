@@ -30,7 +30,7 @@ export function getSymbolIndexService(): SymbolIndexService | null {
  */
 export const symbolsCommand: Command = {
   name: 'symbols',
-  aliases: ['sym', 'index'],
+  aliases: ['sym'],
   description: 'Manage the symbol index for AST-based code navigation',
   usage: '/symbols [rebuild [--deep] [--jobs N]|update|stats|search <name>|clear]',
   taskType: 'fast',

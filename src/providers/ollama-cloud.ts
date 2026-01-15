@@ -42,12 +42,20 @@ interface OllamaChatRequest {
   keep_alive?: string | number;
 }
 
+interface OllamaToolCall {
+  function: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
 interface OllamaChatResponse {
   model: string;
   created_at: string;
   message: {
     role: string;
     content: string;
+    tool_calls?: OllamaToolCall[];
   };
   done: boolean;
   done_reason?: string;
@@ -214,16 +222,31 @@ export class OllamaCloudProvider extends BaseProvider {
 
           const responseData: OllamaChatResponse = await response.json();
 
-          // Extract tool calls from response if tools were provided
+          // Check for native tool calls first
           let toolCalls: ToolCall[] = [];
-          if (tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(responseData.message.content, tools);
+          if (responseData.message?.tool_calls && responseData.message.tool_calls.length > 0) {
+            toolCalls = responseData.message.tool_calls.map((tc, i) => ({
+              id: `ollama_${Date.now()}_${i}`,
+              name: tc.function.name,
+              input: tc.function.arguments,
+            }));
+          }
+
+          // Extract thinking content from <think> tags
+          const { content: cleanedContent, thinking } = this.extractThinkingContent(
+            responseData.message.content
+          );
+
+          // Fall back to extracting tool calls from text if no native calls
+          if (toolCalls.length === 0 && tools && tools.length > 0) {
+            toolCalls = this.extractToolCalls(cleanedContent, tools);
           }
 
           return createProviderResponse({
-            content: responseData.message.content,
+            content: cleanedContent,
             toolCalls,
             stopReason: responseData.done_reason,
+            reasoningContent: thinking || undefined,
             inputTokens: responseData.prompt_eval_count,
             outputTokens: responseData.eval_count,
           });
@@ -280,6 +303,7 @@ export class OllamaCloudProvider extends BaseProvider {
           let inputTokens: number | undefined;
           let outputTokens: number | undefined;
           let stopReason: string | undefined;
+          const nativeToolCalls: ToolCall[] = [];
 
           // Process streamed chunks
           while (true) {
@@ -299,6 +323,17 @@ export class OllamaCloudProvider extends BaseProvider {
                   if (onChunk) onChunk(content);
                 }
 
+                // Capture native tool calls from Ollama API
+                if (data.message?.tool_calls && data.message.tool_calls.length > 0) {
+                  for (const tc of data.message.tool_calls) {
+                    nativeToolCalls.push({
+                      id: `ollama_${Date.now()}_${nativeToolCalls.length}`,
+                      name: tc.function.name,
+                      input: tc.function.arguments,
+                    });
+                  }
+                }
+
                 // Capture token counts and stop reason from final chunk
                 if (data.done) {
                   inputTokens = data.prompt_eval_count;
@@ -312,16 +347,20 @@ export class OllamaCloudProvider extends BaseProvider {
             }
           }
 
-          // Extract tool calls if tools were provided
-          let toolCalls: ToolCall[] = [];
-          if (tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(fullText, tools);
+          // Extract thinking content from <think> tags (used by qwen3:thinking and similar models)
+          const { content: cleanedContent, thinking } = this.extractThinkingContent(fullText);
+
+          // Use native tool calls if available, otherwise extract from text
+          let toolCalls: ToolCall[] = nativeToolCalls;
+          if (toolCalls.length === 0 && tools && tools.length > 0) {
+            toolCalls = this.extractToolCalls(cleanedContent, tools);
           }
 
           return createProviderResponse({
-            content: fullText,
+            content: cleanedContent,
             toolCalls,
             stopReason: stopReason || 'stop',
+            reasoningContent: thinking || undefined,
             inputTokens,
             outputTokens,
           });
@@ -370,7 +409,7 @@ export class OllamaCloudProvider extends BaseProvider {
 
   /**
    * Extract tool calls from response content.
-   * Looks for JSON structures that match tool call format.
+   * Looks for various formats that models use for tool calls.
    */
   private extractToolCalls(content: string, tools: ToolDefinition[]): ToolCall[] {
     const toolCalls: ToolCall[] = [];
@@ -393,7 +432,29 @@ export class OllamaCloudProvider extends BaseProvider {
       return toolCalls;
     }
 
-    // Pattern 2: Look for JSON objects with "name" field
+    // Pattern 2: Function-call style in brackets [tool_name(param="value", param2=value)]
+    // Used by models like qwen3-coder
+    const funcCallPattern = /\[([a-z_]+)\(([^)]*)\)\]/gi;
+
+    while ((match = funcCallPattern.exec(content)) !== null) {
+      const toolName = match[1];
+      const argsString = match[2];
+
+      if (toolNames.has(toolName)) {
+        const args = this.parseFunctionCallArgs(argsString);
+        toolCalls.push({
+          id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          name: toolName,
+          input: args,
+        });
+      }
+    }
+
+    if (toolCalls.length > 0) {
+      return toolCalls;
+    }
+
+    // Pattern 3: Look for JSON objects with "name" field
     // This pattern handles nested braces properly
     const jsonPattern = /\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}/g;
 
@@ -405,6 +466,39 @@ export class OllamaCloudProvider extends BaseProvider {
     }
 
     return toolCalls;
+  }
+
+  /**
+   * Parse function-call style arguments like: path=".", show_hidden=true
+   */
+  private parseFunctionCallArgs(argsString: string): Record<string, unknown> {
+    const args: Record<string, unknown> = {};
+    if (!argsString.trim()) return args;
+
+    // Match key=value pairs, handling quoted strings
+    // For unquoted values, match until comma or end (excluding the comma)
+    const argPattern = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\s]+))/gi;
+    let match;
+
+    while ((match = argPattern.exec(argsString)) !== null) {
+      const key = match[1];
+      const value = match[2] ?? match[3] ?? match[4];
+
+      // Try to parse as JSON for booleans/numbers
+      if (value === 'true') {
+        args[key] = true;
+      } else if (value === 'false') {
+        args[key] = false;
+      } else if (value === 'null') {
+        args[key] = null;
+      } else if (!isNaN(Number(value)) && value !== '') {
+        args[key] = Number(value);
+      } else {
+        args[key] = value;
+      }
+    }
+
+    return args;
   }
 
   /**
@@ -426,6 +520,29 @@ export class OllamaCloudProvider extends BaseProvider {
       // Not valid JSON
     }
     return null;
+  }
+
+  /**
+   * Extract thinking/reasoning content from <think> tags.
+   * Used by models like qwen3:thinking that wrap reasoning in XML-style tags.
+   */
+  private extractThinkingContent(content: string): { content: string; thinking: string } {
+    // Match <think>...</think> or <thinking>...</thinking> tags
+    const thinkPattern = /<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/gi;
+    let thinking = '';
+    let cleanedContent = content;
+
+    let match;
+    while ((match = thinkPattern.exec(content)) !== null) {
+      thinking += (thinking ? '\n' : '') + match[1].trim();
+    }
+
+    // Remove thinking tags from content
+    if (thinking) {
+      cleanedContent = content.replace(thinkPattern, '').trim();
+    }
+
+    return { content: cleanedContent, thinking };
   }
 
   /**

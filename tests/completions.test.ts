@@ -247,6 +247,22 @@ describe('Command Completions', () => {
       const sorted = [...names].sort();
       expect(names).toEqual(sorted);
     });
+
+    it('has no duplicate command names or aliases', () => {
+      const names = getCommandNames();
+      const uniqueNames = new Set(names);
+      // If there are duplicates, set size will be smaller than array length
+      expect(uniqueNames.size).toBe(names.length);
+    });
+  });
+
+  describe('completer uniqueness', () => {
+    it('returns no duplicate completions', () => {
+      const completer = createCompleter();
+      const [completions] = completer('/');
+      const uniqueCompletions = new Set(completions);
+      expect(uniqueCompletions.size).toBe(completions.length);
+    });
   });
 
   describe('getSubcommands', () => {

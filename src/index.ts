@@ -23,14 +23,14 @@ const MAX_HISTORY_SIZE = 1000;
 
 /**
  * Load command history from file.
- * Returns array with most recent entries first (required by readline).
+ * Node.js readline shows index 0 first when pressing UP, so newest must be first.
  */
 function loadHistory(): string[] {
   try {
     if (existsSync(HISTORY_FILE)) {
       const content = readFileSync(HISTORY_FILE, 'utf-8');
       const lines = content.split('\n').filter((line) => line.trim());
-      // Return most recent entries first (readline expects newest at index 0)
+      // File has oldest first, newest last. Reverse so newest is at index 0.
       return lines.slice(-MAX_HISTORY_SIZE).reverse();
     }
   } catch {

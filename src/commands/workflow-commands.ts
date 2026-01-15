@@ -64,7 +64,7 @@ export const newCommand: Command = {
 
 export const scaffoldCommand: Command = {
   name: 'scaffold',
-  aliases: ['init'],
+  aliases: ['scaf'],
   description: 'Scaffold a new feature with multiple files',
   usage: '/scaffold <feature_name>',
   taskType: 'code',

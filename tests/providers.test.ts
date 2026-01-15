@@ -357,3 +357,143 @@ describe('OpenAI Message Conversion - Tool Pairing', () => {
     expect(userContent[0].tool_use_id).toBe('tool_123');
   });
 });
+
+describe('OllamaCloudProvider thinking extraction', () => {
+  // Test the thinking extraction regex directly since the method is private
+  function extractThinkingContent(content: string): { content: string; thinking: string } {
+    const thinkPattern = /<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/gi;
+    let thinking = '';
+    let cleanedContent = content;
+
+    let match;
+    while ((match = thinkPattern.exec(content)) !== null) {
+      thinking += (thinking ? '\n' : '') + match[1].trim();
+    }
+
+    if (thinking) {
+      cleanedContent = content.replace(thinkPattern, '').trim();
+    }
+
+    return { content: cleanedContent, thinking };
+  }
+
+  it('extracts <think> tags from content', () => {
+    const input = '<think>This is my reasoning process.</think>Here is the answer.';
+    const result = extractThinkingContent(input);
+    expect(result.thinking).toBe('This is my reasoning process.');
+    expect(result.content).toBe('Here is the answer.');
+  });
+
+  it('extracts <thinking> tags from content', () => {
+    const input = '<thinking>Analyzing the problem...</thinking>The solution is X.';
+    const result = extractThinkingContent(input);
+    expect(result.thinking).toBe('Analyzing the problem...');
+    expect(result.content).toBe('The solution is X.');
+  });
+
+  it('handles multiple think blocks', () => {
+    const input = '<think>First thought.</think>Middle text.<think>Second thought.</think>Final answer.';
+    const result = extractThinkingContent(input);
+    expect(result.thinking).toBe('First thought.\nSecond thought.');
+    expect(result.content).toBe('Middle text.Final answer.');
+  });
+
+  it('handles multiline thinking content', () => {
+    const input = `<think>
+Step 1: Consider the problem
+Step 2: Analyze options
+Step 3: Choose solution
+</think>The answer is 42.`;
+    const result = extractThinkingContent(input);
+    expect(result.thinking).toContain('Step 1');
+    expect(result.thinking).toContain('Step 3');
+    expect(result.content).toBe('The answer is 42.');
+  });
+
+  it('returns empty thinking when no tags present', () => {
+    const input = 'Just a normal response without thinking.';
+    const result = extractThinkingContent(input);
+    expect(result.thinking).toBe('');
+    expect(result.content).toBe('Just a normal response without thinking.');
+  });
+
+  it('handles case-insensitive tags', () => {
+    const input = '<THINK>Uppercase thinking.</THINK>Response.';
+    const result = extractThinkingContent(input);
+    expect(result.thinking).toBe('Uppercase thinking.');
+    expect(result.content).toBe('Response.');
+  });
+});
+
+describe('OllamaCloudProvider function-call style parsing', () => {
+  // Test the argument parsing function directly
+  function parseFunctionCallArgs(argsString: string): Record<string, unknown> {
+    const args: Record<string, unknown> = {};
+    if (!argsString.trim()) return args;
+
+    const argPattern = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\s]+))/gi;
+    let match;
+
+    while ((match = argPattern.exec(argsString)) !== null) {
+      const key = match[1];
+      const value = match[2] ?? match[3] ?? match[4];
+
+      if (value === 'true') {
+        args[key] = true;
+      } else if (value === 'false') {
+        args[key] = false;
+      } else if (value === 'null') {
+        args[key] = null;
+      } else if (!isNaN(Number(value)) && value !== '') {
+        args[key] = Number(value);
+      } else {
+        args[key] = value;
+      }
+    }
+
+    return args;
+  }
+
+  it('parses string arguments with double quotes', () => {
+    const result = parseFunctionCallArgs('path="./src"');
+    expect(result.path).toBe('./src');
+  });
+
+  it('parses string arguments with single quotes', () => {
+    const result = parseFunctionCallArgs("path='./src'");
+    expect(result.path).toBe('./src');
+  });
+
+  it('parses boolean true', () => {
+    const result = parseFunctionCallArgs('show_hidden=true');
+    expect(result.show_hidden).toBe(true);
+  });
+
+  it('parses boolean false', () => {
+    const result = parseFunctionCallArgs('recursive=false');
+    expect(result.recursive).toBe(false);
+  });
+
+  it('parses numbers', () => {
+    const result = parseFunctionCallArgs('limit=100');
+    expect(result.limit).toBe(100);
+  });
+
+  it('parses multiple arguments', () => {
+    const result = parseFunctionCallArgs('path=".", show_hidden=true, limit=50');
+    expect(result.path).toBe('.');
+    expect(result.show_hidden).toBe(true);
+    expect(result.limit).toBe(50);
+  });
+
+  it('handles empty arguments', () => {
+    const result = parseFunctionCallArgs('');
+    expect(result).toEqual({});
+  });
+
+  it('parses real-world list_directory call', () => {
+    const result = parseFunctionCallArgs('path=".", show_hidden=true');
+    expect(result.path).toBe('.');
+    expect(result.show_hidden).toBe(true);
+  });
+});

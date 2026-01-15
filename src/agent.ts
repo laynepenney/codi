@@ -546,39 +546,51 @@ Always use tools to interact with the filesystem rather than asking the user to 
       const isExtractedToolCall = response.toolCalls.length > 0 &&
         response.toolCalls[0].id.startsWith('extracted_');
 
-      // Store assistant response
-      if (response.content || response.toolCalls.length > 0) {
+      // Store assistant response (always add to prevent consecutive user messages)
+      if (response.content) {
+        finalResponse = response.content;
+      }
+
+      if (isExtractedToolCall) {
+        // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
+        this.messages.push({
+          role: 'assistant',
+          content: response.content || '',
+        });
+      } else if (response.content || response.toolCalls.length > 0) {
+        // For native tool calls, use content blocks
+        const contentBlocks: ContentBlock[] = [];
+
         if (response.content) {
-          finalResponse = response.content;
+          contentBlocks.push({ type: 'text', text: response.content });
         }
 
-        if (isExtractedToolCall) {
-          // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
-          this.messages.push({
-            role: 'assistant',
-            content: response.content || '',
+        for (const toolCall of response.toolCalls) {
+          contentBlocks.push({
+            type: 'tool_use',
+            id: toolCall.id,
+            name: toolCall.name,
+            input: toolCall.input,
           });
-        } else {
-          // For native tool calls, use content blocks
-          const contentBlocks: ContentBlock[] = [];
+        }
 
-          if (response.content) {
-            contentBlocks.push({ type: 'text', text: response.content });
-          }
+        this.messages.push({
+          role: 'assistant',
+          content: contentBlocks,
+        });
+      } else {
+        // Empty response - still add assistant message to prevent consecutive user messages
+        this.messages.push({
+          role: 'assistant',
+          content: '',
+        });
 
-          for (const toolCall of response.toolCalls) {
-            contentBlocks.push({
-              type: 'tool_use',
-              id: toolCall.id,
-              name: toolCall.name,
-              input: toolCall.input,
-            });
-          }
-
-          this.messages.push({
-            role: 'assistant',
-            content: contentBlocks,
-          });
+        // Warn if tokens were generated but no content received (likely a parsing issue)
+        if (response.usage?.outputTokens && response.usage.outputTokens > 0) {
+          logger.debug(
+            `Warning: Model generated ${response.usage.outputTokens} tokens but returned no content. ` +
+            `This may indicate a parsing issue with the provider response.`
+          );
         }
       }
 
@@ -663,16 +675,37 @@ Always use tools to interact with the filesystem rather than asking the user to 
           // Get approval suggestions for bash commands (unless dangerous)
           let approvalSuggestions: ToolConfirmation['approvalSuggestions'];
           if (toolCall.name === 'bash' && !isDangerous) {
-            const command = toolCall.input.command as string;
-            const suggestions = getApprovalSuggestions(command);
-            approvalSuggestions = {
-              suggestedPattern: suggestions.suggestedPattern,
-              matchedCategories: suggestions.matchedCategories.map((c) => ({
-                id: c.id,
-                name: c.name,
-                description: c.description,
-              })),
-            };
+            // Normalize command from various input formats
+            let command = toolCall.input.command as string | undefined;
+
+            // Handle alternative formats from models (e.g., cmd array)
+            if (!command && toolCall.input.cmd) {
+              const cmd = toolCall.input.cmd;
+              if (Array.isArray(cmd)) {
+                // Format: {"cmd": ["bash", "-lc", "actual command"]}
+                // Find the actual command (usually the last element after flags)
+                command = cmd.find((c: string) => !c.startsWith('-') && c !== 'bash' && c !== 'sh');
+                // Update the input for downstream use
+                if (command) {
+                  toolCall.input.command = command;
+                }
+              } else if (typeof cmd === 'string') {
+                command = cmd;
+                toolCall.input.command = command;
+              }
+            }
+
+            if (command && typeof command === 'string') {
+              const suggestions = getApprovalSuggestions(command);
+              approvalSuggestions = {
+                suggestedPattern: suggestions.suggestedPattern,
+                matchedCategories: suggestions.matchedCategories.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  description: c.description,
+                })),
+              };
+            }
           }
 
           // Get approval suggestions for file tools

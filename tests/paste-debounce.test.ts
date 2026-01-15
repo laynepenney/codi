@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPasteDebounceHandler,
+  createPasteInterceptor,
   processBracketedPaste,
   PASTE_START,
   PASTE_END,
@@ -199,5 +200,96 @@ describe('bracketed paste mode', () => {
     // Fire the last timeout
     timeouts[timeouts.length - 1]();
     expect(handleInput).toHaveBeenCalledWith('line1\nline2');
+  });
+});
+
+describe('createPasteInterceptor', () => {
+  it('copies isTTY from stdin when stdin is a TTY', () => {
+    // Save original value
+    const originalIsTTY = process.stdin.isTTY;
+
+    // Mock stdin as TTY
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+    const interceptor = createPasteInterceptor();
+    expect((interceptor as unknown as { isTTY?: boolean }).isTTY).toBe(true);
+
+    // Restore
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
+
+  it('does not set isTTY when stdin is not a TTY', () => {
+    // Save original value
+    const originalIsTTY = process.stdin.isTTY;
+
+    // Mock stdin as non-TTY
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    const interceptor = createPasteInterceptor();
+    expect((interceptor as unknown as { isTTY?: boolean }).isTTY).toBeUndefined();
+
+    // Restore
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
+
+  it('copies setRawMode from stdin when available', () => {
+    // Save original values
+    const originalIsTTY = process.stdin.isTTY;
+    const originalSetRawMode = process.stdin.setRawMode;
+
+    // Mock stdin as TTY with setRawMode
+    const mockSetRawMode = vi.fn();
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'setRawMode', { value: mockSetRawMode, configurable: true });
+
+    const interceptor = createPasteInterceptor();
+    const interceptorWithRawMode = interceptor as unknown as { setRawMode?: (mode: boolean) => void };
+
+    expect(interceptorWithRawMode.setRawMode).toBeDefined();
+    expect(typeof interceptorWithRawMode.setRawMode).toBe('function');
+
+    // Call it to verify it's bound correctly
+    interceptorWithRawMode.setRawMode?.(true);
+    expect(mockSetRawMode).toHaveBeenCalledWith(true);
+
+    // Restore
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    Object.defineProperty(process.stdin, 'setRawMode', { value: originalSetRawMode, configurable: true });
+  });
+
+  it('passes data through the transform stream', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Write some data
+    interceptor.write('hello world');
+    interceptor.end();
+
+    // Wait for stream to finish
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    expect(chunks.join('')).toBe('hello world');
+  });
+
+  it('strips paste markers while passing other data through', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Write data with paste markers
+    interceptor.write(`${PASTE_START}pasted content${PASTE_END}`);
+    interceptor.end();
+
+    // Wait for stream to finish
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    expect(chunks.join('')).toBe('pasted content');
   });
 });
