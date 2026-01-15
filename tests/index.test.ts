@@ -335,6 +335,65 @@ describe('Agent', () => {
     expect(info.messages).toBe(0);
     expect(info.hasSummary).toBe(false);
   });
+
+  it('extracts tool calls from reasoning when content is empty', async () => {
+    const toolRegistry = new ToolRegistry();
+    let receivedInput: Record<string, unknown> | null = null;
+
+    class CaptureTool extends BaseTool {
+      getDefinition() {
+        return {
+          name: 'capture',
+          description: 'capture input',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              value: { type: 'number' },
+            },
+            required: ['value'],
+          },
+        };
+      }
+
+      async execute(input: Record<string, unknown>): Promise<string> {
+        receivedInput = input;
+        return 'ok';
+      }
+    }
+
+    toolRegistry.register(new CaptureTool());
+
+    const mockProvider = {
+      streamChat: vi.fn()
+        .mockImplementationOnce(async (_messages, _tools, _onChunk, _systemPrompt, onReasoningChunk) => {
+          const reasoning = '[Calling capture]: {"value": 42}';
+          onReasoningChunk?.(reasoning);
+          return {
+            content: '',
+            toolCalls: [],
+            stopReason: 'end_turn',
+            reasoningContent: reasoning,
+          };
+        })
+        .mockImplementationOnce(async () => ({
+          content: 'done',
+          toolCalls: [],
+          stopReason: 'end_turn',
+        })),
+      supportsToolUse: () => true,
+      getName: () => 'mock',
+      getModel: () => 'mock-model',
+    };
+
+    const agent = new Agent({
+      provider: mockProvider as any,
+      toolRegistry,
+    });
+
+    const result = await agent.chat('continue');
+    expect(result).toBe('done');
+    expect(receivedInput).toEqual({ value: 42 });
+  });
 });
 
 describe('Providers', () => {

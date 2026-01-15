@@ -578,19 +578,34 @@ Always use tools to interact with the filesystem rather than asking the user to 
       if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText) {
         const toolDefinitions = this.toolRegistry.getDefinitions();
         const fallbackConfig = this.toolRegistry.getFallbackConfig();
-        const extractionText = response.content;
+        const contentText = response.content?.trim() || '';
+        const reasoningText = response.reasoningContent?.trim() || '';
         const contentMatchesReasoning = Boolean(
-          response.content &&
-          response.reasoningContent &&
-          response.content.trim() === response.reasoningContent.trim()
+          contentText &&
+          reasoningText &&
+          contentText === reasoningText
         );
+        const toolTracePattern = /\[(?:Calling|Running)\s+[a-z_][a-z0-9_]*\]|\{\s*"name"\s*:\s*"[a-z_][a-z0-9_]*"/i;
+        const hasToolTrace = (text: string): boolean => toolTracePattern.test(text);
 
-        if (extractionText && !contentMatchesReasoning) {
-          const extractedCalls = extractToolCallsFromText(extractionText, toolDefinitions, fallbackConfig);
-          if (extractedCalls.length > 0) {
-            response.toolCalls = extractedCalls;
-            response.stopReason = 'tool_use';
-          }
+        let extractedCalls: ToolCall[] = [];
+
+        if (contentText && (!contentMatchesReasoning || hasToolTrace(contentText))) {
+          extractedCalls = extractToolCallsFromText(contentText, toolDefinitions, fallbackConfig);
+        }
+
+        if (
+          extractedCalls.length === 0 &&
+          !contentText &&
+          reasoningText &&
+          hasToolTrace(reasoningText)
+        ) {
+          extractedCalls = extractToolCallsFromText(reasoningText, toolDefinitions, fallbackConfig);
+        }
+
+        if (extractedCalls.length > 0) {
+          response.toolCalls = extractedCalls;
+          response.stopReason = 'tool_use';
         }
       }
 
