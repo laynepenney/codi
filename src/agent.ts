@@ -512,10 +512,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // Call the model with streaming (using native system prompt support)
       const apiStartTime = Date.now();
+      let streamedChars = 0;
+      const onChunk = (chunk: string): void => {
+        if (chunk) {
+          streamedChars += chunk.length;
+        }
+        this.callbacks.onText?.(chunk);
+      };
       const response = await chatProvider.streamChat(
         messagesToSend,
         tools,
-        this.callbacks.onText,
+        onChunk,
         systemContext
       );
       const apiDuration = (Date.now() - apiStartTime) / 1000;
@@ -541,7 +548,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
         response.content,
         response.toolCalls,
         response.usage,
-        Date.now() - apiStartTime
+        Date.now() - apiStartTime,
+        response.rawResponse
       );
 
       // Record usage for cost tracking
@@ -574,7 +582,22 @@ Always use tools to interact with the filesystem rather than asking the user to 
         finalResponse = response.content;
       }
 
-      if (isExtractedToolCall) {
+      const shouldEmitFallback = !response.content &&
+        response.toolCalls.length === 0 &&
+        streamedChars === 0;
+
+      if (shouldEmitFallback) {
+        const fallbackMessage = response.reasoningContent
+          ? 'Model returned reasoning without a final answer. Try again or check --audit for the raw response.'
+          : 'Model returned an empty response. Try again or check --audit for the raw response.';
+
+        finalResponse = fallbackMessage;
+        this.messages.push({
+          role: 'assistant',
+          content: fallbackMessage,
+        });
+        this.callbacks.onText?.(fallbackMessage);
+      } else if (isExtractedToolCall) {
         // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
         this.messages.push({
           role: 'assistant',

@@ -14,8 +14,8 @@
  * - Prevents silent bugs like tool_result blocks being dropped
  */
 
-import type { Message, ContentBlock } from '../types.js';
-import { logger } from '../logger.js';
+import type {ContentBlock, Message} from '../types.js';
+import {logger} from '../logger.js';
 
 /**
  * Typed block interfaces for type-safe extraction.
@@ -229,7 +229,7 @@ export interface BlockConverters<T> {
   image: (block: ContentBlock) => T;
   thinking: (block: ContentBlock) => T;
   /** Called for unknown block types - can return null to skip */
-  unknown?: (block: ContentBlock) => T | null;
+  unknown: (block: ContentBlock) => T;
 }
 
 /**
@@ -244,7 +244,7 @@ export interface BlockConverters<T> {
 export function mapContentBlock<T>(
   block: ContentBlock,
   converters: BlockConverters<T>
-): T | null {
+): T {
   switch (block.type) {
     case 'text':
       return converters.text(block);
@@ -258,7 +258,7 @@ export function mapContentBlock<T>(
       return converters.thinking(block);
     default:
       logger.warn(`Unknown content block type: ${(block as ContentBlock).type}`);
-      return converters.unknown ? converters.unknown(block) : null;
+      return converters.unknown(block);
   }
 }
 

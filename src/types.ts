@@ -150,6 +150,7 @@ export interface TokenUsage {
  * @property {{'end_turn' | 'tool_use' | 'max_tokens'}} stopReason - Reason for stopping the response generation.
  * @property {string} [reasoningContent] - Optional reasoning/thinking content from reasoning models.
  * @property {TokenUsage} [usage] - Token usage information if available.
+ * @property {unknown} [rawResponse] - Raw provider response payload for audit/debugging.
  */
 export interface ProviderResponse {
   content: string;
@@ -157,6 +158,7 @@ export interface ProviderResponse {
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
   reasoningContent?: string;
   usage?: TokenUsage;
+  rawResponse?: unknown;
 }
 
 // Provider configuration

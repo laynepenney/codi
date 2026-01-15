@@ -126,6 +126,7 @@ export class AnthropicProvider extends BaseProvider {
         cacheCreationInputTokens: usage.cache_creation_input_tokens,
         cacheReadInputTokens: usage.cache_read_input_tokens,
       },
+      rawResponse: finalMessage,
     };
   }
 
@@ -209,7 +210,7 @@ export class AnthropicProvider extends BaseProvider {
             text: b.text || '',
           }),
           // Unknown block types become empty text blocks (logged by mapContentBlocks)
-          unknown: () => ({ type: 'text' as const, text: '' }),
+          unknown: (b) => ({ type: 'text' as const, text: b.text || b.content || '' }),
         });
 
         return { role, content };
@@ -258,6 +259,7 @@ export class AnthropicProvider extends BaseProvider {
       outputTokens: usage.output_tokens,
       cacheCreationInputTokens: usage.cache_creation_input_tokens,
       cacheReadInputTokens: usage.cache_read_input_tokens,
+      rawResponse: response,
     });
   }
 }

@@ -56,6 +56,7 @@ interface OllamaChatResponse {
   message: {
     role: string;
     content: string;
+    thinking?: string;
     tool_calls?: OllamaToolCall[];
   };
   done: boolean;
@@ -216,28 +217,37 @@ export class OllamaCloudProvider extends BaseProvider {
             }));
           }
 
+          const rawContent = responseData.message.content || '';
+          const thinkingField = responseData.message.thinking || '';
+
           // Extract thinking content from <think> tags
-          const { content: thinkingCleanedContent, thinking } = this.extractThinkingContent(
-            responseData.message.content
+          const { content: thinkingCleanedContent, thinking: tagThinking } = this.extractThinkingContent(
+            rawContent
           );
+          const combinedThinking = [thinkingField, tagThinking].filter(Boolean).join('\n');
+          const hasContent = thinkingCleanedContent.trim().length > 0;
+          const useFallbackContent = !hasContent && combinedThinking.length > 0;
+          const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
+          const reasoningContent = useFallbackContent ? undefined : (combinedThinking || undefined);
 
           // Fall back to extracting tool calls from text if no native calls
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(thinkingCleanedContent, tools);
+            toolCalls = this.extractToolCalls(finalContent, tools);
           }
 
           // Clean hallucinated traces from content (after tool extraction)
           const cleanedContent = toolCalls.length > 0
-            ? this.cleanHallucinatedTraces(thinkingCleanedContent)
-            : thinkingCleanedContent;
+            ? this.cleanHallucinatedTraces(finalContent)
+            : finalContent;
 
           return createProviderResponse({
             content: cleanedContent,
             toolCalls,
             stopReason: responseData.done_reason,
-            reasoningContent: thinking || undefined,
+            reasoningContent,
             inputTokens: responseData.prompt_eval_count,
             outputTokens: responseData.eval_count,
+            rawResponse: responseData,
           });
         },
         {
@@ -289,10 +299,13 @@ export class OllamaCloudProvider extends BaseProvider {
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let fullText = '';
+          let thinkingText = '';
+          let streamedContentChars = 0;
           let inputTokens: number | undefined;
           let outputTokens: number | undefined;
           let stopReason: string | undefined;
           const nativeToolCalls: ToolCall[] = [];
+          const rawChunks: OllamaChatResponse[] = [];
 
           // Process streamed chunks
           while (true) {
@@ -305,11 +318,19 @@ export class OllamaCloudProvider extends BaseProvider {
             for (const line of lines) {
               try {
                 const data: OllamaChatResponse = JSON.parse(line);
+                rawChunks.push(data);
 
                 if (data.message?.content) {
                   const content = data.message.content;
                   fullText += content;
-                  if (onChunk) onChunk(content);
+                  if (content) {
+                    streamedContentChars += content.length;
+                    if (onChunk) onChunk(content);
+                  }
+                }
+
+                if (data.message?.thinking) {
+                  thinkingText += data.message.thinking;
                 }
 
                 // Capture native tool calls from Ollama API
@@ -337,26 +358,36 @@ export class OllamaCloudProvider extends BaseProvider {
           }
 
           // Extract thinking content from <think> tags (used by qwen3:thinking and similar models)
-          const { content: thinkingCleanedContent, thinking } = this.extractThinkingContent(fullText);
+          const { content: thinkingCleanedContent, thinking: tagThinking } = this.extractThinkingContent(fullText);
+          const combinedThinking = [thinkingText, tagThinking].filter(Boolean).join('\n');
+          const hasContent = thinkingCleanedContent.trim().length > 0;
+          const useFallbackContent = !hasContent && combinedThinking.length > 0;
+          const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
+          const reasoningContent = useFallbackContent ? undefined : (combinedThinking || undefined);
+
+          if (streamedContentChars === 0 && finalContent && onChunk) {
+            onChunk(finalContent);
+          }
 
           // Use native tool calls if available, otherwise extract from text
           let toolCalls: ToolCall[] = nativeToolCalls;
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(thinkingCleanedContent, tools);
+            toolCalls = this.extractToolCalls(finalContent, tools);
           }
 
           // Clean hallucinated traces from content (after tool extraction)
           const cleanedContent = toolCalls.length > 0
-            ? this.cleanHallucinatedTraces(thinkingCleanedContent)
-            : thinkingCleanedContent;
+            ? this.cleanHallucinatedTraces(finalContent)
+            : finalContent;
 
           return createProviderResponse({
             content: cleanedContent,
             toolCalls,
             stopReason: stopReason || 'stop',
-            reasoningContent: thinking || undefined,
+            reasoningContent,
             inputTokens,
             outputTokens,
+            rawResponse: { stream: true, chunks: rawChunks },
           });
         },
         {

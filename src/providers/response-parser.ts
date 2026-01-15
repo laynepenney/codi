@@ -43,6 +43,7 @@ export function createProviderResponse(params: {
   inputTokens?: number;
   outputTokens?: number;
   reasoningContent?: string;
+  rawResponse?: unknown;
   // Cache metrics
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
@@ -55,6 +56,7 @@ export function createProviderResponse(params: {
     inputTokens,
     outputTokens,
     reasoningContent,
+    rawResponse,
     cacheCreationInputTokens,
     cacheReadInputTokens,
     cachedInputTokens,
@@ -65,6 +67,7 @@ export function createProviderResponse(params: {
     toolCalls,
     stopReason: mapStopReason(stopReason, toolCalls.length > 0),
     ...(reasoningContent && { reasoningContent }),
+    ...(rawResponse !== undefined && { rawResponse }),
     ...(inputTokens !== undefined && outputTokens !== undefined && {
       usage: {
         inputTokens,
