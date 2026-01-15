@@ -70,6 +70,7 @@ export function setupMockE2E(
   const tempDir = createTempDir();
   const responsesFile = join(tempDir, 'responses.json');
   const logFile = options?.enableLogging ? join(tempDir, 'mock.log') : undefined;
+  const historyFile = join(tempDir, 'history');
 
   const data: MockResponsesFile = {
     responses,
@@ -81,6 +82,7 @@ export function setupMockE2E(
 
   const env: Record<string, string> = {
     CODI_MOCK_FILE: responsesFile,
+    CODI_HISTORY_FILE: historyFile, // Isolate history from real user history
   };
 
   if (logFile) {

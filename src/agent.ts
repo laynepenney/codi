@@ -605,6 +605,19 @@ Always use tools to interact with the filesystem rather than asking the user to 
       let aborted = false;
 
       for (const toolCall of response.toolCalls) {
+        // Normalize bash command input early (before any checks)
+        // Models may send { cmd: [...] } or { cmd: "..." } instead of { command: "..." }
+        if (toolCall.name === 'bash' && !toolCall.input.command && toolCall.input.cmd) {
+          const cmd = toolCall.input.cmd;
+          if (Array.isArray(cmd)) {
+            // Format: {"cmd": ["bash", "-lc", "actual command"]}
+            const command = cmd.find((c: string) => !c.startsWith('-') && c !== 'bash' && c !== 'sh');
+            if (command) toolCall.input.command = command;
+          } else if (typeof cmd === 'string') {
+            toolCall.input.command = cmd;
+          }
+        }
+
         // Check if this tool requires confirmation
         let needsConfirmation = !this.shouldAutoApprove(toolCall.name) &&
           TOOL_CATEGORIES.DESTRUCTIVE.has(toolCall.name) &&
@@ -613,7 +626,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
         // For bash commands, also check approved patterns/categories
         if (needsConfirmation && toolCall.name === 'bash') {
           const command = toolCall.input.command as string;
-          if (this.shouldAutoApproveBash(command)) {
+          if (command && this.shouldAutoApproveBash(command)) {
             needsConfirmation = false;
           }
         }
@@ -632,19 +645,21 @@ Always use tools to interact with the filesystem rather than asking the user to 
           let dangerReason: string | undefined;
 
           if (toolCall.name === 'bash') {
-            const command = toolCall.input.command as string;
-            // Check built-in dangerous patterns
-            const danger = checkDangerousBash(command);
-            isDangerous = danger.isDangerous;
-            dangerReason = danger.reason;
+            const command = toolCall.input.command as string | undefined;
+            if (command) {
+              // Check built-in dangerous patterns
+              const danger = checkDangerousBash(command);
+              isDangerous = danger.isDangerous;
+              dangerReason = danger.reason;
 
-            // Check custom dangerous patterns if not already flagged
-            if (!isDangerous && this.customDangerousPatterns.length > 0) {
-              for (const { pattern, description } of this.customDangerousPatterns) {
-                if (pattern.test(command)) {
-                  isDangerous = true;
-                  dangerReason = description;
-                  break;
+              // Check custom dangerous patterns if not already flagged
+              if (!isDangerous && this.customDangerousPatterns.length > 0) {
+                for (const { pattern, description } of this.customDangerousPatterns) {
+                  if (pattern.test(command)) {
+                    isDangerous = true;
+                    dangerReason = description;
+                    break;
+                  }
                 }
               }
             }
@@ -675,27 +690,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
           // Get approval suggestions for bash commands (unless dangerous)
           let approvalSuggestions: ToolConfirmation['approvalSuggestions'];
           if (toolCall.name === 'bash' && !isDangerous) {
-            // Normalize command from various input formats
-            let command = toolCall.input.command as string | undefined;
-
-            // Handle alternative formats from models (e.g., cmd array)
-            if (!command && toolCall.input.cmd) {
-              const cmd = toolCall.input.cmd;
-              if (Array.isArray(cmd)) {
-                // Format: {"cmd": ["bash", "-lc", "actual command"]}
-                // Find the actual command (usually the last element after flags)
-                command = cmd.find((c: string) => !c.startsWith('-') && c !== 'bash' && c !== 'sh');
-                // Update the input for downstream use
-                if (command) {
-                  toolCall.input.command = command;
-                }
-              } else if (typeof cmd === 'string') {
-                command = cmd;
-                toolCall.input.command = command;
-              }
-            }
-
-            if (command && typeof command === 'string') {
+            const command = toolCall.input.command as string | undefined;
+            if (command) {
               const suggestions = getApprovalSuggestions(command);
               approvalSuggestions = {
                 suggestedPattern: suggestions.suggestedPattern,

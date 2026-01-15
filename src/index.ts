@@ -17,8 +17,8 @@ import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 
-// History configuration
-const HISTORY_FILE = join(homedir(), '.codi_history');
+// History configuration - allow override for testing
+const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
 const MAX_HISTORY_SIZE = 1000;
 
 /**
