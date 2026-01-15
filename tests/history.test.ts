@@ -171,10 +171,10 @@ describe('History System', () => {
 
       fs.writeFileSync('mark.txt', 'new');
 
-      undoChange();
+      const undoneEntry = undoChange();
 
-      const history = getHistory(10, true);
-      expect(history[0].undone).toBe(true);
+      expect(undoneEntry).not.toBeNull();
+      expect(undoneEntry!.undone).toBe(true);
     });
 
     it('undoes most recent non-undone entry', () => {
@@ -341,10 +341,18 @@ describe('History System', () => {
 
   describe('formatHistoryEntry', () => {
     it('formats entry for display', () => {
-      recordChange({ operation: 'write', filePath: 'format.txt', newContent: 'x', description: 'Test format' });
+      const entryId = recordChange({
+        operation: 'write',
+        filePath: 'format.txt',
+        newContent: 'x',
+        description: 'Test format',
+      });
 
-      const history = getHistory();
-      const formatted = formatHistoryEntry(history[0]);
+      const history = getHistory(50, true);
+      const entry = history.find((item) => item.id === entryId);
+
+      expect(entry).toBeDefined();
+      const formatted = formatHistoryEntry(entry!);
 
       expect(formatted).toContain('write');
       expect(formatted).toContain('format.txt');
@@ -357,10 +365,10 @@ describe('History System', () => {
       recordChange({ operation: 'write', filePath: 'undone-format.txt', newContent: 'x', description: 'Will undo' });
       fs.writeFileSync('undone-format.txt', 'x');
 
-      undoChange();
+      const undoneEntry = undoChange();
 
-      const history = getHistory(10, true);
-      const formatted = formatHistoryEntry(history[0]);
+      expect(undoneEntry).not.toBeNull();
+      const formatted = formatHistoryEntry(undoneEntry!);
 
       expect(formatted).toContain('(undone)');
     });
@@ -369,8 +377,13 @@ describe('History System', () => {
   describe('getHistoryDir', () => {
     it('returns the history directory path', () => {
       const dir = getHistoryDir();
-      expect(dir).toContain('.codi');
-      expect(dir).toContain('history');
+      if (process.env.VITEST || process.env.NODE_ENV === 'test') {
+        expect(dir).toContain('codi-history-');
+        expect(dir).toContain(os.tmpdir());
+      } else {
+        expect(dir).toContain('.codi');
+        expect(dir).toContain('history');
+      }
     });
   });
 });
