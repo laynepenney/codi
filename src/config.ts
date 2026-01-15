@@ -3,6 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { AGENT_CONFIG } from './constants.js';
 
 /**
  * Workspace configuration for Codi.
@@ -68,6 +69,9 @@ export interface WorkspaceConfig {
 
   /** Enable context compression (reduces token usage) */
   enableCompression?: boolean;
+
+  /** Maximum context tokens before compaction */
+  maxContextTokens?: number;
 
   /** Context optimization settings */
   contextOptimization?: {
@@ -215,6 +219,7 @@ export interface ResolvedConfig {
   commandAliases: Record<string, string>;
   projectContext?: string;
   enableCompression: boolean;
+  maxContextTokens: number;
   /** Secondary model for summarization */
   summarizeProvider?: string;
   summarizeModel?: string;
@@ -235,6 +240,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   extractToolsFromText: true,
   commandAliases: {},
   enableCompression: true, // Enabled by default for token savings
+  maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
   toolsConfig: {
     disabled: [],
     defaults: {},
@@ -318,6 +324,12 @@ export function validateConfig(config: WorkspaceConfig): string[] {
     }
   }
 
+  if (config.maxContextTokens !== undefined) {
+    if (!Number.isFinite(config.maxContextTokens) || config.maxContextTokens <= 0) {
+      warnings.push('maxContextTokens must be a positive number');
+    }
+  }
+
   return warnings;
 }
 
@@ -337,6 +349,7 @@ export function mergeConfig(
     session?: string;
     summarizeProvider?: string;
     summarizeModel?: string;
+    maxContextTokens?: number;
   }
 ): ResolvedConfig {
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -360,6 +373,9 @@ export function mergeConfig(
     if (workspaceConfig.commandAliases) config.commandAliases = workspaceConfig.commandAliases;
     if (workspaceConfig.projectContext) config.projectContext = workspaceConfig.projectContext;
     if (workspaceConfig.enableCompression !== undefined) config.enableCompression = workspaceConfig.enableCompression;
+    if (workspaceConfig.maxContextTokens !== undefined && Number.isFinite(workspaceConfig.maxContextTokens)) {
+      config.maxContextTokens = workspaceConfig.maxContextTokens;
+    }
     // Summarize model from workspace config
     if (workspaceConfig.models?.summarize?.provider) config.summarizeProvider = workspaceConfig.models.summarize.provider;
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
@@ -376,6 +392,9 @@ export function mergeConfig(
   if (cliOptions.baseUrl) config.baseUrl = cliOptions.baseUrl;
   if (cliOptions.endpointId) config.endpointId = cliOptions.endpointId;
   if (cliOptions.session) config.defaultSession = cliOptions.session;
+  if (cliOptions.maxContextTokens !== undefined && Number.isFinite(cliOptions.maxContextTokens)) {
+    config.maxContextTokens = cliOptions.maxContextTokens;
+  }
 
   // CLI --yes flag adds all tools to autoApprove
   if (cliOptions.yes) {
@@ -462,6 +481,7 @@ export function getExampleConfig(): string {
     },
     projectContext: '',
     enableCompression: true,
+    maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
     models: {
       summarize: {
         provider: 'ollama',

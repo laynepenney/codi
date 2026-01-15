@@ -91,6 +91,7 @@ export interface AgentOptions {
   logLevel?: LogLevel; // Log level for debug output (replaces debug)
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
+  maxContextTokens?: number; // Maximum context tokens before compaction
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
@@ -123,6 +124,7 @@ export class Agent {
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
   private logLevel: LogLevel;
   private enableCompression: boolean;
+  private maxContextTokens: number;
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -165,6 +167,7 @@ export class Agent {
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
+    this.maxContextTokens = options.maxContextTokens ?? AGENT_CONFIG.MAX_CONTEXT_TOKENS;
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
@@ -341,11 +344,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
   private async compactContext(): Promise<void> {
     const totalTokens = countMessageTokens(this.messages);
 
-    if (totalTokens <= AGENT_CONFIG.MAX_CONTEXT_TOKENS) {
+    if (totalTokens <= this.maxContextTokens) {
       return; // No compaction needed
     }
 
-    logger.debug(`Compacting: ${totalTokens} tokens exceeds ${AGENT_CONFIG.MAX_CONTEXT_TOKENS} limit`);
+    logger.debug(`Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`);
 
     // Score messages by importance
     const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
@@ -1096,6 +1099,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
    */
   getContextInfo(): {
     tokens: number;
+    maxTokens: number;
     messages: number;
     hasSummary: boolean;
     compression: CompressionStats | null;
@@ -1104,6 +1108,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
   } {
     return {
       tokens: countMessageTokens(this.messages),
+      maxTokens: this.maxContextTokens,
       messages: this.messages.length,
       hasSummary: this.conversationSummary !== null,
       compression: this.lastCompressionStats,

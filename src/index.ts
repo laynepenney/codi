@@ -326,6 +326,7 @@ program
   .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
   .option('-c, --compress', 'Context compression (enabled by default, use --no-compress to disable)')
+  .option('--context-window <tokens>', 'Context window size (tokens) before compaction')
   .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
   .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
@@ -2143,6 +2144,15 @@ async function main() {
   }
 
   // Merge workspace config with CLI options
+  const parsedContextWindow = options.contextWindow ? Number(options.contextWindow) : NaN;
+  const contextWindowTokens = Number.isFinite(parsedContextWindow) && parsedContextWindow > 0
+    ? Math.floor(parsedContextWindow)
+    : undefined;
+
+  if (options.contextWindow && contextWindowTokens === undefined) {
+    console.warn(chalk.yellow('Invalid --context-window value; expected a positive number.'));
+  }
+
   const resolvedConfig = mergeConfig(workspaceConfig, {
     provider: options.provider,
     model: options.model,
@@ -2153,6 +2163,7 @@ async function main() {
     session: options.session,
     summarizeProvider: options.summarizeProvider,
     summarizeModel: options.summarizeModel,
+    maxContextTokens: contextWindowTokens,
   });
 
   // Register tools and commands
@@ -2465,6 +2476,7 @@ async function main() {
     customDangerousPatterns,
     logLevel,
     enableCompression: options.compress ?? resolvedConfig.enableCompression,
+    maxContextTokens: resolvedConfig.maxContextTokens,
     onText: (text) => {
       // Stop spinner when we start receiving text
       if (!isStreaming) {
@@ -2705,7 +2717,7 @@ async function main() {
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
       console.log(chalk.bold('\nContext Status:'));
-      console.log(chalk.dim(`  Tokens: ${info.tokens} / 8000`));
+      console.log(chalk.dim(`  Tokens: ${info.tokens} / ${info.maxTokens}`));
       console.log(chalk.dim(`  Messages: ${info.messages}`));
       console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
       console.log(chalk.dim(`  Compression: ${info.compressionEnabled ? 'enabled' : 'disabled'}`));
