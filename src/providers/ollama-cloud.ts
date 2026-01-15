@@ -162,16 +162,28 @@ export class OllamaCloudProvider extends BaseProvider {
       if (typeof msg.content === 'string') {
         content = msg.content;
       } else if (Array.isArray(msg.content)) {
-        // Process content blocks - concatenate text parts
+        // Process content blocks - concatenate text, tool_result, and tool_use parts
         content = msg.content
           .map(block => {
             if ('text' in block) {
               return block.text;
             }
+            // Handle tool_result blocks - include the result content
+            if ('type' in block && block.type === 'tool_result') {
+              const toolResult = block as { name?: string; content: string; is_error?: boolean };
+              const prefix = toolResult.is_error ? 'ERROR' : 'Result';
+              const toolName = toolResult.name || 'tool';
+              return `[${prefix} from ${toolName}]:\n${toolResult.content}`;
+            }
+            // Handle tool_use blocks (assistant's tool calls)
+            if ('type' in block && block.type === 'tool_use') {
+              const toolUse = block as { name: string; input: Record<string, unknown> };
+              return `[Calling ${toolUse.name}]: ${JSON.stringify(toolUse.input)}`;
+            }
             return '';
           })
           .filter(Boolean)
-          .join('\n');
+          .join('\n\n');
       } else {
         content = JSON.stringify(msg.content);
       }
