@@ -217,14 +217,19 @@ export class OllamaCloudProvider extends BaseProvider {
           }
 
           // Extract thinking content from <think> tags
-          const { content: cleanedContent, thinking } = this.extractThinkingContent(
+          const { content: thinkingCleanedContent, thinking } = this.extractThinkingContent(
             responseData.message.content
           );
 
           // Fall back to extracting tool calls from text if no native calls
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(cleanedContent, tools);
+            toolCalls = this.extractToolCalls(thinkingCleanedContent, tools);
           }
+
+          // Clean hallucinated traces from content (after tool extraction)
+          const cleanedContent = toolCalls.length > 0
+            ? this.cleanHallucinatedTraces(thinkingCleanedContent)
+            : thinkingCleanedContent;
 
           return createProviderResponse({
             content: cleanedContent,
@@ -332,13 +337,18 @@ export class OllamaCloudProvider extends BaseProvider {
           }
 
           // Extract thinking content from <think> tags (used by qwen3:thinking and similar models)
-          const { content: cleanedContent, thinking } = this.extractThinkingContent(fullText);
+          const { content: thinkingCleanedContent, thinking } = this.extractThinkingContent(fullText);
 
           // Use native tool calls if available, otherwise extract from text
           let toolCalls: ToolCall[] = nativeToolCalls;
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(cleanedContent, tools);
+            toolCalls = this.extractToolCalls(thinkingCleanedContent, tools);
           }
+
+          // Clean hallucinated traces from content (after tool extraction)
+          const cleanedContent = toolCalls.length > 0
+            ? this.cleanHallucinatedTraces(thinkingCleanedContent)
+            : thinkingCleanedContent;
 
           return createProviderResponse({
             content: cleanedContent,
@@ -489,6 +499,34 @@ export class OllamaCloudProvider extends BaseProvider {
       return toolCalls;
     }
 
+    // Pattern 3: [Calling tool_name]: {json} format
+    // Used by some models that simulate agent traces. We extract the call but ignore
+    // any "[Result from ...]" which are hallucinated results.
+    const callingPattern = /\[Calling\s+([a-z_][a-z0-9_]*)\]\s*:\s*(\{[^}]*\})/gi;
+
+    while ((match = callingPattern.exec(content)) !== null) {
+      const rawToolName = match[1];
+      const normalizedName = this.normalizeToolName(rawToolName);
+      const jsonArgs = match[2];
+
+      if (toolNames.has(normalizedName)) {
+        try {
+          const args = JSON.parse(jsonArgs);
+          toolCalls.push({
+            id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: normalizedName,
+            input: args,
+          });
+        } catch {
+          // Invalid JSON, skip
+        }
+      }
+    }
+
+    if (toolCalls.length > 0) {
+      return toolCalls;
+    }
+
     // Pattern 3: Look for JSON objects with "name" field
     // This pattern handles nested braces properly
     const jsonPattern = /\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}/g;
@@ -581,6 +619,22 @@ export class OllamaCloudProvider extends BaseProvider {
     }
 
     return { content: cleanedContent, thinking };
+  }
+
+  /**
+   * Clean hallucinated agent trace patterns from content.
+   * Some models output fake "[Calling tool]: {json}[Result from tool]: result" traces.
+   * This should be called AFTER extractToolCalls to clean up the display content.
+   */
+  private cleanHallucinatedTraces(content: string): string {
+    // Pattern: [Calling tool_name]: {json}[Result from tool_name]: any text until next [ or end
+    const hallucinatedTracePattern = /\[Calling\s+[a-z_][a-z0-9_]*\]\s*:\s*\{[^}]*\}\s*(?:\[Result from\s+[a-z_][a-z0-9_]*\]\s*:\s*[^\[]*)?/gi;
+    let cleanedContent = content.replace(hallucinatedTracePattern, '').trim();
+
+    // Clean up multiple newlines
+    cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
+
+    return cleanedContent;
   }
 
   /**
