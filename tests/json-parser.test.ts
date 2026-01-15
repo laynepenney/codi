@@ -151,7 +151,30 @@ describe('json-parser', () => {
       });
     });
 
-    describe('pattern 2: JSON in code blocks', () => {
+    describe('pattern 2: [Calling tool_name]: {json} traces', () => {
+      it('extracts tool calls from calling trace format', () => {
+        const text = '[Calling write_file]: {"path": "notes.txt", "content": "hello"}';
+        const calls = extractToolCallsFromText(text, availableTools);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('write_file');
+        expect(calls[0].input).toEqual({ path: 'notes.txt', content: 'hello' });
+      });
+
+      it('extracts multiple calling trace tool calls', () => {
+        const text = `
+[Calling read_file]: {"path": "a.txt"}
+[Calling read_file]: {"path": "b.txt"}
+        `;
+        const calls = extractToolCallsFromText(text, availableTools);
+
+        expect(calls).toHaveLength(2);
+        expect(calls[0].input).toEqual({ path: 'a.txt' });
+        expect(calls[1].input).toEqual({ path: 'b.txt' });
+      });
+    });
+
+    describe('pattern 3: JSON in code blocks', () => {
       it('extracts from json code block', () => {
         const text = `
 Here's the tool call:

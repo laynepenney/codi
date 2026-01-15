@@ -575,12 +575,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // If no tool calls were detected via API but tools are enabled,
       // try to extract tool calls from the text (for models that output JSON as text)
-      if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText && response.content) {
+      if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText) {
         const availableTools = this.toolRegistry.listTools();
-        const extractedCalls = extractToolCallsFromText(response.content, availableTools);
-        if (extractedCalls.length > 0) {
-          response.toolCalls = extractedCalls;
-          response.stopReason = 'tool_use';
+        const extractionText = [response.content, response.reasoningContent].filter(Boolean).join('\n');
+        if (extractionText) {
+          const extractedCalls = extractToolCallsFromText(extractionText, availableTools);
+          if (extractedCalls.length > 0) {
+            response.toolCalls = extractedCalls;
+            response.stopReason = 'tool_use';
+          }
         }
       }
 
