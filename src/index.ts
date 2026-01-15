@@ -368,6 +368,13 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 5. **Handle errors**: Include appropriate error handling
 6. **Test awareness**: Consider how changes affect tests
 
+## Tool Use Rules
+- The tool list below is authoritative for this run. Use only these tool names and their parameters.
+- When you need a tool, emit a tool call (do not describe tool usage in plain text).
+- Do not put tool-call syntax or commands in your normal response.
+- Do not present shell commands in fenced code blocks like \`\`\`bash\`\`\`; use the bash tool instead.
+- Wait for tool results before continuing; if a tool fails, explain and try a different tool.
+
 ## Available Tools
 
 ### File Operations
