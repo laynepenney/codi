@@ -308,6 +308,7 @@ import { VERSION } from './version.js';
 import { spinner } from './spinner.js';
 import { logger, parseLogLevel, LogLevel } from './logger.js';
 import { MCPClientManager, startMCPServer } from './mcp/index.js';
+import { AuditLogger, initAuditLogger, getAuditLogger } from './audit.js';
 
 // CLI setup
 program
@@ -329,6 +330,7 @@ program
   .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
   .option('--no-mcp', 'Disable MCP server connections (ignore mcpServers in config)')
+  .option('--audit', 'Enable audit logging (writes to ~/.codi/audit/)')
   .parse();
 
 const options = program.opts();
@@ -2088,6 +2090,10 @@ async function main() {
     return;
   }
 
+  // Initialize audit logger (--audit flag or CODI_AUDIT env var)
+  const auditEnabled = options.audit || process.env.CODI_AUDIT === 'true';
+  const auditLogger = initAuditLogger(auditEnabled);
+
   console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
@@ -2319,6 +2325,12 @@ async function main() {
 
   console.log(chalk.dim(`Model: ${provider.getName()} (${provider.getModel()})`));
 
+  // Show audit log path if enabled
+  if (auditLogger.isEnabled()) {
+    console.log(chalk.dim(`Audit log: ${auditLogger.getLogFile()}`));
+    auditLogger.sessionStart(provider.getName(), provider.getModel(), process.cwd(), process.argv.slice(2));
+  }
+
   // Create secondary provider for summarization if configured
   let secondaryProvider = null;
   if (resolvedConfig.summarizeProvider || resolvedConfig.summarizeModel) {
@@ -2439,6 +2451,7 @@ async function main() {
     provider,
     secondaryProvider,
     modelMap,
+    auditLogger: auditLogger.isEnabled() ? auditLogger : null,
     toolRegistry: globalRegistry,
     systemPrompt,
     useTools,
@@ -2469,7 +2482,11 @@ async function main() {
       // Stop any spinner and record start time
       spinner.stop();
       isStreaming = false;
+      const toolId = `tool_${Date.now()}`;
       toolStartTimes.set(name, Date.now());
+
+      // Audit log
+      auditLogger.toolCall(name, input as Record<string, unknown>, toolId);
 
       // Log tool input based on verbosity level
       if (logLevel >= LogLevel.VERBOSE) {
@@ -2487,8 +2504,12 @@ async function main() {
     onToolResult: (name, result, isError) => {
       // Calculate duration
       const startTime = toolStartTimes.get(name) || Date.now();
-      const duration = (Date.now() - startTime) / 1000;
+      const durationMs = Date.now() - startTime;
+      const duration = durationMs / 1000;
       toolStartTimes.delete(name);
+
+      // Audit log
+      auditLogger.toolResult(name, `tool_${startTime}`, result, isError, durationMs);
 
       // Stop spinner
       spinner.stop();
@@ -2601,9 +2622,14 @@ async function main() {
     // Save to history file
     saveToHistory(trimmed);
 
+    // Audit log user input
+    auditLogger.userInput(trimmed);
+
     // Handle built-in commands
     if (trimmed === '/exit' || trimmed === '/quit') {
       console.log(chalk.dim('\nGoodbye!'));
+      // Log session end
+      auditLogger.sessionEnd();
       // Cleanup MCP connections
       if (mcpManager) {
         await mcpManager.disconnectAll();

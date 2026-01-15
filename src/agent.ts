@@ -34,6 +34,7 @@ import {
   checkDangerousBash,
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
+import type { AuditLogger } from './audit.js';
 import {
   checkCommandApproval,
   getApprovalSuggestions,
@@ -92,6 +93,7 @@ export interface AgentOptions {
   enableCompression?: boolean; // Enable entity-reference compression for context
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
+  auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
@@ -120,6 +122,7 @@ export class Agent {
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
   private logLevel: LogLevel;
   private enableCompression: boolean;
+  private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
   private lastCompressionStats: CompressionStats | null = null;
@@ -160,6 +163,7 @@ export class Agent {
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
+    this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
       onText: options.onText,
@@ -496,6 +500,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
       logger.apiRequest(chatProvider.getModel(), messagesToSend.length, !!tools);
       logger.apiRequestFull(chatProvider.getModel(), messagesToSend, tools, systemContext);
 
+      // Audit log API request
+      this.auditLogger?.setIteration(iterations);
+      this.auditLogger?.apiRequest(
+        chatProvider.getName(),
+        chatProvider.getModel(),
+        messagesToSend,
+        tools,
+        systemContext
+      );
+
       // Call the model with streaming (using native system prompt support)
       const apiStartTime = Date.now();
       const response = await chatProvider.streamChat(
@@ -519,6 +533,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
         response.usage?.outputTokens || 0,
         response.content || response.toolCalls,
         response.toolCalls.map(tc => ({ name: tc.name, input: tc.input }))
+      );
+
+      // Audit log API response
+      this.auditLogger?.apiResponse(
+        response.stopReason,
+        response.content,
+        response.toolCalls,
+        response.usage,
+        Date.now() - apiStartTime
       );
 
       // Record usage for cost tracking
@@ -815,6 +838,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       // If user aborted, stop the loop
       if (aborted) {
         finalResponse += '\n\n(Operation aborted by user)';
+        this.auditLogger?.userAbort(undefined, 'User declined tool confirmation');
         break;
       }
 
@@ -928,6 +952,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
       finalResponse += maxIterMsg;
       // Also output via callback so user sees the message
       this.callbacks.onText?.(maxIterMsg);
+      // Audit log
+      this.auditLogger?.maxIterations(iterations, AGENT_CONFIG.MAX_ITERATIONS);
     }
 
     return finalResponse;
