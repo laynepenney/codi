@@ -578,8 +578,14 @@ Always use tools to interact with the filesystem rather than asking the user to 
       if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText) {
         const toolDefinitions = this.toolRegistry.getDefinitions();
         const fallbackConfig = this.toolRegistry.getFallbackConfig();
-        const extractionText = [response.content, response.reasoningContent].filter(Boolean).join('\n');
-        if (extractionText) {
+        const extractionText = response.content;
+        const contentMatchesReasoning = Boolean(
+          response.content &&
+          response.reasoningContent &&
+          response.content.trim() === response.reasoningContent.trim()
+        );
+
+        if (extractionText && !contentMatchesReasoning) {
           const extractedCalls = extractToolCallsFromText(extractionText, toolDefinitions, fallbackConfig);
           if (extractedCalls.length > 0) {
             response.toolCalls = extractedCalls;

@@ -13,6 +13,7 @@ import { withRetry, type RetryOptions } from './retry.js';
 import { getProviderRateLimiter, type RateLimiter } from './rate-limiter.js';
 import { messageToText } from './message-converter.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+import { DEFAULT_FALLBACK_CONFIG, findBestToolMatch } from '../tools/tool-fallback.js';
 
 /** Ollama message format */
 interface OllamaMessage {
@@ -229,9 +230,7 @@ export class OllamaCloudProvider extends BaseProvider {
           const useFallbackContent = !hasContent && combinedThinking.length > 0;
           const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
           const reasoningContent = combinedThinking || undefined;
-          const toolExtractionText = combinedThinking && !finalContent.includes(combinedThinking)
-            ? `${finalContent}\n${combinedThinking}`
-            : finalContent;
+          const toolExtractionText = thinkingCleanedContent;
 
           // Fall back to extracting tool calls from text if no native calls
           if (toolCalls.length === 0 && tools && tools.length > 0) {
@@ -373,9 +372,7 @@ export class OllamaCloudProvider extends BaseProvider {
           const useFallbackContent = !hasContent && combinedThinking.length > 0;
           const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
           const reasoningContent = combinedThinking || undefined;
-          const toolExtractionText = combinedThinking && !finalContent.includes(combinedThinking)
-            ? `${finalContent}\n${combinedThinking}`
-            : finalContent;
+          const toolExtractionText = thinkingCleanedContent;
 
           if (streamedContentChars === 0 && finalContent && onChunk && streamedThinkingChars === 0) {
             onChunk(finalContent);
@@ -500,7 +497,12 @@ export class OllamaCloudProvider extends BaseProvider {
    */
   private extractToolCalls(content: string, tools: ToolDefinition[]): ToolCall[] {
     const toolCalls: ToolCall[] = [];
-    const toolNames = new Set(tools.map(t => t.name));
+    const resolveToolName = (requestedName: string): string | null => {
+      const match = findBestToolMatch(requestedName, tools, DEFAULT_FALLBACK_CONFIG);
+      if (match.exactMatch) return requestedName;
+      if (match.shouldAutoCorrect && match.matchedName) return match.matchedName;
+      return null;
+    };
 
     // Pattern 1: JSON in code blocks - most reliable
     const codeBlockPattern = /```(?:json)?\s*([\s\S]*?)```/g;
@@ -508,7 +510,7 @@ export class OllamaCloudProvider extends BaseProvider {
 
     while ((match = codeBlockPattern.exec(content)) !== null) {
       const jsonContent = match[1].trim();
-      const extracted = this.tryParseToolCall(jsonContent, toolNames);
+      const extracted = this.tryParseToolCall(jsonContent, resolveToolName);
       if (extracted) {
         toolCalls.push(extracted);
       }
@@ -528,11 +530,12 @@ export class OllamaCloudProvider extends BaseProvider {
       const normalizedName = this.normalizeToolName(rawToolName);
       const argsString = match[2];
 
-      if (toolNames.has(normalizedName)) {
+      const resolvedName = resolveToolName(normalizedName);
+      if (resolvedName) {
         const args = this.parseFunctionCallArgs(argsString);
         toolCalls.push({
           id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          name: normalizedName,
+          name: resolvedName,
           input: args,
         });
       }
@@ -552,12 +555,13 @@ export class OllamaCloudProvider extends BaseProvider {
       const normalizedName = this.normalizeToolName(rawToolName);
       const jsonArgs = match[2];
 
-      if (toolNames.has(normalizedName)) {
+      const resolvedName = resolveToolName(normalizedName);
+      if (resolvedName) {
         try {
           const args = JSON.parse(jsonArgs);
           toolCalls.push({
             id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            name: normalizedName,
+            name: resolvedName,
             input: args,
           });
         } catch {
@@ -575,7 +579,7 @@ export class OllamaCloudProvider extends BaseProvider {
     const jsonPattern = /\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}/g;
 
     while ((match = jsonPattern.exec(content)) !== null) {
-      const extracted = this.tryParseToolCall(match[0], toolNames);
+      const extracted = this.tryParseToolCall(match[0], resolveToolName);
       if (extracted) {
         toolCalls.push(extracted);
       }
@@ -620,17 +624,21 @@ export class OllamaCloudProvider extends BaseProvider {
   /**
    * Try to parse a JSON string as a tool call.
    */
-  private tryParseToolCall(jsonString: string, validToolNames: Set<string>): ToolCall | null {
+  private tryParseToolCall(
+    jsonString: string,
+    resolveToolName: (requestedName: string) => string | null
+  ): ToolCall | null {
     try {
       const parsed = JSON.parse(jsonString);
 
       // Check if it has a valid tool name (normalize to strip prefixes)
       if (parsed.name) {
         const normalizedName = this.normalizeToolName(parsed.name);
-        if (validToolNames.has(normalizedName)) {
+        const resolvedName = resolveToolName(normalizedName);
+        if (resolvedName) {
           return {
             id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            name: normalizedName,
+            name: resolvedName,
             input: parsed.arguments || parsed.input || parsed.parameters || {},
           };
         }
