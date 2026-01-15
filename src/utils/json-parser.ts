@@ -122,9 +122,9 @@ export function extractToolCallsFromText(
     }
   }
 
-  // Pattern 2: [Calling tool_name]: {json} format
+  // Pattern 2: [Calling tool_name]: {json} or [Running tool_name] {json} format
   if (toolCalls.length === 0) {
-    const callingPattern = /\[Calling\s+([a-z_][a-z0-9_]*)\]\s*:\s*/gi;
+    const callingPattern = /\[(?:Calling|Running)\s+([a-z_][a-z0-9_]*)\]\s*:?\s*/gi;
 
     while ((match = callingPattern.exec(text)) !== null) {
       const resolvedName = resolveToolName(match[1]);

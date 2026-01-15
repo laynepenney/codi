@@ -35,7 +35,8 @@ export class BashTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<string> {
-    const command = input.command as string;
+    const rawCommand = input.command;
+    const command = this.normalizeCommandInput(rawCommand);
     const cwd = (input.cwd as string) || process.cwd();
 
     if (!command) {
@@ -110,6 +111,31 @@ export class BashTool extends BaseTool {
         }
       );
     });
+  }
+
+  private normalizeCommandInput(command: unknown): string | null {
+    if (typeof command === 'string') {
+      return command;
+    }
+
+    if (Array.isArray(command)) {
+      const parts = command.filter((part): part is string => typeof part === 'string' && part.trim() !== '');
+      if (parts.length === 0) {
+        return null;
+      }
+
+      if (parts[0] === 'bash' && parts[1] === '-lc') {
+        const script = parts.slice(2).join(' ');
+        if (!script) {
+          return null;
+        }
+        return `bash -lc ${JSON.stringify(script)}`;
+      }
+
+      return parts.join(' ');
+    }
+
+    return null;
   }
 
   /**

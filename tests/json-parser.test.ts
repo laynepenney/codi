@@ -177,6 +177,18 @@ describe('json-parser', () => {
         expect(calls[0].input).toEqual({ path: 'a.txt' });
         expect(calls[1].input).toEqual({ path: 'b.txt' });
       });
+
+      it('extracts tool calls from running trace format without colon', () => {
+        const text = '[Running bash]{"cmd": ["bash", "-lc", "git status --porcelain"], "timeout": 100000}';
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('bash');
+        expect(calls[0].input).toEqual({
+          cmd: ['bash', '-lc', 'git status --porcelain'],
+          timeout: 100000,
+        });
+      });
     });
 
     describe('pattern 3: JSON in code blocks', () => {
