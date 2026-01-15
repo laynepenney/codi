@@ -74,7 +74,8 @@ export class AnthropicProvider extends BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onChunk?: (chunk: string) => void,
-    systemPrompt?: string
+    systemPrompt?: string,
+    _onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
     const stream = this.client.messages.stream({
       model: this.model,

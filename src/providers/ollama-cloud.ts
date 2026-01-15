@@ -228,11 +228,14 @@ export class OllamaCloudProvider extends BaseProvider {
           const hasContent = thinkingCleanedContent.trim().length > 0;
           const useFallbackContent = !hasContent && combinedThinking.length > 0;
           const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
-          const reasoningContent = useFallbackContent ? undefined : (combinedThinking || undefined);
+          const reasoningContent = combinedThinking || undefined;
+          const toolExtractionText = combinedThinking && !finalContent.includes(combinedThinking)
+            ? `${finalContent}\n${combinedThinking}`
+            : finalContent;
 
           // Fall back to extracting tool calls from text if no native calls
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(finalContent, tools);
+            toolCalls = this.extractToolCalls(toolExtractionText, tools);
           }
 
           // Clean hallucinated traces from content (after tool extraction)
@@ -262,7 +265,8 @@ export class OllamaCloudProvider extends BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onChunk?: (chunk: string) => void,
-    systemPrompt?: string
+    systemPrompt?: string,
+    onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
     const ollamaMessages = this.convertMessages(messages, systemPrompt);
 
@@ -301,6 +305,7 @@ export class OllamaCloudProvider extends BaseProvider {
           let fullText = '';
           let thinkingText = '';
           let streamedContentChars = 0;
+          let streamedThinkingChars = 0;
           let inputTokens: number | undefined;
           let outputTokens: number | undefined;
           let stopReason: string | undefined;
@@ -331,6 +336,10 @@ export class OllamaCloudProvider extends BaseProvider {
 
                 if (data.message?.thinking) {
                   thinkingText += data.message.thinking;
+                  if (onReasoningChunk) {
+                    streamedThinkingChars += data.message.thinking.length;
+                    onReasoningChunk(data.message.thinking);
+                  }
                 }
 
                 // Capture native tool calls from Ollama API
@@ -363,16 +372,19 @@ export class OllamaCloudProvider extends BaseProvider {
           const hasContent = thinkingCleanedContent.trim().length > 0;
           const useFallbackContent = !hasContent && combinedThinking.length > 0;
           const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
-          const reasoningContent = useFallbackContent ? undefined : (combinedThinking || undefined);
+          const reasoningContent = combinedThinking || undefined;
+          const toolExtractionText = combinedThinking && !finalContent.includes(combinedThinking)
+            ? `${finalContent}\n${combinedThinking}`
+            : finalContent;
 
-          if (streamedContentChars === 0 && finalContent && onChunk) {
+          if (streamedContentChars === 0 && finalContent && onChunk && streamedThinkingChars === 0) {
             onChunk(finalContent);
           }
 
           // Use native tool calls if available, otherwise extract from text
           let toolCalls: ToolCall[] = nativeToolCalls;
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(finalContent, tools);
+            toolCalls = this.extractToolCalls(toolExtractionText, tools);
           }
 
           // Clean hallucinated traces from content (after tool extraction)

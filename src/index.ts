@@ -2442,6 +2442,7 @@ async function main() {
 
   // Track if we've received streaming output (to manage spinner)
   let isStreaming = false;
+  let isReasoningStreaming = false;
 
   // Track tool start times for duration logging
   const toolStartTimes = new Map<string, number>();
@@ -2477,6 +2478,14 @@ async function main() {
       console.log(chalk.dim.italic('\n💭 Thinking...'));
       console.log(chalk.dim(reasoning));
       console.log(chalk.dim.italic('---\n'));
+    },
+    onReasoningChunk: (chunk) => {
+      if (!isReasoningStreaming) {
+        isReasoningStreaming = true;
+        spinner.stop();
+        console.log(chalk.dim.italic('\n💭 Thinking...'));
+      }
+      process.stdout.write(chalk.dim(chunk));
     },
     onToolCall: (name, input) => {
       // Stop any spinner and record start time
@@ -3315,6 +3324,10 @@ async function main() {
               spinner.thinking();
               const startTime = Date.now();
               await agent.chat(result, { taskType: command.taskType });
+              if (isReasoningStreaming) {
+                console.log(chalk.dim.italic('\n---\n'));
+                isReasoningStreaming = false;
+              }
               const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
               console.log(chalk.dim(`\n(${elapsed}s)`));
             }
@@ -3340,6 +3353,10 @@ async function main() {
     try {
       const startTime = Date.now();
       await agent.chat(trimmed);
+      if (isReasoningStreaming) {
+        console.log(chalk.dim.italic('\n---\n'));
+        isReasoningStreaming = false;
+      }
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(chalk.dim(`\n(${elapsed}s)`));
     } catch (error) {

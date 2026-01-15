@@ -39,7 +39,13 @@ describe('BaseProvider', () => {
     async chat() {
       return { content: '', toolCalls: [], stopReason: 'end_turn' as const };
     }
-    async streamChat() {
+    async streamChat(
+      _messages: Message[] = [],
+      _tools?: unknown,
+      _onChunk?: (chunk: string) => void,
+      _systemPrompt?: string,
+      _onReasoningChunk?: (chunk: string) => void
+    ) {
       return { content: '', toolCalls: [], stopReason: 'end_turn' as const };
     }
     supportsToolUse() { return true; }

@@ -96,6 +96,7 @@ export interface AgentOptions {
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
+  onReasoningChunk?: (chunk: string) => void; // Streaming reasoning output
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
   onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
@@ -130,6 +131,7 @@ export class Agent {
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
+    onReasoningChunk?: (chunk: string) => void;
     onToolCall?: (name: string, input: Record<string, unknown>) => void;
     onToolResult?: (name: string, result: string, isError: boolean) => void;
     onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>;
@@ -168,6 +170,7 @@ export class Agent {
     this.callbacks = {
       onText: options.onText,
       onReasoning: options.onReasoning,
+      onReasoningChunk: options.onReasoningChunk,
       onToolCall: options.onToolCall,
       onToolResult: options.onToolResult,
       onConfirm: options.onConfirm,
@@ -519,11 +522,19 @@ Always use tools to interact with the filesystem rather than asking the user to 
         }
         this.callbacks.onText?.(chunk);
       };
+      let streamedReasoningChars = 0;
+      const onReasoningChunk = (chunk: string): void => {
+        if (chunk) {
+          streamedReasoningChars += chunk.length;
+        }
+        this.callbacks.onReasoningChunk?.(chunk);
+      };
       const response = await chatProvider.streamChat(
         messagesToSend,
         tools,
         onChunk,
-        systemContext
+        systemContext,
+        onReasoningChunk
       );
       const apiDuration = (Date.now() - apiStartTime) / 1000;
 
@@ -558,7 +569,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       }
 
       // Call reasoning callback if reasoning content is present (e.g., from DeepSeek-R1)
-      if (response.reasoningContent && this.callbacks.onReasoning) {
+      if (response.reasoningContent && this.callbacks.onReasoning && streamedReasoningChars === 0) {
         this.callbacks.onReasoning(response.reasoningContent);
       }
 
@@ -582,6 +593,10 @@ Always use tools to interact with the filesystem rather than asking the user to 
         finalResponse = response.content;
       }
 
+      const thinkingText = response.reasoningContent?.trim();
+      const shouldAddThinkingBlock = !!thinkingText &&
+        (!response.content || response.content.trim() !== thinkingText);
+
       const shouldEmitFallback = !response.content &&
         response.toolCalls.length === 0 &&
         streamedChars === 0;
@@ -599,13 +614,20 @@ Always use tools to interact with the filesystem rather than asking the user to 
         this.callbacks.onText?.(fallbackMessage);
       } else if (isExtractedToolCall) {
         // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
+        const combinedContent = thinkingText
+          ? `${response.content || ''}${response.content ? '\n\n' : ''}[Thinking]:\n${thinkingText}`
+          : (response.content || '');
         this.messages.push({
           role: 'assistant',
-          content: response.content || '',
+          content: combinedContent,
         });
       } else if (response.content || response.toolCalls.length > 0) {
         // For native tool calls, use content blocks
         const contentBlocks: ContentBlock[] = [];
+
+        if (shouldAddThinkingBlock && thinkingText) {
+          contentBlocks.push({ type: 'thinking', text: thinkingText });
+        }
 
         if (response.content) {
           contentBlocks.push({ type: 'text', text: response.content });

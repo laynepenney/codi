@@ -95,7 +95,8 @@ export class OpenAICompatibleProvider extends BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onChunk?: (chunk: string) => void,
-    systemPrompt?: string
+    systemPrompt?: string,
+    onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
     const convertedMessages = this.convertMessages(messages);
     const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
@@ -128,6 +129,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       const reasoningDelta = (delta as any)?.reasoning_content;
       if (reasoningDelta) {
         reasoningContent += reasoningDelta;
+        onReasoningChunk?.(reasoningDelta);
       }
 
       if (delta?.content) {
