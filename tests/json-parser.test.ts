@@ -90,12 +90,17 @@ describe('json-parser', () => {
   });
 
   describe('extractToolCallsFromText', () => {
-    const availableTools = ['read_file', 'write_file', 'bash', 'glob'];
+    const toolNames = ['read_file', 'write_file', 'bash', 'glob'];
+    const toolDefinitions = toolNames.map((name) => ({
+      name,
+      description: `${name} tool`,
+      input_schema: { type: 'object', properties: {} },
+    }));
 
     describe('pattern 1: inline JSON with name and arguments', () => {
       it('extracts tool call with "arguments" key', () => {
         const text = 'I will read the file: {"name": "read_file", "arguments": {"path": "test.txt"}}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('read_file');
@@ -104,7 +109,7 @@ describe('json-parser', () => {
 
       it('extracts tool call with "parameters" key', () => {
         const text = '{"name": "bash", "parameters": {"command": "ls -la"}}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('bash');
@@ -113,7 +118,7 @@ describe('json-parser', () => {
 
       it('extracts tool call with "input" key', () => {
         const text = '{"name": "glob", "input": {"pattern": "*.ts"}}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('glob');
@@ -125,7 +130,7 @@ describe('json-parser', () => {
           {"name": "read_file", "arguments": {"path": "a.txt"}}
           {"name": "read_file", "arguments": {"path": "b.txt"}}
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(2);
         expect(calls[0].input).toEqual({ path: 'a.txt' });
@@ -134,7 +139,7 @@ describe('json-parser', () => {
 
       it('ignores unknown tools', () => {
         const text = '{"name": "unknown_tool", "arguments": {"foo": "bar"}}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(0);
       });
@@ -144,7 +149,7 @@ describe('json-parser', () => {
           {"name": "bash", "arguments": {"command": "ls"}}
           {"name": "bash", "arguments": {"command": "pwd"}}
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls[0].id).not.toBe(calls[1].id);
         expect(calls[0].id).toMatch(/^extracted_/);
@@ -154,7 +159,7 @@ describe('json-parser', () => {
     describe('pattern 2: [Calling tool_name]: {json} traces', () => {
       it('extracts tool calls from calling trace format', () => {
         const text = '[Calling write_file]: {"path": "notes.txt", "content": "hello"}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('write_file');
@@ -166,7 +171,7 @@ describe('json-parser', () => {
 [Calling read_file]: {"path": "a.txt"}
 [Calling read_file]: {"path": "b.txt"}
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(2);
         expect(calls[0].input).toEqual({ path: 'a.txt' });
@@ -182,7 +187,7 @@ Here's the tool call:
 {"name": "read_file", "arguments": {"path": "config.json"}}
 \`\`\`
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('read_file');
@@ -194,7 +199,7 @@ Here's the tool call:
 {"name": "bash", "arguments": {"command": "echo hello"}}
 \`\`\`
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('bash');
@@ -209,7 +214,7 @@ Here's the tool call:
 ]
 \`\`\`
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(2);
         expect(calls[0].name).toBe('read_file');
@@ -222,7 +227,7 @@ Here's the tool call:
 just some text
 \`\`\`
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(0);
       });
@@ -233,16 +238,24 @@ just some text
 {"foo": "bar"}
 \`\`\`
         `;
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(0);
       });
     });
 
     describe('edge cases', () => {
+      it('auto-corrects close tool name matches', () => {
+        const text = '{"name": "readfile", "arguments": {"path": "test.txt"}}';
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('read_file');
+      });
+
       it('returns empty array for text without tool calls', () => {
         const text = 'Just a regular response without any tools';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toEqual([]);
       });
@@ -256,7 +269,7 @@ just some text
 
       it('handles nested objects in arguments', () => {
         const text = '{"name": "write_file", "arguments": {"path": "test.json", "content": "{\\"key\\": \\"value\\"}"}}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
         expect(calls[0].input).toHaveProperty('path');
@@ -264,7 +277,7 @@ just some text
 
       it('handles whitespace variations', () => {
         const text = '{  "name"  :  "bash"  ,  "arguments"  :  {  "command"  :  "ls"  }  }';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
       });
@@ -272,7 +285,7 @@ just some text
       it('prefers inline pattern over code block pattern', () => {
         // When inline pattern matches, code block pattern should not run
         const text = '{"name": "bash", "arguments": {"command": "ls"}}';
-        const calls = extractToolCallsFromText(text, availableTools);
+        const calls = extractToolCallsFromText(text, toolDefinitions);
 
         expect(calls).toHaveLength(1);
       });

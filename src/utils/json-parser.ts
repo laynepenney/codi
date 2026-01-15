@@ -6,7 +6,12 @@
  * Extracted from agent.ts for reusability.
  */
 
-import type { ToolCall } from '../types.js';
+import type { ToolCall, ToolDefinition } from '../types.js';
+import {
+  DEFAULT_FALLBACK_CONFIG,
+  findBestToolMatch,
+  type ToolFallbackConfig,
+} from '../tools/tool-fallback.js';
 
 /**
  * Attempt to fix common JSON issues from LLM output:
@@ -86,21 +91,31 @@ function extractJsonObjectFromIndex(
  * Try to extract tool calls from text when models output JSON instead of using
  * proper function calling (common with Ollama models).
  */
-export function extractToolCallsFromText(text: string, availableTools: string[]): ToolCall[] {
+export function extractToolCallsFromText(
+  text: string,
+  toolDefinitions: ToolDefinition[],
+  fallbackConfig: ToolFallbackConfig = DEFAULT_FALLBACK_CONFIG
+): ToolCall[] {
   const toolCalls: ToolCall[] = [];
+  const resolveToolName = (requestedName: string): string | null => {
+    const match = findBestToolMatch(requestedName, toolDefinitions, fallbackConfig);
+    if (match.exactMatch) return requestedName;
+    if (match.shouldAutoCorrect && match.matchedName) return match.matchedName;
+    return null;
+  };
 
   // Pattern 1: {"name": "tool_name", "arguments": {...}} or {"name": "tool_name", "parameters": {...}}
   const jsonPattern = /\{[\s\S]*?"name"\s*:\s*"(\w+)"[\s\S]*?(?:"arguments"|"parameters"|"input")\s*:\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})[\s\S]*?\}/g;
 
   let match;
   while ((match = jsonPattern.exec(text)) !== null) {
-    const toolName = match[1];
-    if (availableTools.includes(toolName)) {
+    const resolvedName = resolveToolName(match[1]);
+    if (resolvedName) {
       const args = tryParseJson(match[2]);
       if (args && typeof args === 'object') {
         toolCalls.push({
           id: `extracted_${Date.now()}_${toolCalls.length}`,
-          name: toolName,
+          name: resolvedName,
           input: args as Record<string, unknown>,
         });
       }
@@ -112,8 +127,8 @@ export function extractToolCallsFromText(text: string, availableTools: string[])
     const callingPattern = /\[Calling\s+([a-z_][a-z0-9_]*)\]\s*:\s*/gi;
 
     while ((match = callingPattern.exec(text)) !== null) {
-      const toolName = match[1];
-      if (!availableTools.includes(toolName)) continue;
+      const resolvedName = resolveToolName(match[1]);
+      if (!resolvedName) continue;
 
       const extracted = extractJsonObjectFromIndex(text, match.index + match[0].length);
       if (!extracted) continue;
@@ -122,7 +137,7 @@ export function extractToolCallsFromText(text: string, availableTools: string[])
       if (args && typeof args === 'object') {
         toolCalls.push({
           id: `extracted_${Date.now()}_${toolCalls.length}`,
-          name: toolName,
+          name: resolvedName,
           input: args as Record<string, unknown>,
         });
       }
@@ -144,10 +159,12 @@ export function extractToolCallsFromText(text: string, availableTools: string[])
       // Handle array of tool calls
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
-          if (item?.name && availableTools.includes(item.name as string)) {
+          if (item?.name) {
+            const resolvedName = resolveToolName(item.name as string);
+            if (!resolvedName) continue;
             toolCalls.push({
               id: `extracted_${Date.now()}_${toolCalls.length}`,
-              name: item.name as string,
+              name: resolvedName,
               input: (item.arguments || item.parameters || item.input || {}) as Record<string, unknown>,
             });
           }
@@ -156,10 +173,12 @@ export function extractToolCallsFromText(text: string, availableTools: string[])
       // Handle single object
       else {
         const obj = parsed as Record<string, unknown>;
-        if (obj.name && availableTools.includes(obj.name as string)) {
+        if (obj.name) {
+          const resolvedName = resolveToolName(obj.name as string);
+          if (!resolvedName) continue;
           toolCalls.push({
             id: `extracted_${Date.now()}_${toolCalls.length}`,
-            name: obj.name as string,
+            name: resolvedName,
             input: (obj.arguments || obj.parameters || obj.input || {}) as Record<string, unknown>,
           });
         }
