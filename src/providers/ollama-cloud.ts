@@ -408,9 +408,10 @@ export class OllamaCloudProvider extends BaseProvider {
   }
 
   /**
-   * Normalize tool name by stripping common prefixes.
+   * Normalize tool name by stripping common prefixes and mapping aliases.
    * Models trained on MCP or other tool frameworks may prefix tool names
    * with things like "repo.", "repo_browser.", "mcp.", etc.
+   * Some models also use alternative tool names like "run_git" for "bash".
    */
   private normalizeToolName(name: string): string {
     // Common prefixes from MCP servers and other tool frameworks
@@ -428,6 +429,29 @@ export class OllamaCloudProvider extends BaseProvider {
         normalized = normalized.slice(prefix.length);
         break; // Only strip one prefix
       }
+    }
+
+    // Tool aliases - map alternative names to actual tool names
+    const aliases: Record<string, string> = {
+      'run_git': 'bash',
+      'run_command': 'bash',
+      'execute': 'bash',
+      'shell': 'bash',
+      'run_shell': 'bash',
+      'exec': 'bash',
+      'terminal': 'bash',
+      'read': 'read_file',
+      'write': 'write_file',
+      'edit': 'edit_file',
+      'search': 'grep',
+      'find': 'glob',
+      'ls': 'list_directory',
+      'dir': 'list_directory',
+    };
+
+    const lowerNormalized = normalized.toLowerCase();
+    if (aliases[lowerNormalized]) {
+      return aliases[lowerNormalized];
     }
 
     return normalized;

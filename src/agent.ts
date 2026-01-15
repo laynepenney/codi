@@ -924,7 +924,10 @@ Always use tools to interact with the filesystem rather than asking the user to 
     }
 
     if (iterations >= AGENT_CONFIG.MAX_ITERATIONS) {
-      finalResponse += '\n\n(Reached maximum iterations, stopping)';
+      const maxIterMsg = '\n\n(Reached maximum iterations, stopping)';
+      finalResponse += maxIterMsg;
+      // Also output via callback so user sees the message
+      this.callbacks.onText?.(maxIterMsg);
     }
 
     return finalResponse;

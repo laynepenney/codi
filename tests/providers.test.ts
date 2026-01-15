@@ -499,7 +499,7 @@ describe('OllamaCloudProvider function-call style parsing', () => {
 });
 
 describe('OllamaCloudProvider tool name normalization', () => {
-  // Test the normalization function directly
+  // Test the normalization function directly (mirrors implementation in ollama-cloud.ts)
   function normalizeToolName(name: string): string {
     const prefixes = [
       'repo_browser.',
@@ -515,6 +515,29 @@ describe('OllamaCloudProvider tool name normalization', () => {
         normalized = normalized.slice(prefix.length);
         break;
       }
+    }
+
+    // Tool aliases
+    const aliases: Record<string, string> = {
+      'run_git': 'bash',
+      'run_command': 'bash',
+      'execute': 'bash',
+      'shell': 'bash',
+      'run_shell': 'bash',
+      'exec': 'bash',
+      'terminal': 'bash',
+      'read': 'read_file',
+      'write': 'write_file',
+      'edit': 'edit_file',
+      'search': 'grep',
+      'find': 'glob',
+      'ls': 'list_directory',
+      'dir': 'list_directory',
+    };
+
+    const lowerNormalized = normalized.toLowerCase();
+    if (aliases[lowerNormalized]) {
+      return aliases[lowerNormalized];
     }
 
     return normalized;
@@ -554,5 +577,40 @@ describe('OllamaCloudProvider tool name normalization', () => {
 
   it('only strips one prefix', () => {
     expect(normalizeToolName('repo.mcp.bash')).toBe('mcp.bash');
+  });
+
+  // Tool alias tests
+  it('maps run_git to bash', () => {
+    expect(normalizeToolName('run_git')).toBe('bash');
+  });
+
+  it('maps run_command to bash', () => {
+    expect(normalizeToolName('run_command')).toBe('bash');
+  });
+
+  it('maps shell aliases to bash', () => {
+    expect(normalizeToolName('shell')).toBe('bash');
+    expect(normalizeToolName('run_shell')).toBe('bash');
+    expect(normalizeToolName('exec')).toBe('bash');
+    expect(normalizeToolName('execute')).toBe('bash');
+    expect(normalizeToolName('terminal')).toBe('bash');
+  });
+
+  it('maps file operation aliases', () => {
+    expect(normalizeToolName('read')).toBe('read_file');
+    expect(normalizeToolName('write')).toBe('write_file');
+    expect(normalizeToolName('edit')).toBe('edit_file');
+  });
+
+  it('maps search/find aliases', () => {
+    expect(normalizeToolName('search')).toBe('grep');
+    expect(normalizeToolName('find')).toBe('glob');
+    expect(normalizeToolName('ls')).toBe('list_directory');
+    expect(normalizeToolName('dir')).toBe('list_directory');
+  });
+
+  it('handles aliases with prefixes', () => {
+    expect(normalizeToolName('repo.run_git')).toBe('bash');
+    expect(normalizeToolName('mcp.shell')).toBe('bash');
   });
 });
