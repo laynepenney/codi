@@ -11,6 +11,7 @@ import { BaseProvider } from './base.js';
 import { createProviderResponse } from './response-parser.js';
 import { withRetry, type RetryOptions } from './retry.js';
 import { getProviderRateLimiter, type RateLimiter } from './rate-limiter.js';
+import { messageToText } from './message-converter.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 
 /** Ollama message format */
@@ -154,39 +155,10 @@ export class OllamaCloudProvider extends BaseProvider {
       });
     }
 
-    // Convert messages, handling content blocks
+    // Convert messages using shared utility
+    // messageToText handles all content block types (text, tool_result, tool_use, image)
     for (const msg of messages) {
-      let content: string;
-
-      // Handle different content formats
-      if (typeof msg.content === 'string') {
-        content = msg.content;
-      } else if (Array.isArray(msg.content)) {
-        // Process content blocks - concatenate text, tool_result, and tool_use parts
-        content = msg.content
-          .map(block => {
-            if ('text' in block) {
-              return block.text;
-            }
-            // Handle tool_result blocks - include the result content
-            if ('type' in block && block.type === 'tool_result') {
-              const toolResult = block as { name?: string; content: string; is_error?: boolean };
-              const prefix = toolResult.is_error ? 'ERROR' : 'Result';
-              const toolName = toolResult.name || 'tool';
-              return `[${prefix} from ${toolName}]:\n${toolResult.content}`;
-            }
-            // Handle tool_use blocks (assistant's tool calls)
-            if ('type' in block && block.type === 'tool_use') {
-              const toolUse = block as { name: string; input: Record<string, unknown> };
-              return `[Calling ${toolUse.name}]: ${JSON.stringify(toolUse.input)}`;
-            }
-            return '';
-          })
-          .filter(Boolean)
-          .join('\n\n');
-      } else {
-        content = JSON.stringify(msg.content);
-      }
+      const content = messageToText(msg);
 
       // Map role to Ollama's expected values
       const role: 'system' | 'user' | 'assistant' =

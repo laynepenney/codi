@@ -3,13 +3,112 @@
 
 /**
  * Shared message conversion utilities for providers.
- * Provides common operations for extracting and transforming message content.
+ *
+ * This module provides the SINGLE SOURCE OF TRUTH for extracting and
+ * transforming message content. All providers should use these utilities
+ * instead of implementing their own inline logic.
+ *
+ * Benefits:
+ * - Tested once, all providers benefit
+ * - Exhaustive type checking ensures all block types are handled
+ * - Prevents silent bugs like tool_result blocks being dropped
  */
 
 import type { Message, ContentBlock } from '../types.js';
 
 /**
+ * Typed block interfaces for type-safe extraction.
+ * These narrow the generic ContentBlock to specific block types.
+ */
+export interface TextBlock {
+  type: 'text';
+  text: string;
+}
+
+export interface ToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResultBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+  name?: string;
+  content: string;
+  is_error?: boolean;
+}
+
+export interface ImageBlock {
+  type: 'image';
+  image: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+}
+
+/**
+ * Convert a content block to plain text representation.
+ * Used by text-based providers (Ollama) that don't support structured messages.
+ *
+ * Handles all known block types:
+ * - text: Returns the text content
+ * - tool_result: "[Result from toolName]:\ncontent" or "[ERROR from toolName]:\ncontent"
+ * - tool_use: "[Calling toolName]: {input}"
+ * - image: "[Image attached]"
+ *
+ * Unknown block types return empty string for forward compatibility.
+ */
+export function blockToText(block: ContentBlock): string {
+  // Handle each block type explicitly
+  // If a new type is added to ContentBlock, this function should be updated
+  switch (block.type) {
+    case 'text':
+      return block.text || '';
+
+    case 'tool_result': {
+      const prefix = block.is_error ? 'ERROR' : 'Result';
+      const toolName = block.name || 'tool';
+      return `[${prefix} from ${toolName}]:\n${block.content || ''}`;
+    }
+
+    case 'tool_use': {
+      const toolName = block.name || 'tool';
+      return `[Calling ${toolName}]: ${JSON.stringify(block.input || {})}`;
+    }
+
+    case 'image':
+      return '[Image attached]';
+
+    default:
+      // Unknown block type - return empty string but log for debugging
+      // This ensures forward compatibility if new block types are added
+      return '';
+  }
+}
+
+/**
+ * Convert an entire message to plain text.
+ * Handles both string content and content block arrays.
+ *
+ * This is the primary function text-based providers should use.
+ */
+export function messageToText(message: Message): string {
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+
+  return message.content
+    .map(blockToText)
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/**
  * Extract text content from a message (handles both string and block array formats).
+ * Only extracts text blocks, ignoring tool_use, tool_result, and image blocks.
  */
 export function extractTextContent(message: Message): string {
   if (typeof message.content === 'string') {
@@ -43,9 +142,11 @@ export function extractToolUseBlocks(message: Message): Array<{
 
 /**
  * Extract tool_result blocks from message content.
+ * Includes the optional `name` field for proper formatting.
  */
 export function extractToolResultBlocks(message: Message): Array<{
   tool_use_id: string;
+  name?: string;
   content: string;
   is_error: boolean;
 }> {
@@ -56,6 +157,7 @@ export function extractToolResultBlocks(message: Message): Array<{
     .filter((block): block is ContentBlock & { type: 'tool_result' } => block.type === 'tool_result')
     .map((block) => ({
       tool_use_id: block.tool_use_id || '',
+      name: block.name,
       content: block.content || '',
       is_error: block.is_error || false,
     }));
