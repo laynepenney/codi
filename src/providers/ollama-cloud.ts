@@ -227,7 +227,7 @@ export class OllamaCloudProvider extends BaseProvider {
           if (responseData.message?.tool_calls && responseData.message.tool_calls.length > 0) {
             toolCalls = responseData.message.tool_calls.map((tc, i) => ({
               id: `ollama_${Date.now()}_${i}`,
-              name: tc.function.name,
+              name: this.normalizeToolName(tc.function.name),
               input: tc.function.arguments,
             }));
           }
@@ -328,7 +328,7 @@ export class OllamaCloudProvider extends BaseProvider {
                   for (const tc of data.message.tool_calls) {
                     nativeToolCalls.push({
                       id: `ollama_${Date.now()}_${nativeToolCalls.length}`,
-                      name: tc.function.name,
+                      name: this.normalizeToolName(tc.function.name),
                       input: tc.function.arguments,
                     });
                   }
@@ -408,6 +408,32 @@ export class OllamaCloudProvider extends BaseProvider {
   }
 
   /**
+   * Normalize tool name by stripping common prefixes.
+   * Models trained on MCP or other tool frameworks may prefix tool names
+   * with things like "repo.", "repo_browser.", "mcp.", etc.
+   */
+  private normalizeToolName(name: string): string {
+    // Common prefixes from MCP servers and other tool frameworks
+    const prefixes = [
+      'repo_browser.',
+      'repo.',
+      'mcp.',
+      'tools.',
+      'codi.',
+    ];
+
+    let normalized = name;
+    for (const prefix of prefixes) {
+      if (normalized.toLowerCase().startsWith(prefix)) {
+        normalized = normalized.slice(prefix.length);
+        break; // Only strip one prefix
+      }
+    }
+
+    return normalized;
+  }
+
+  /**
    * Extract tool calls from response content.
    * Looks for various formats that models use for tool calls.
    */
@@ -433,18 +459,19 @@ export class OllamaCloudProvider extends BaseProvider {
     }
 
     // Pattern 2: Function-call style in brackets [tool_name(param="value", param2=value)]
-    // Used by models like qwen3-coder
-    const funcCallPattern = /\[([a-z_]+)\(([^)]*)\)\]/gi;
+    // Used by models like qwen3-coder. Also handles prefixed names like [repo.bash(...)]
+    const funcCallPattern = /\[([a-z_][a-z0-9_.]*)\(([^)]*)\)\]/gi;
 
     while ((match = funcCallPattern.exec(content)) !== null) {
-      const toolName = match[1];
+      const rawToolName = match[1];
+      const normalizedName = this.normalizeToolName(rawToolName);
       const argsString = match[2];
 
-      if (toolNames.has(toolName)) {
+      if (toolNames.has(normalizedName)) {
         const args = this.parseFunctionCallArgs(argsString);
         toolCalls.push({
           id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          name: toolName,
+          name: normalizedName,
           input: args,
         });
       }
@@ -508,13 +535,16 @@ export class OllamaCloudProvider extends BaseProvider {
     try {
       const parsed = JSON.parse(jsonString);
 
-      // Check if it has a valid tool name
-      if (parsed.name && validToolNames.has(parsed.name)) {
-        return {
-          id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          name: parsed.name,
-          input: parsed.arguments || parsed.input || parsed.parameters || {},
-        };
+      // Check if it has a valid tool name (normalize to strip prefixes)
+      if (parsed.name) {
+        const normalizedName = this.normalizeToolName(parsed.name);
+        if (validToolNames.has(normalizedName)) {
+          return {
+            id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: normalizedName,
+            input: parsed.arguments || parsed.input || parsed.parameters || {},
+          };
+        }
       }
     } catch {
       // Not valid JSON

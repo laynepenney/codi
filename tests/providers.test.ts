@@ -497,3 +497,62 @@ describe('OllamaCloudProvider function-call style parsing', () => {
     expect(result.show_hidden).toBe(true);
   });
 });
+
+describe('OllamaCloudProvider tool name normalization', () => {
+  // Test the normalization function directly
+  function normalizeToolName(name: string): string {
+    const prefixes = [
+      'repo_browser.',
+      'repo.',
+      'mcp.',
+      'tools.',
+      'codi.',
+    ];
+
+    let normalized = name;
+    for (const prefix of prefixes) {
+      if (normalized.toLowerCase().startsWith(prefix)) {
+        normalized = normalized.slice(prefix.length);
+        break;
+      }
+    }
+
+    return normalized;
+  }
+
+  it('strips repo. prefix', () => {
+    expect(normalizeToolName('repo.bash')).toBe('bash');
+    expect(normalizeToolName('repo.read_file')).toBe('read_file');
+  });
+
+  it('strips repo_browser. prefix', () => {
+    expect(normalizeToolName('repo_browser.bash')).toBe('bash');
+    expect(normalizeToolName('repo_browser.list_directory')).toBe('list_directory');
+  });
+
+  it('strips mcp. prefix', () => {
+    expect(normalizeToolName('mcp.read_file')).toBe('read_file');
+  });
+
+  it('strips tools. prefix', () => {
+    expect(normalizeToolName('tools.bash')).toBe('bash');
+  });
+
+  it('strips codi. prefix', () => {
+    expect(normalizeToolName('codi.grep')).toBe('grep');
+  });
+
+  it('handles case-insensitive prefixes', () => {
+    expect(normalizeToolName('REPO.bash')).toBe('bash');
+    expect(normalizeToolName('Repo_Browser.bash')).toBe('bash');
+  });
+
+  it('leaves unprefixed names unchanged', () => {
+    expect(normalizeToolName('bash')).toBe('bash');
+    expect(normalizeToolName('read_file')).toBe('read_file');
+  });
+
+  it('only strips one prefix', () => {
+    expect(normalizeToolName('repo.mcp.bash')).toBe('mcp.bash');
+  });
+});
