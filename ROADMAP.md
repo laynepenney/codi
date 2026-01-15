@@ -4,6 +4,13 @@ This document tracks planned features and improvements for Codi.
 
 ## Planned Features
 
+### Test Sandbox Compatibility
+
+Update tests that write to `~/.codi` or bind to `127.0.0.1` so they use local temporary
+directories and ephemeral ports by default, avoiding sandbox permission errors.
+
+---
+
 ### Semantic Fallback for Tool Calls
 
 When a model attempts to call a tool that doesn't exist or uses incorrect parameter names, implement a semantic fallback system that:
