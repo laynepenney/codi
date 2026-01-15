@@ -155,6 +155,20 @@ export interface WorkspaceConfig {
       [toolName: string]: Record<string, unknown>;
     };
   };
+
+  /** Tool fallback settings for handling unknown tools and parameter aliases */
+  toolFallback?: {
+    /** Enable semantic tool fallback (default: true) */
+    enabled?: boolean;
+    /** Threshold for auto-correcting tool names (0-1, default: 0.85) */
+    autoCorrectThreshold?: number;
+    /** Threshold for suggesting similar tools (0-1, default: 0.6) */
+    suggestionThreshold?: number;
+    /** Auto-execute corrected tools without confirmation (default: false) */
+    autoExecute?: boolean;
+    /** Enable parameter aliasing (default: true) */
+    parameterAliasing?: boolean;
+  };
 }
 
 /**

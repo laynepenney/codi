@@ -3,6 +3,14 @@
 
 import type { ToolDefinition, ToolCall, ToolResult } from '../types.js';
 import { BaseTool } from './base.js';
+import {
+  findBestToolMatch,
+  mapParameters,
+  formatFallbackError,
+  formatMappingInfo,
+  type ToolFallbackConfig,
+  DEFAULT_FALLBACK_CONFIG,
+} from './tool-fallback.js';
 
 /**
  * Registry for managing available tools.
@@ -10,6 +18,21 @@ import { BaseTool } from './base.js';
  */
 export class ToolRegistry {
   private tools: Map<string, BaseTool> = new Map();
+  private fallbackConfig: ToolFallbackConfig = DEFAULT_FALLBACK_CONFIG;
+
+  /**
+   * Set fallback configuration.
+   */
+  setFallbackConfig(config: Partial<ToolFallbackConfig>): void {
+    this.fallbackConfig = { ...DEFAULT_FALLBACK_CONFIG, ...config };
+  }
+
+  /**
+   * Get current fallback configuration.
+   */
+  getFallbackConfig(): ToolFallbackConfig {
+    return { ...this.fallbackConfig };
+  }
 
   /**
    * Register a tool with the registry.
@@ -53,10 +76,32 @@ export class ToolRegistry {
   }
 
   /**
-   * Execute a single tool call.
+   * Execute a single tool call with semantic fallback support.
    */
   async execute(toolCall: ToolCall): Promise<ToolResult> {
-    const tool = this.tools.get(toolCall.name);
+    let tool = this.tools.get(toolCall.name);
+    let mappedInput = toolCall.input;
+    let toolCorrection: { from: string; to: string } | null = null;
+    let paramMappings: Array<{ from: string; to: string }> = [];
+
+    // If tool not found, try fallback matching
+    if (!tool && this.fallbackConfig.enabled) {
+      const definitions = this.getDefinitions();
+      const matchResult = findBestToolMatch(toolCall.name, definitions, this.fallbackConfig);
+
+      if (matchResult.shouldAutoCorrect && matchResult.matchedName) {
+        // Auto-correct to matched tool
+        tool = this.tools.get(matchResult.matchedName);
+        toolCorrection = { from: toolCall.name, to: matchResult.matchedName };
+      } else if (!matchResult.exactMatch) {
+        // Return error with suggestions
+        return {
+          tool_use_id: toolCall.id,
+          content: formatFallbackError(toolCall.name, matchResult),
+          is_error: true,
+        };
+      }
+    }
 
     if (!tool) {
       return {
@@ -66,7 +111,27 @@ export class ToolRegistry {
       };
     }
 
-    return tool.run(toolCall.id, toolCall.input);
+    // Apply parameter mapping
+    if (this.fallbackConfig.parameterAliasing) {
+      const mapResult = mapParameters(
+        toolCall.input,
+        tool.getDefinition().input_schema,
+        this.fallbackConfig
+      );
+      mappedInput = mapResult.mappedInput;
+      paramMappings = mapResult.mappings;
+    }
+
+    // Execute the tool
+    const result = await tool.run(toolCall.id, mappedInput);
+
+    // Prepend mapping info to result if any corrections were made
+    const mappingInfo = formatMappingInfo(toolCorrection, paramMappings);
+    if (mappingInfo && !result.is_error) {
+      result.content = `${mappingInfo}\n\n${result.content}`;
+    }
+
+    return result;
   }
 
   /**

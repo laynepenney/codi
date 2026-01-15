@@ -20,6 +20,20 @@ export { RefactorTool } from './refactor.js';
 export { ShellInfoTool } from './shell-info.js';
 export { PipelineTool } from './pipeline.js';
 export { GenerateDocsTool } from './generate-docs.js';
+export { PrintTreeTool } from './print-tree.js';
+
+// Tool fallback utilities
+export {
+  findBestToolMatch,
+  mapParameters,
+  formatFallbackError,
+  formatMappingInfo,
+  GLOBAL_PARAMETER_ALIASES,
+  DEFAULT_FALLBACK_CONFIG,
+  type ToolFallbackConfig,
+  type ToolMatchResult,
+  type ParameterMapResult,
+} from './tool-fallback.js';
 
 // Symbol index tools
 export {
@@ -52,6 +66,7 @@ import { RefactorTool } from './refactor.js';
 import { ShellInfoTool } from './shell-info.js';
 import { PipelineTool } from './pipeline.js';
 import { GenerateDocsTool } from './generate-docs.js';
+import { PrintTreeTool } from './print-tree.js';
 import type { Retriever } from '../rag/retriever.js';
 import type { SymbolIndexService } from '../symbol-index/service.js';
 import {
@@ -81,6 +96,7 @@ export function registerDefaultTools(): void {
   globalRegistry.register(new GlobTool());
   globalRegistry.register(new GrepTool());
   globalRegistry.register(new ListDirectoryTool());
+  globalRegistry.register(new PrintTreeTool());
 
   // Shell
   globalRegistry.register(new BashTool());
