@@ -24,18 +24,18 @@ export interface ImageSource {
 
 /**
  * Represents a block of content within a message.
- * @property {('text' | 'tool_use' | 'tool_result' | 'image')} type - The type of the content block.
- * @property {{string}} [text] - The text content if available.
- * @property {{string}} [id] - The ID of the content block if it's a tool use or result.
- * @property {{string}} [name] - The name of the content block if it's a tool use.
+ * @property {('text' | 'tool_use' | 'tool_result' | 'image' | 'thinking')} type - The type of the content block.
+ * @property {string} [text] - The text content (for text and thinking blocks).
+ * @property {string} [id] - The ID of the content block if it's a tool use or result.
+ * @property {string} [name] - The name of the content block if it's a tool use.
  * @property {Record<string, unknown>} [input] - Input parameters for the content block if it's a tool call.
- * @property {{string}} [tool_use_id] - The ID of the associated tool use if available.
- * @property {string} [content] - Additional content within the block.
+ * @property {string} [tool_use_id] - The ID of the associated tool use if available.
+ * @property {string} [content] - Additional content within the block (tool_result content).
  * @property {boolean} [is_error] - Indicates if there was an error in processing the content block.
  * @property {ImageSource} [image] - Image data for vision content blocks.
  */
 export interface ContentBlock {
-  type: 'text' | 'tool_use' | 'tool_result' | 'image';
+  type: 'text' | 'tool_use' | 'tool_result' | 'image' | 'thinking';
   text?: string;
   id?: string;
   name?: string;

@@ -88,6 +88,19 @@ describe('message-converter', () => {
       };
       expect(blockToText(block)).toBe('[Image attached]');
     });
+
+    it('converts thinking block to formatted text', () => {
+      const block: ContentBlock = {
+        type: 'thinking',
+        text: 'Let me analyze this problem step by step...',
+      };
+      expect(blockToText(block)).toBe('[Thinking]:\nLet me analyze this problem step by step...');
+    });
+
+    it('handles empty thinking block', () => {
+      const block: ContentBlock = { type: 'thinking' };
+      expect(blockToText(block)).toBe('[Thinking]:\n');
+    });
   });
 
   describe('messageToText', () => {

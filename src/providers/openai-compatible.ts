@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import { BaseProvider, type ModelInfo } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 import { createProviderResponse, safeParseJson, StreamingToolCallAccumulator } from './response-parser.js';
+import { mapContentBlock, type BlockConverters } from './message-converter.js';
 import { getStaticModels, getModelPricing } from '../models.js';
 
 const DEFAULT_MODEL = 'gpt-4o';
@@ -271,32 +272,46 @@ export class OpenAICompatibleProvider extends BaseProvider {
       let textContent = '';
       const imageBlocks: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
 
-      for (const block of msg.content) {
-        if (block.type === 'text') {
-          textContent += block.text || '';
-        } else if (block.type === 'tool_use' && msg.role === 'assistant') {
-          toolCalls.push({
-            id: block.id || '',
+      // Discriminated union for collected block data
+      type CollectedBlock =
+        | { kind: 'text'; text: string }
+        | { kind: 'tool_call'; call: OpenAI.ChatCompletionMessageToolCall }
+        | { kind: 'tool_result'; result: { role: 'tool'; tool_call_id: string; content: string } }
+        | { kind: 'image'; image: { type: 'image_url'; image_url: { url: string } } };
+
+      // Use shared converter with logging for unknown types
+      const converters: BlockConverters<CollectedBlock | null> = {
+        text: (b) => ({ kind: 'text', text: b.text || '' }),
+        tool_use: (b) => msg.role === 'assistant' ? {
+          kind: 'tool_call',
+          call: {
+            id: b.id || '',
             type: 'function',
-            function: {
-              name: block.name || '',
-              arguments: JSON.stringify(block.input || {}),
-            },
-          });
-        } else if (block.type === 'tool_result') {
-          toolResults.push({
-            role: 'tool',
-            tool_call_id: block.tool_use_id || '',
-            content: block.content || '',
-          });
-        } else if (block.type === 'image' && block.image) {
-          // Convert to OpenAI's image_url format with data URL
-          imageBlocks.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${block.image.media_type};base64,${block.image.data}`,
-            },
-          });
+            function: { name: b.name || '', arguments: JSON.stringify(b.input || {}) },
+          },
+        } : null,
+        tool_result: (b) => ({
+          kind: 'tool_result',
+          result: { role: 'tool', tool_call_id: b.tool_use_id || '', content: b.content || '' },
+        }),
+        image: (b) => b.image ? {
+          kind: 'image',
+          image: { type: 'image_url', image_url: { url: `data:${b.image.media_type};base64,${b.image.data}` } },
+        } : null,
+        // Thinking blocks are converted to text for OpenAI (it doesn't have native thinking input)
+        thinking: (b) => ({ kind: 'text', text: b.text || '' }),
+      };
+
+      // Process blocks and collect by type
+      for (const block of msg.content) {
+        const collected = mapContentBlock(block, converters);
+        if (!collected) continue;
+
+        switch (collected.kind) {
+          case 'text': textContent += collected.text; break;
+          case 'tool_call': toolCalls.push(collected.call); break;
+          case 'tool_result': toolResults.push(collected.result); break;
+          case 'image': imageBlocks.push(collected.image); break;
         }
       }
 

@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { BaseProvider, type ModelInfo } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 import { createProviderResponse } from './response-parser.js';
+import { mapContentBlocks } from './message-converter.js';
 import { getStaticModels } from '../models.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
@@ -152,57 +153,63 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   private convertMessages(messages: Message[]): Anthropic.MessageParam[] {
+    // Anthropic block type union
+    type AnthropicBlock =
+      | Anthropic.TextBlockParam
+      | Anthropic.ToolUseBlockParam
+      | Anthropic.ToolResultBlockParam
+      | Anthropic.ImageBlockParam;
+
     return messages
       // Filter out system messages since Anthropic handles them separately
       .filter(msg => msg.role !== 'system')
       .map((msg): Anthropic.MessageParam => {
         // Map system role to user role for Anthropic compatibility
         const role: 'user' | 'assistant' = msg.role === 'assistant' ? 'assistant' : 'user';
-        
+
         if (typeof msg.content === 'string') {
-          return {
-            role,
-            content: msg.content,
-          };
+          return { role, content: msg.content };
         }
 
-        // Convert content blocks to the appropriate Anthropic types
-        const content: Array<
-          | Anthropic.TextBlockParam
-          | Anthropic.ToolUseBlockParam
-          | Anthropic.ToolResultBlockParam
-          | Anthropic.ImageBlockParam
-        > = msg.content.map((block) => {
-          if (block.type === 'text') {
-            return { type: 'text' as const, text: block.text || '' };
-          }
-          if (block.type === 'tool_use') {
-            return {
-              type: 'tool_use' as const,
-              id: block.id || '',
-              name: block.name || '',
-              input: block.input || {},
-            };
-          }
-          if (block.type === 'tool_result') {
-            return {
-              type: 'tool_result' as const,
-              tool_use_id: block.tool_use_id || '',
-              content: block.content || '',
-              is_error: block.is_error || false,
-            };
-          }
-          if (block.type === 'image' && block.image) {
+        // Convert content blocks using shared utility
+        // This ensures all block types are handled and unknown types are logged
+        const content = mapContentBlocks<AnthropicBlock>(msg.content, {
+          text: (b) => ({
+            type: 'text' as const,
+            text: b.text || '',
+          }),
+          tool_use: (b) => ({
+            type: 'tool_use' as const,
+            id: b.id || '',
+            name: b.name || '',
+            input: b.input || {},
+          }),
+          tool_result: (b) => ({
+            type: 'tool_result' as const,
+            tool_use_id: b.tool_use_id || '',
+            content: b.content || '',
+            is_error: b.is_error || false,
+          }),
+          image: (b) => {
+            if (!b.image) {
+              return { type: 'text' as const, text: '' };
+            }
             return {
               type: 'image' as const,
               source: {
                 type: 'base64' as const,
-                media_type: block.image.media_type,
-                data: block.image.data,
+                media_type: b.image.media_type,
+                data: b.image.data,
               },
             };
-          }
-          return { type: 'text' as const, text: '' };
+          },
+          // Thinking blocks are converted to text for now (Anthropic API doesn't accept them as input)
+          thinking: (b) => ({
+            type: 'text' as const,
+            text: b.text || '',
+          }),
+          // Unknown block types become empty text blocks (logged by mapContentBlocks)
+          unknown: () => ({ type: 'text' as const, text: '' }),
         });
 
         return { role, content };
@@ -211,17 +218,26 @@ export class AnthropicProvider extends BaseProvider {
 
   private parseResponse(response: Anthropic.Message): ProviderResponse {
     let content = '';
+    let thinkingContent = '';
     const toolCalls: ToolCall[] = [];
 
     for (const block of response.content) {
-      if (block.type === 'text') {
-        content += block.text;
-      } else if (block.type === 'tool_use') {
+      // Cast to handle extended thinking blocks which may not be in SDK types yet
+      const blockType = (block as { type: string }).type;
+
+      if (blockType === 'text') {
+        content += (block as { text: string }).text;
+      } else if (blockType === 'tool_use') {
+        const toolBlock = block as { id: string; name: string; input: unknown };
         toolCalls.push({
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
+          id: toolBlock.id,
+          name: toolBlock.name,
+          input: toolBlock.input as Record<string, unknown>,
         });
+      } else if (blockType === 'thinking') {
+        // Handle extended thinking blocks (cast via unknown as SDK types may not include it yet)
+        const thinkingBlock = block as unknown as { thinking: string };
+        thinkingContent += (thinkingContent ? '\n' : '') + thinkingBlock.thinking;
       }
     }
 
@@ -237,6 +253,7 @@ export class AnthropicProvider extends BaseProvider {
       content,
       toolCalls,
       stopReason: response.stop_reason,
+      reasoningContent: thinkingContent || undefined,
       inputTokens: usage.input_tokens,
       outputTokens: usage.output_tokens,
       cacheCreationInputTokens: usage.cache_creation_input_tokens,

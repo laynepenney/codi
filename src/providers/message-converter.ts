@@ -15,6 +15,7 @@
  */
 
 import type { Message, ContentBlock } from '../types.js';
+import { logger } from '../logger.js';
 
 /**
  * Typed block interfaces for type-safe extraction.
@@ -49,6 +50,11 @@ export interface ImageBlock {
   };
 }
 
+export interface ThinkingBlock {
+  type: 'thinking';
+  text: string;
+}
+
 /**
  * Convert a content block to plain text representation.
  * Used by text-based providers (Ollama) that don't support structured messages.
@@ -58,6 +64,7 @@ export interface ImageBlock {
  * - tool_result: "[Result from toolName]:\ncontent" or "[ERROR from toolName]:\ncontent"
  * - tool_use: "[Calling toolName]: {input}"
  * - image: "[Image attached]"
+ * - thinking: "[Thinking]:\ncontent"
  *
  * Unknown block types return empty string for forward compatibility.
  */
@@ -82,9 +89,13 @@ export function blockToText(block: ContentBlock): string {
     case 'image':
       return '[Image attached]';
 
+    case 'thinking':
+      return `[Thinking]:\n${block.text || ''}`;
+
     default:
-      // Unknown block type - return empty string but log for debugging
-      // This ensures forward compatibility if new block types are added
+      // Unknown block type - log warning and return empty string
+      // This ensures forward compatibility while alerting us to new block types
+      logger.warn(`Unknown content block type: ${(block as ContentBlock).type}`);
       return '';
   }
 }
@@ -205,4 +216,74 @@ export function isSimpleMessage(message: Message): message is Message & { conten
  */
 export function hasContentBlocks(message: Message): message is Message & { content: ContentBlock[] } {
   return typeof message.content !== 'string';
+}
+
+/**
+ * Block converter interface for provider-specific block conversion.
+ * Each provider implements converters for each block type.
+ */
+export interface BlockConverters<T> {
+  text: (block: ContentBlock) => T;
+  tool_use: (block: ContentBlock) => T;
+  tool_result: (block: ContentBlock) => T;
+  image: (block: ContentBlock) => T;
+  thinking: (block: ContentBlock) => T;
+  /** Called for unknown block types - can return null to skip */
+  unknown?: (block: ContentBlock) => T | null;
+}
+
+/**
+ * Convert a single content block using provider-specific converters.
+ * Centralizes the switch logic and logging for unknown types.
+ *
+ * This is the core function - use this when you need to process blocks
+ * individually (e.g., OpenAI which restructures blocks).
+ *
+ * @returns The converted block, or null if unknown and no unknown handler
+ */
+export function mapContentBlock<T>(
+  block: ContentBlock,
+  converters: BlockConverters<T>
+): T | null {
+  switch (block.type) {
+    case 'text':
+      return converters.text(block);
+    case 'tool_use':
+      return converters.tool_use(block);
+    case 'tool_result':
+      return converters.tool_result(block);
+    case 'image':
+      return converters.image(block);
+    case 'thinking':
+      return converters.thinking(block);
+    default:
+      logger.warn(`Unknown content block type: ${(block as ContentBlock).type}`);
+      return converters.unknown ? converters.unknown(block) : null;
+  }
+}
+
+/**
+ * Map content blocks using provider-specific converters.
+ * Convenience wrapper around mapContentBlock for batch conversion.
+ *
+ * @example
+ * const anthropicBlocks = mapContentBlocks(blocks, {
+ *   text: (b) => ({ type: 'text', text: b.text || '' }),
+ *   tool_use: (b) => ({ type: 'tool_use', id: b.id, name: b.name, input: b.input }),
+ *   tool_result: (b) => ({ type: 'tool_result', tool_use_id: b.tool_use_id, content: b.content }),
+ *   image: (b) => ({ type: 'image', source: { ... } }),
+ * });
+ */
+export function mapContentBlocks<T>(
+  blocks: ContentBlock[],
+  converters: BlockConverters<T>
+): T[] {
+  const results: T[] = [];
+  for (const block of blocks) {
+    const result = mapContentBlock(block, converters);
+    if (result !== null) {
+      results.push(result);
+    }
+  }
+  return results;
 }
