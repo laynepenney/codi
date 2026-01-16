@@ -278,6 +278,7 @@ import { registerModelCommands } from './commands/model-commands.js';
 import { registerImportCommands } from './commands/import-commands.js';
 import { registerMemoryCommands } from './commands/memory-commands.js';
 import { registerCompressionCommands } from './commands/compression-commands.js';
+import { registerCompactCommands } from './commands/compact-commands.js';
 import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
 import { registerApprovalCommands } from './commands/approval-commands.js';
 import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
@@ -1852,6 +1853,40 @@ function handleCompressionOutput(output: string): void {
 }
 
 /**
+ * Handle compact command output.
+ */
+function handleCompactOutput(output: string): void {
+  if (output.startsWith('COMPACT_ERROR:')) {
+    const message = output.slice('COMPACT_ERROR:'.length);
+    console.log(chalk.red(`\nCompaction failed: ${message}`));
+    return;
+  }
+
+  if (output.startsWith('COMPACT_SKIP:')) {
+    const data = JSON.parse(output.slice('COMPACT_SKIP:'.length));
+    console.log(chalk.yellow(`\n${data.reason}`));
+    console.log(chalk.dim(`  Current: ${data.current.tokens} tokens, ${data.current.messages} messages`));
+    if (data.current.hasSummary) {
+      console.log(chalk.dim('  (already has summary from previous compaction)'));
+    }
+    return;
+  }
+
+  if (output.startsWith('COMPACT_SUCCESS:')) {
+    const data = JSON.parse(output.slice('COMPACT_SUCCESS:'.length));
+    console.log(chalk.green(`\n✓ Compacted: ${data.before.tokens} → ${data.after.tokens} tokens`));
+    console.log(chalk.dim(`  Messages: ${data.before.messages} → ${data.after.messages}`));
+    console.log(chalk.dim(`  Saved: ${data.tokensSaved} tokens`));
+    if (data.summary) {
+      console.log(chalk.dim(`\nSummary: ${data.summary.slice(0, 200)}${data.summary.length > 200 ? '...' : ''}`));
+    }
+    return;
+  }
+
+  console.log(output);
+}
+
+/**
  * Handle approval command output.
  */
 function handleApprovalOutput(output: string): void {
@@ -2188,6 +2223,7 @@ async function main() {
   registerImportCommands();
   registerMemoryCommands();
   registerCompressionCommands();
+  registerCompactCommands();
   registerRAGCommands();
   registerApprovalCommands();
   registerSymbolCommands();
@@ -2704,37 +2740,6 @@ async function main() {
         console.log(formatProjectContext(projectInfo));
       } else {
         console.log(chalk.dim('\nNo project detected in current directory.'));
-      }
-      rl.prompt();
-      return;
-    }
-
-    if (trimmed === '/compact') {
-      const info = agent.getContextInfo();
-      console.log(chalk.dim(`\nCurrent context: ${info.tokens} tokens, ${info.messages} messages`));
-      if (info.messages <= 6) {
-        console.log(chalk.yellow('Not enough messages to compact (need >6).'));
-        rl.prompt();
-        return;
-      }
-      console.log(chalk.dim('Compacting...'));
-      try {
-        const result = await agent.forceCompact();
-        console.log(chalk.green(`Compacted: ${result.before} → ${result.after} tokens`));
-        if (result.summary) {
-          console.log(
-            chalk.dim(
-              `Summary: ${result.summary.slice(0, 200)}${result.summary.length > 200 ? '...' : ''}`,
-            ),
-          );
-        }
-      } catch (error) {
-        if (options.debug && error instanceof Error) {
-          console.error(chalk.red(`Compaction failed: ${error.message}`));
-          console.error(chalk.dim(error.stack || 'No stack trace available'));
-        } else {
-          console.error(chalk.red(`Compaction failed: ${error instanceof Error ? error.message : error}`));
-        }
       }
       rl.prompt();
       return;
@@ -3297,6 +3302,12 @@ async function main() {
               // Handle compression command outputs
               if (result.startsWith('COMPRESS_')) {
                 handleCompressionOutput(result);
+                rl.prompt();
+                return;
+              }
+              // Handle compact command outputs
+              if (result.startsWith('COMPACT_')) {
+                handleCompactOutput(result);
                 rl.prompt();
                 return;
               }
