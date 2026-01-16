@@ -6,7 +6,7 @@
  */
 import { registerCommand, type Command, type CommandContext } from './index.js';
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
-import { join, basename, relative } from 'path';
+import { join, basename } from 'path';
 import { detectProject } from '../context.js';
 
 /**
@@ -171,9 +171,11 @@ function getPackageScripts(rootPath: string): Array<{ cmd: string; desc: string 
     const result: Array<{ cmd: string; desc: string }> = [];
     const pmCmd = existsSync(join(rootPath, 'pnpm-lock.yaml'))
       ? 'pnpm'
-      : existsSync(join(rootPath, 'yarn.lock'))
-        ? 'yarn'
-        : 'npm run';
+      : existsSync(join(rootPath, 'bun.lockb'))
+        ? 'bun'
+        : existsSync(join(rootPath, 'yarn.lock'))
+          ? 'yarn'
+          : 'npm run';
 
     for (const [name, _script] of Object.entries(scripts)) {
       const desc = scriptDescriptions[name] || name.replace(/[-:]/g, ' ');
@@ -213,26 +215,30 @@ function getDirectoryStructure(rootPath: string): string | null {
     if (depth > 2) return; // Limit depth
 
     try {
-      const entries = readdirSync(dir)
+      const rawEntries = readdirSync(dir)
         .filter(e => !e.startsWith('.') || e === '.env.example')
-        .filter(e => !ignoreDirs.has(e))
-        .sort((a, b) => {
-          // Directories first
-          const aIsDir = statSync(join(dir, a)).isDirectory();
-          const bIsDir = statSync(join(dir, b)).isDirectory();
-          if (aIsDir && !bIsDir) return -1;
-          if (!aIsDir && bIsDir) return 1;
-          return a.localeCompare(b);
-        });
+        .filter(e => !ignoreDirs.has(e));
 
-      for (let i = 0; i < entries.length && lines.length < 25; i++) {
-        const entry = entries[i];
-        const fullPath = join(dir, entry);
-        const isDir = statSync(fullPath).isDirectory();
-        const isLast = i === entries.length - 1;
+      // Cache stat results to avoid double calls
+      const entriesWithStats = rawEntries.map(e => ({
+        name: e,
+        path: join(dir, e),
+        isDir: statSync(join(dir, e)).isDirectory(),
+      }));
+
+      // Sort: directories first, then alphabetically
+      entriesWithStats.sort((a, b) => {
+        if (a.isDir && !b.isDir) return -1;
+        if (!a.isDir && b.isDir) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      for (let i = 0; i < entriesWithStats.length && lines.length < 25; i++) {
+        const { name, path: fullPath, isDir } = entriesWithStats[i];
+        const isLast = i === entriesWithStats.length - 1;
         const connector = isLast ? '└── ' : '├── ';
 
-        lines.push(`${prefix}${connector}${entry}${isDir ? '/' : ''}`);
+        lines.push(`${prefix}${connector}${name}${isDir ? '/' : ''}`);
 
         if (isDir) {
           const newPrefix = prefix + (isLast ? '    ' : '│   ');
@@ -379,16 +385,30 @@ function detectTestFramework(
     // Ignore
   }
 
-  // Check for pytest
-  if (
-    existsSync(join(rootPath, 'pytest.ini')) ||
-    existsSync(join(rootPath, 'pyproject.toml'))
-  ) {
+  // Check for pytest (pytest.ini or pytest config in pyproject.toml)
+  if (existsSync(join(rootPath, 'pytest.ini'))) {
     return {
       framework: 'pytest',
       directory: 'tests/',
       command: 'pytest',
     };
+  }
+
+  // Check pyproject.toml for pytest configuration
+  const pyprojectPath = join(rootPath, 'pyproject.toml');
+  if (existsSync(pyprojectPath)) {
+    try {
+      const content = readFileSync(pyprojectPath, 'utf-8');
+      if (content.includes('[tool.pytest') || content.includes('pytest')) {
+        return {
+          framework: 'pytest',
+          directory: 'tests/',
+          command: 'pytest',
+        };
+      }
+    } catch {
+      // Ignore read errors
+    }
   }
 
   return null;
