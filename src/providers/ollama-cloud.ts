@@ -518,12 +518,21 @@ export class OllamaCloudProvider extends BaseProvider {
 
     // Pattern 2: Function-call style in brackets [tool_name(param="value", param2=value)]
     // Used by models like qwen3-coder. Also handles prefixed names like [repo.bash(...)]
-    const funcCallPattern = /\[([a-z_][a-z0-9_.]*)\(([^)]*)\)\]/gi;
+    // We use a simpler regex to find potential starts, then parse properly to handle nested parens
+    const funcCallStartPattern = /\[([a-z_][a-z0-9_.]*)\(/gi;
 
-    while ((match = funcCallPattern.exec(content)) !== null) {
+    while ((match = funcCallStartPattern.exec(content)) !== null) {
       const rawToolName = match[1];
       const normalizedName = this.normalizeToolName(rawToolName);
-      const argsString = match[2];
+      const startIndex = match.index + match[0].length;
+
+      // Extract the arguments by finding the matching closing bracket
+      const argsString = this.extractBalancedParenContent(content, startIndex);
+      if (argsString === null) continue;
+
+      // Verify it ends with )]
+      const endIndex = startIndex + argsString.length;
+      if (content[endIndex] !== ')' || content[endIndex + 1] !== ']') continue;
 
       const resolvedName = resolveToolName(normalizedName);
       if (resolvedName) {
@@ -534,6 +543,9 @@ export class OllamaCloudProvider extends BaseProvider {
           input: args,
         });
       }
+
+      // Move past this match to avoid re-matching
+      funcCallStartPattern.lastIndex = endIndex + 2;
     }
 
     if (toolCalls.length > 0) {
@@ -584,33 +596,133 @@ export class OllamaCloudProvider extends BaseProvider {
   }
 
   /**
+   * Extract content between parentheses, properly handling nested parens and quoted strings.
+   * Returns the content (not including the outer parens) or null if unbalanced.
+   */
+  private extractBalancedParenContent(content: string, startIndex: number): string | null {
+    let depth = 1; // We start after the opening paren
+    let inString: string | null = null; // Track if we're inside a string ('"' or "'")
+    let escaped = false;
+
+    for (let i = startIndex; i < content.length; i++) {
+      const char = content[i];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      // Handle string delimiters
+      if ((char === '"' || char === "'") && !inString) {
+        inString = char;
+        continue;
+      }
+
+      if (char === inString) {
+        inString = null;
+        continue;
+      }
+
+      // Only count parens if not in a string
+      if (!inString) {
+        if (char === '(') {
+          depth++;
+        } else if (char === ')') {
+          depth--;
+          if (depth === 0) {
+            return content.slice(startIndex, i);
+          }
+        }
+      }
+    }
+
+    return null; // Unbalanced
+  }
+
+  /**
    * Parse function-call style arguments like: path=".", show_hidden=true
+   * Handles complex quoted strings with escaped characters.
    */
   private parseFunctionCallArgs(argsString: string): Record<string, unknown> {
     const args: Record<string, unknown> = {};
     if (!argsString.trim()) return args;
 
-    // Match key=value pairs, handling quoted strings
-    // For unquoted values, match until comma or end (excluding the comma)
-    const argPattern = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\s]+))/gi;
-    let match;
+    let i = 0;
+    while (i < argsString.length) {
+      // Skip whitespace
+      while (i < argsString.length && /\s/.test(argsString[i])) i++;
+      if (i >= argsString.length) break;
 
-    while ((match = argPattern.exec(argsString)) !== null) {
-      const key = match[1];
-      const value = match[2] ?? match[3] ?? match[4];
+      // Find key (alphanumeric + underscore)
+      const keyStart = i;
+      while (i < argsString.length && /[a-z_]/i.test(argsString[i])) i++;
+      const key = argsString.slice(keyStart, i);
+      if (!key) break;
 
-      // Try to parse as JSON for booleans/numbers
+      // Skip whitespace and =
+      while (i < argsString.length && /\s/.test(argsString[i])) i++;
+      if (argsString[i] !== '=') break;
+      i++; // Skip =
+      while (i < argsString.length && /\s/.test(argsString[i])) i++;
+
+      // Parse value
+      let value: string;
+      const quote = argsString[i];
+
+      if (quote === '"' || quote === "'") {
+        // Quoted string - find matching end quote, handling escapes
+        i++; // Skip opening quote
+        const valueStart = i;
+        let escaped = false;
+
+        while (i < argsString.length) {
+          if (escaped) {
+            escaped = false;
+            i++;
+            continue;
+          }
+          if (argsString[i] === '\\') {
+            escaped = true;
+            i++;
+            continue;
+          }
+          if (argsString[i] === quote) {
+            break;
+          }
+          i++;
+        }
+
+        value = argsString.slice(valueStart, i);
+        // Unescape basic escape sequences
+        value = value.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+        i++; // Skip closing quote
+      } else {
+        // Unquoted value - read until comma or end
+        const valueStart = i;
+        while (i < argsString.length && argsString[i] !== ',' && !/\s/.test(argsString[i])) i++;
+        value = argsString.slice(valueStart, i);
+      }
+
+      // Convert value to appropriate type
       if (value === 'true') {
         args[key] = true;
       } else if (value === 'false') {
         args[key] = false;
       } else if (value === 'null') {
         args[key] = null;
-      } else if (!isNaN(Number(value)) && value !== '') {
+      } else if (!isNaN(Number(value)) && value !== '' && !/^0[0-9]/.test(value)) {
         args[key] = Number(value);
       } else {
         args[key] = value;
       }
+
+      // Skip comma
+      while (i < argsString.length && /[\s,]/.test(argsString[i])) i++;
     }
 
     return args;
