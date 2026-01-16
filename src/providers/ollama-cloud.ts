@@ -14,6 +14,7 @@ import { getProviderRateLimiter, type RateLimiter } from './rate-limiter.js';
 import { messageToText } from './message-converter.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 import { DEFAULT_FALLBACK_CONFIG, findBestToolMatch } from '../tools/tool-fallback.js';
+import { logger, LogLevel } from '../logger.js';
 
 /** Ollama message format */
 interface OllamaMessage {
@@ -671,9 +672,17 @@ export class OllamaCloudProvider extends BaseProvider {
       return content;
     }
 
+    const matches = content.match(this.getHallucinatedTracePattern()) || [];
     const cleanedContent = this.cleanHallucinatedTraces(content);
     if (cleanedContent !== content) {
-      console.warn('[ollama-cloud] Cleaned hallucinated tool traces from model output.');
+      if (logger.isLevelEnabled(LogLevel.VERBOSE) && matches.length > 0) {
+        const joined = matches.join('\n');
+        const clipped = joined.length > 2000
+          ? `${joined.slice(0, 2000)}\n... [truncated ${joined.length - 2000} chars]`
+          : joined;
+        logger.verbose(`[ollama-cloud] Stripped hallucinated traces:\n${clipped}`);
+      }
+      logger.warn('Ollama Cloud: cleaned hallucinated tool traces from model output.');
     }
 
     return cleanedContent;
@@ -686,13 +695,17 @@ export class OllamaCloudProvider extends BaseProvider {
    */
   private cleanHallucinatedTraces(content: string): string {
     // Pattern: [Calling tool_name]: {json}[Result from tool_name]: any text until next [ or end
-    const hallucinatedTracePattern = /\[Calling\s+[a-z_][a-z0-9_]*\]\s*:\s*\{[^}]*\}\s*(?:\[Result from\s+[a-z_][a-z0-9_]*\]\s*:\s*[^\[]*)?/gi;
+    const hallucinatedTracePattern = this.getHallucinatedTracePattern();
     let cleanedContent = content.replace(hallucinatedTracePattern, '').trim();
 
     // Clean up multiple newlines
     cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
 
     return cleanedContent;
+  }
+
+  private getHallucinatedTracePattern(): RegExp {
+    return /\[Calling\s+[a-z_][a-z0-9_]*\]\s*:\s*\{[^}]*\}\s*(?:\[Result from\s+[a-z_][a-z0-9_]*\]\s*:\s*[^\[]*)?/gi;
   }
 
   /**

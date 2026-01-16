@@ -130,6 +130,9 @@ export class BashTool extends BaseTool {
 
       if (parts[0] === 'bash' && parts[1] === '-lc') {
         const script = parts.slice(2).join(' ');
+        if (!script.trim()) {
+          return this.stringifyCommand(parts);
+        }
         return `bash -lc ${JSON.stringify(script)}`;
       }
 
