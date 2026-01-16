@@ -31,6 +31,7 @@ import {
   extractToolCallsFromText,
   countMessageTokens,
   estimateTotalContextTokens,
+  estimateSystemPromptTokens,
   estimateToolDefinitionTokens,
   getMessageText,
   findSafeStartIndex,
@@ -1253,7 +1254,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       : this.systemPrompt;
 
     const messageTokens = countMessageTokens(this.messages);
-    const systemPromptTokens = Math.ceil(systemPromptWithSummary.length / 4);
+    const systemPromptTokens = estimateSystemPromptTokens(systemPromptWithSummary);
     const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
 
     return {

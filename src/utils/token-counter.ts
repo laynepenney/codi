@@ -41,25 +41,35 @@ interface CalibrationData {
 let calibrationData: CalibrationData | null = null;
 
 /**
+ * Pre-compiled regex for code detection (combined pattern for single-pass matching).
+ * More specific patterns to avoid false positives like "e.g. something()".
+ */
+const CODE_PATTERN = new RegExp([
+  '```[\\s\\S]*```',              // Markdown code blocks
+  'function\\s+\\w+\\s*\\(',      // Function declarations
+  '(?:const|let|var)\\s+\\w+\\s*=', // Variable declarations
+  '=>\\s*[{(]',                   // Arrow functions
+  'class\\s+\\w+\\s*[{<]',        // Class declarations (with { or generic <)
+  'import\\s+.*\\s+from\\s+[\'"]', // ES imports (require quotes)
+  'export\\s+(?:default\\s+)?(?:function|class|const|let|async)', // ES exports
+  '(?:if|while|for)\\s*\\([^)]+\\)\\s*\\{', // Control flow with braces
+  '\\w+\\.\\w+\\([^)]*\\)\\s*[;{]', // Method calls followed by ; or { (not prose)
+  'return\\s+[^;]+;',             // Return statements
+  '(?:public|private|protected)\\s+\\w+', // Access modifiers
+].join('|'));
+
+/** Minimum text length to consider for code detection (performance optimization) */
+const MIN_CODE_DETECTION_LENGTH = 15;
+
+/**
  * Detect if text contains code (heuristic).
+ * Uses pre-compiled regex and length check for performance.
  */
 function isCodeContent(text: string): boolean {
-  // Check for common code indicators
-  const codeIndicators = [
-    /```[\s\S]*```/,           // Markdown code blocks
-    /function\s+\w+\s*\(/,     // Function declarations
-    /const\s+\w+\s*=/,         // Const declarations
-    /let\s+\w+\s*=/,           // Let declarations
-    /=>\s*{/,                  // Arrow functions
-    /class\s+\w+/,             // Class declarations
-    /import\s+.*from/,         // ES imports
-    /export\s+(default\s+)?/,  // ES exports
-    /if\s*\(.*\)\s*{/,         // If statements
-    /for\s*\(.*\)\s*{/,        // For loops
-    /\.\w+\(.*\)/,             // Method calls
-  ];
+  // Short text is unlikely to be code
+  if (text.length < MIN_CODE_DETECTION_LENGTH) return false;
 
-  return codeIndicators.some(pattern => pattern.test(text));
+  return CODE_PATTERN.test(text);
 }
 
 /**
