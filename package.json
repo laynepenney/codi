@@ -1,6 +1,6 @@
 {
   "name": "codi",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models",
   "license": "Apache-2.0",
   "type": "module",
