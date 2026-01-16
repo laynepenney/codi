@@ -270,6 +270,7 @@ import {
   setCurrentSessionName,
 } from './commands/session-commands.js';
 import { registerConfigCommands } from './commands/config-commands.js';
+import { registerCodiCommands } from './commands/codi-commands.js';
 import { registerHistoryCommands } from './commands/history-commands.js';
 import { registerPlanCommands } from './commands/plan-commands.js';
 import { registerUsageCommands } from './commands/usage-commands.js';
@@ -935,7 +936,12 @@ function handleInitOutput(output: string): void {
 
   for (const result of results) {
     const [fileType, status, filePath] = result.split(':');
-    const fileName = fileType === 'config' ? '.codi.json' : 'codi-models.yaml';
+    const fileNames: Record<string, string> = {
+      config: '.codi.json',
+      modelmap: 'codi-models.yaml',
+      context: 'CODI.md',
+    };
+    const fileName = fileNames[fileType] || fileType;
 
     switch (status) {
       case 'created':
@@ -2215,6 +2221,7 @@ async function main() {
   registerGitCommands();
   registerSessionCommands();
   registerConfigCommands();
+  registerCodiCommands();
   registerHistoryCommands();
   registerPlanCommands();
   registerUsageCommands();

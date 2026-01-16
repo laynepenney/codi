@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFile } from 'fs/promises';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join, basename } from 'path';
 import type { ProjectInfo } from './commands/index.js';
 
@@ -215,4 +215,86 @@ export function loadContextFile(rootPath: string = process.cwd()): {
   }
 
   return { content: null, path: null };
+}
+
+/**
+ * Default template for CODI.md context file.
+ */
+function getDefaultContextTemplate(projectName: string): string {
+  return `# ${projectName} - AI Assistant Context
+
+This file provides context for AI assistants working on this codebase.
+Codi automatically injects this into the system prompt.
+
+## Project Overview
+
+<!-- Describe your project's purpose and architecture -->
+
+## Quick Reference
+
+\`\`\`bash
+# Common commands
+# pnpm dev        # Development mode
+# pnpm build      # Build for production
+# pnpm test       # Run tests
+\`\`\`
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| \`src/index.ts\` | Entry point |
+
+## Coding Conventions
+
+<!-- Add project-specific guidelines -->
+- Use TypeScript strict mode
+- Prefer async/await over callbacks
+
+## Important Notes
+
+<!-- Add any critical information the AI should know -->
+`;
+}
+
+/**
+ * Initialize a CODI.md file in the current directory.
+ */
+export function initContextFile(cwd: string = process.cwd()): {
+  success: boolean;
+  path: string;
+  error?: string;
+} {
+  const contextPath = join(cwd, 'CODI.md');
+
+  if (existsSync(contextPath)) {
+    return {
+      success: false,
+      path: contextPath,
+      error: 'Context file already exists',
+    };
+  }
+
+  // Try to get project name from package.json or directory name
+  let projectName = basename(cwd);
+  try {
+    const pkgPath = join(cwd, 'package.json');
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      if (pkg.name) projectName = pkg.name;
+    }
+  } catch {
+    // Use directory name as fallback
+  }
+
+  try {
+    writeFileSync(contextPath, getDefaultContextTemplate(projectName));
+    return { success: true, path: contextPath };
+  } catch (error) {
+    return {
+      success: false,
+      path: contextPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

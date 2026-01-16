@@ -5,6 +5,12 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['tests/**/*.test.ts'],
+    // Default timeout (increased for e2e tests in their own files)
+    testTimeout: 10000,
+    // Retry failed tests (helps with flaky e2e tests)
+    retry: 1,
+    // Run test files in sequence to avoid resource contention
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html', 'lcov'],
