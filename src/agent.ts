@@ -30,12 +30,15 @@ import {
 import {
   extractToolCallsFromText,
   countMessageTokens,
+  estimateTotalContextTokens,
+  estimateToolDefinitionTokens,
   getMessageText,
   findSafeStartIndex,
   truncateOldToolResults,
   parseImageResult,
   checkDangerousBash,
   groupBySimilarity,
+  updateCalibration,
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
 import type { AuditLogger } from './audit.js';
@@ -662,6 +665,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
       // Record usage for cost tracking
       if (response.usage) {
         recordUsage(chatProvider.getName(), chatProvider.getModel(), response.usage);
+
+        // Update token calibration with actual usage data
+        if (response.usage.inputTokens && response.usage.inputTokens > 0) {
+          const messagesText = messagesToSend.reduce(
+            (acc, m) => acc + getMessageText(m).length,
+            0
+          );
+          const totalTextLength = messagesText + systemContext.length;
+          updateCalibration(totalTextLength, response.usage.inputTokens);
+        }
       }
 
       // Call reasoning callback if reasoning content is present (e.g., from DeepSeek-R1)
@@ -1224,6 +1237,9 @@ Always use tools to interact with the filesystem rather than asking the user to 
    */
   getContextInfo(): {
     tokens: number;
+    messageTokens: number;
+    systemPromptTokens: number;
+    toolDefinitionTokens: number;
     maxTokens: number;
     messages: number;
     hasSummary: boolean;
@@ -1231,8 +1247,20 @@ Always use tools to interact with the filesystem rather than asking the user to 
     compressionEnabled: boolean;
     workingSetFiles: number;
   } {
+    const toolDefinitions = this.useTools ? this.toolRegistry.getDefinitions() : [];
+    const systemPromptWithSummary = this.conversationSummary
+      ? `${this.systemPrompt}\n\n## Previous Conversation Summary\n${this.conversationSummary}`
+      : this.systemPrompt;
+
+    const messageTokens = countMessageTokens(this.messages);
+    const systemPromptTokens = Math.ceil(systemPromptWithSummary.length / 4);
+    const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
+
     return {
-      tokens: countMessageTokens(this.messages),
+      tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,
+      messageTokens,
+      systemPromptTokens,
+      toolDefinitionTokens,
       maxTokens: this.maxContextTokens,
       messages: this.messages.length,
       hasSummary: this.conversationSummary !== null,

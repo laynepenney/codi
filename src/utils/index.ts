@@ -16,8 +16,14 @@ export {
 // Token counting utilities
 export {
   estimateTokens,
+  estimateSystemPromptTokens,
+  estimateToolDefinitionTokens,
+  estimateTotalContextTokens,
   getMessageText,
   countMessageTokens,
+  updateCalibration,
+  getCalibrationData,
+  resetCalibration,
 } from './token-counter.js';
 
 // Message analysis utilities
