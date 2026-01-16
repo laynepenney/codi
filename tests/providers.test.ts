@@ -663,6 +663,21 @@ describe('OllamaCloudProvider function-call style parsing', () => {
     const result = extractBalancedParenContent(content, 6);
     expect(result).toBeNull();
   });
+
+  // Test that tool extraction works on thinking content when regular content is empty
+  it('extracts tool call from thinking content when content is empty', () => {
+    // Simulate the logic in ollama-cloud.ts where toolExtractionText falls back to thinking
+    const thinkingCleanedContent = ''; // empty regular content
+    const combinedThinking = 'The test is failing. Let me check the file:\n\n[read_file(path="test.ts")]';
+
+    // This is the fix: use thinking content when regular content is empty
+    const toolExtractionText = thinkingCleanedContent || combinedThinking;
+
+    // Verify the tool call can be extracted from the fallback text
+    expect(toolExtractionText).toContain('[read_file(path="test.ts")]');
+    const result = extractBalancedParenContent(toolExtractionText, toolExtractionText.indexOf('[read_file(') + 11);
+    expect(result).toBe('path="test.ts"');
+  });
 });
 
 describe('OllamaCloudProvider tool name normalization', () => {

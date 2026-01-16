@@ -231,7 +231,8 @@ export class OllamaCloudProvider extends BaseProvider {
           const useFallbackContent = !hasContent && combinedThinking.length > 0;
           const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
           const reasoningContent = combinedThinking || undefined;
-          const toolExtractionText = thinkingCleanedContent;
+          // If no non-thinking content, also look for tools in thinking content
+          const toolExtractionText = thinkingCleanedContent || combinedThinking;
 
           // Fall back to extracting tool calls from text if no native calls
           if (toolCalls.length === 0 && tools && tools.length > 0) {
@@ -370,7 +371,8 @@ export class OllamaCloudProvider extends BaseProvider {
           const useFallbackContent = !hasContent && combinedThinking.length > 0;
           const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
           const reasoningContent = combinedThinking || undefined;
-          const toolExtractionText = thinkingCleanedContent;
+          // If no non-thinking content, also look for tools in thinking content
+          const toolExtractionText = thinkingCleanedContent || combinedThinking;
 
           if (streamedContentChars === 0 && finalContent && onChunk && streamedThinkingChars === 0) {
             onChunk(finalContent);
