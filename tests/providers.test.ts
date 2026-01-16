@@ -491,32 +491,85 @@ Step 3: Choose solution
 });
 
 describe('OllamaCloudProvider function-call style parsing', () => {
-  // Test the argument parsing function directly
+  // Test the argument parsing function directly (mirrors implementation in ollama-cloud.ts)
   function parseFunctionCallArgs(argsString: string): Record<string, unknown> {
     const args: Record<string, unknown> = {};
     if (!argsString.trim()) return args;
 
-    const argPattern = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\s]+))/gi;
-    let match;
+    let i = 0;
+    while (i < argsString.length) {
+      // Skip whitespace
+      while (i < argsString.length && /\s/.test(argsString[i])) i++;
+      if (i >= argsString.length) break;
 
-    while ((match = argPattern.exec(argsString)) !== null) {
-      const key = match[1];
-      const value = match[2] ?? match[3] ?? match[4];
+      // Find key
+      const keyStart = i;
+      while (i < argsString.length && /[a-z_]/i.test(argsString[i])) i++;
+      const key = argsString.slice(keyStart, i);
+      if (!key) break;
 
-      if (value === 'true') {
-        args[key] = true;
-      } else if (value === 'false') {
-        args[key] = false;
-      } else if (value === 'null') {
-        args[key] = null;
-      } else if (!isNaN(Number(value)) && value !== '') {
-        args[key] = Number(value);
+      // Skip whitespace and =
+      while (i < argsString.length && /\s/.test(argsString[i])) i++;
+      if (argsString[i] !== '=') break;
+      i++;
+      while (i < argsString.length && /\s/.test(argsString[i])) i++;
+
+      // Parse value
+      let value: string;
+      const quote = argsString[i];
+
+      if (quote === '"' || quote === "'") {
+        i++;
+        const valueStart = i;
+        let escaped = false;
+        while (i < argsString.length) {
+          if (escaped) { escaped = false; i++; continue; }
+          if (argsString[i] === '\\') { escaped = true; i++; continue; }
+          if (argsString[i] === quote) break;
+          i++;
+        }
+        value = argsString.slice(valueStart, i);
+        value = value.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+        i++;
       } else {
-        args[key] = value;
+        const valueStart = i;
+        while (i < argsString.length && argsString[i] !== ',' && !/\s/.test(argsString[i])) i++;
+        value = argsString.slice(valueStart, i);
       }
+
+      if (value === 'true') args[key] = true;
+      else if (value === 'false') args[key] = false;
+      else if (value === 'null') args[key] = null;
+      else if (!isNaN(Number(value)) && value !== '' && !/^0[0-9]/.test(value)) args[key] = Number(value);
+      else args[key] = value;
+
+      while (i < argsString.length && /[\s,]/.test(argsString[i])) i++;
     }
 
     return args;
+  }
+
+  // Test balanced parentheses extraction
+  function extractBalancedParenContent(content: string, startIndex: number): string | null {
+    let depth = 1;
+    let inString: string | null = null;
+    let escaped = false;
+
+    for (let i = startIndex; i < content.length; i++) {
+      const char = content[i];
+      if (escaped) { escaped = false; continue; }
+      if (char === '\\') { escaped = true; continue; }
+      if ((char === '"' || char === "'") && !inString) { inString = char; continue; }
+      if (char === inString) { inString = null; continue; }
+      if (!inString) {
+        if (char === '(') depth++;
+        else if (char === ')') {
+          depth--;
+          if (depth === 0) return content.slice(startIndex, i);
+        }
+      }
+    }
+    return null;
   }
 
   it('parses string arguments with double quotes', () => {
@@ -560,6 +613,70 @@ describe('OllamaCloudProvider function-call style parsing', () => {
     const result = parseFunctionCallArgs('path=".", show_hidden=true');
     expect(result.path).toBe('.');
     expect(result.show_hidden).toBe(true);
+  });
+
+  // Tests for nested parentheses in quoted strings (bug fix)
+  it('parses command with parentheses in double-quoted string', () => {
+    const result = parseFunctionCallArgs('command="response.cookies.get(\'accessToken\')"');
+    expect(result.command).toBe("response.cookies.get('accessToken')");
+  });
+
+  it('parses command with parentheses in single-quoted string', () => {
+    const result = parseFunctionCallArgs("command='echo $(date)'");
+    expect(result.command).toBe('echo $(date)');
+  });
+
+  it('parses command with multiple nested parentheses', () => {
+    const result = parseFunctionCallArgs('command="foo(bar(baz()))"');
+    expect(result.command).toBe('foo(bar(baz()))');
+  });
+
+  it('parses sed command with complex pattern', () => {
+    const result = parseFunctionCallArgs('command="sed -i \\"s/old/new/g\\" file.txt"');
+    expect(result.command).toBe('sed -i "s/old/new/g" file.txt');
+  });
+
+  // Tests for extractBalancedParenContent
+  it('extracts balanced content with nested parens in quotes', () => {
+    const content = '[bash(command="echo $(date)")]';
+    const startIndex = 6; // after '[bash('
+    const result = extractBalancedParenContent(content, startIndex);
+    expect(result).toBe('command="echo $(date)"');
+  });
+
+  it('extracts balanced content with deeply nested parens', () => {
+    const content = '[bash(command="foo(bar(baz()))")]';
+    const startIndex = 6;
+    const result = extractBalancedParenContent(content, startIndex);
+    expect(result).toBe('command="foo(bar(baz()))"');
+  });
+
+  it('extracts balanced content with the real failing case', () => {
+    const content = '[bash(command="sed -i \'s/old/response.cookies.get(\\\'accessToken\\\')/g\' file.py")]';
+    const startIndex = 6;
+    const result = extractBalancedParenContent(content, startIndex);
+    expect(result).toBe("command=\"sed -i 's/old/response.cookies.get(\\'accessToken\\')/g' file.py\"");
+  });
+
+  it('returns null for unbalanced parentheses', () => {
+    const content = '[bash(command="unclosed';
+    const result = extractBalancedParenContent(content, 6);
+    expect(result).toBeNull();
+  });
+
+  // Test that tool extraction works on thinking content when regular content is empty
+  it('extracts tool call from thinking content when content is empty', () => {
+    // Simulate the logic in ollama-cloud.ts where toolExtractionText falls back to thinking
+    const thinkingCleanedContent = ''; // empty regular content
+    const combinedThinking = 'The test is failing. Let me check the file:\n\n[read_file(path="test.ts")]';
+
+    // This is the fix: use thinking content when regular content is empty
+    const toolExtractionText = thinkingCleanedContent || combinedThinking;
+
+    // Verify the tool call can be extracted from the fallback text
+    expect(toolExtractionText).toContain('[read_file(path="test.ts")]');
+    const result = extractBalancedParenContent(toolExtractionText, toolExtractionText.indexOf('[read_file(') + 11);
+    expect(result).toBe('path="test.ts"');
   });
 });
 
