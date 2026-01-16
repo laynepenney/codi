@@ -128,6 +128,7 @@ export class Agent {
   private logLevel: LogLevel;
   private enableCompression: boolean;
   private maxContextTokens: number;
+  private maxContextTokensExplicit: boolean; // True if user explicitly set maxContextTokens
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -172,6 +173,8 @@ export class Agent {
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
+    // Track if user explicitly set maxContextTokens (so we preserve it on provider switch)
+    this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
     // Use 40% of model's context window as default, leaving room for system prompt, tools, and response
     this.maxContextTokens = options.maxContextTokens ??
       Math.floor(this.provider.getContextWindow() * 0.4);
@@ -1137,6 +1140,10 @@ Always use tools to interact with the filesystem rather than asking the user to 
     this.provider = provider;
     // Update useTools based on new provider's capabilities
     this.useTools = provider.supportsToolUse();
+    // Recalculate maxContextTokens if not explicitly set by user
+    if (!this.maxContextTokensExplicit) {
+      this.maxContextTokens = Math.floor(provider.getContextWindow() * 0.4);
+    }
   }
 
   /**
