@@ -45,3 +45,9 @@ export {
   getBlockingPatterns,
   type DangerousCheckResult,
 } from './bash-utils.js';
+
+// Vector utilities for embeddings
+export {
+  cosineSimilarity,
+  groupBySimilarity,
+} from './vector.js';

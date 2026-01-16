@@ -282,6 +282,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -299,6 +300,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -321,6 +323,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -383,6 +386,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -393,6 +397,77 @@ describe('Agent', () => {
     const result = await agent.chat('continue');
     expect(result).toBe('done');
     expect(receivedInput).toEqual({ value: 42 });
+  });
+
+  it('setProvider updates maxContextTokens when not explicitly set', () => {
+    // Provider with large context window (like Claude)
+    const largeContextProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'Claude',
+      getModel: () => 'claude-sonnet-4',
+      getContextWindow: () => 200000,
+    };
+
+    // Provider with small context window (like GPT-4 base)
+    const smallContextProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'OpenAI',
+      getModel: () => 'gpt-4',
+      getContextWindow: () => 8192,
+    };
+
+    const agent = new Agent({
+      provider: largeContextProvider as any,
+      toolRegistry: new ToolRegistry(),
+    });
+
+    // Initial maxTokens should be 40% of 200k = 80k
+    expect(agent.getContextInfo().maxTokens).toBe(80000);
+
+    // Switch to smaller provider
+    agent.setProvider(smallContextProvider as any);
+
+    // maxTokens should now be 40% of 8192 ≈ 3276
+    expect(agent.getContextInfo().maxTokens).toBe(Math.floor(8192 * 0.4));
+  });
+
+  it('setProvider preserves maxContextTokens when explicitly set', () => {
+    const largeContextProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'Claude',
+      getModel: () => 'claude-sonnet-4',
+      getContextWindow: () => 200000,
+    };
+
+    const smallContextProvider = {
+      chat: vi.fn(),
+      streamChat: vi.fn(),
+      supportsToolUse: () => true,
+      getName: () => 'OpenAI',
+      getModel: () => 'gpt-4',
+      getContextWindow: () => 8192,
+    };
+
+    // Explicitly set maxContextTokens
+    const agent = new Agent({
+      provider: largeContextProvider as any,
+      toolRegistry: new ToolRegistry(),
+      maxContextTokens: 50000,
+    });
+
+    expect(agent.getContextInfo().maxTokens).toBe(50000);
+
+    // Switch provider - should preserve explicit setting
+    agent.setProvider(smallContextProvider as any);
+
+    // Should still be 50000, not recalculated
+    expect(agent.getContextInfo().maxTokens).toBe(50000);
   });
 });
 

@@ -12,10 +12,13 @@ import {
   compressContext,
   generateEntityLegend,
   getCompressionStats,
+  decompressText,
+  decompressWithBuffer,
   type CompressedContext,
   type CompressionStats,
+  type Entity,
 } from './compression.js';
-import { scoreMessages, type MessageScore } from './importance-scorer.js';
+import { scoreMessages, extractFilePaths, type MessageScore } from './importance-scorer.js';
 import {
   selectMessagesToKeep,
   updateWorkingSet,
@@ -32,6 +35,7 @@ import {
   truncateOldToolResults,
   parseImageResult,
   checkDangerousBash,
+  groupBySimilarity,
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
 import type { AuditLogger } from './audit.js';
@@ -125,11 +129,16 @@ export class Agent {
   private logLevel: LogLevel;
   private enableCompression: boolean;
   private maxContextTokens: number;
+  private maxContextTokensExplicit: boolean; // True if user explicitly set maxContextTokens
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
   private lastCompressionStats: CompressionStats | null = null;
+  private lastCompressionEntities: Map<string, Entity> | null = null;
+  private compressionBuffer = ''; // Buffer for streaming decompression
   private workingSet: WorkingSet = createWorkingSet();
+  private indexedFiles: Set<string> | null = null; // RAG indexed files for code relevance scoring
+  private embeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null; // For semantic deduplication
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -167,7 +176,11 @@ export class Agent {
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
-    this.maxContextTokens = options.maxContextTokens ?? AGENT_CONFIG.MAX_CONTEXT_TOKENS;
+    // Track if user explicitly set maxContextTokens (so we preserve it on provider switch)
+    this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
+    // Use 40% of model's context window as default, leaving room for system prompt, tools, and response
+    this.maxContextTokens = options.maxContextTokens ??
+      Math.floor(this.provider.getContextWindow() * 0.4);
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
@@ -350,8 +363,13 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
     logger.debug(`Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`);
 
-    // Score messages by importance
-    const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
+    // Score messages by importance (pass indexed files for RAG-enhanced scoring)
+    const scores = scoreMessages(
+      this.messages,
+      CONTEXT_OPTIMIZATION.WEIGHTS,
+      undefined, // entities
+      this.indexedFiles ?? undefined
+    );
 
     // Configure windowing
     const windowConfig: WindowingConfig = {
@@ -377,26 +395,75 @@ Always use tools to interact with the filesystem rather than asking the user to 
     // Get messages to summarize
     const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
 
-    // Format older messages for summarization
-    const oldContent = messagesToSummarize
-      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
-      .join('\n\n');
+    // Extract file paths from messages for better context preservation
+    const discussedFiles = new Set<string>();
+    for (const msg of messagesToSummarize) {
+      const text = getMessageText(msg);
+      const paths = extractFilePaths(text);
+      paths.forEach(p => discussedFiles.add(p));
+    }
+
+    // Try semantic deduplication if embedding provider is available
+    let oldContent: string;
+    if (this.embeddingProvider && messagesToSummarize.length > 2) {
+      try {
+        // Generate embeddings for messages
+        const messageTexts = messagesToSummarize.map(m => getMessageText(m).slice(0, 1000));
+        const embeddings = await this.embeddingProvider.embed(messageTexts);
+
+        // Group similar messages
+        const groups = groupBySimilarity(embeddings, 0.85);
+        logger.debug(`Semantic dedup: ${messagesToSummarize.length} messages → ${groups.length} groups`);
+
+        // Format grouped content
+        oldContent = groups.map((group, i) => {
+          if (group.length === 1) {
+            const msg = messagesToSummarize[group[0]];
+            return `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`;
+          } else {
+            // Multiple similar messages - show as a group
+            const groupMessages = group.map(idx => {
+              const msg = messagesToSummarize[idx];
+              return `  - [${msg.role}]: ${getMessageText(msg).slice(0, 200)}`;
+            }).join('\n');
+            return `[Similar discussion #${i + 1}, ${group.length} messages]:\n${groupMessages}`;
+          }
+        }).join('\n\n');
+      } catch (err) {
+        // Fall back to standard formatting
+        logger.debug(`Semantic dedup failed: ${err instanceof Error ? err.message : err}`);
+        oldContent = messagesToSummarize
+          .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+          .join('\n\n');
+      }
+    } else {
+      // Standard formatting without semantic deduplication
+      oldContent = messagesToSummarize
+        .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+        .join('\n\n');
+    }
 
     // Include existing summary if present
     const contextToSummarize = this.conversationSummary
       ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
       : oldContent;
 
+    // Build enhanced summary prompt with file context
+    const filesContext = discussedFiles.size > 0
+      ? `\n\nFiles discussed: ${[...discussedFiles].join(', ')}`
+      : '';
+
     try {
       // Ask the model to create a summary (use secondary provider if configured)
       const summaryProvider = this.getSummaryProvider();
       logger.debug(`Using ${summaryProvider.getName()} (${summaryProvider.getModel()}) for summarization`);
+      logger.debug(`Files context for summary: ${discussedFiles.size} files`);
 
       const summaryResponse = await summaryProvider.streamChat(
         [
           {
             role: 'user',
-            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.${filesContext}\n\n${contextToSummarize}`,
           },
         ],
         undefined, // No tools for summary
@@ -482,23 +549,36 @@ Always use tools to interact with the filesystem rather than asking the user to 
         systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
       }
 
-      // Apply compression if enabled
+      // Apply compression if enabled and it actually saves space
       let messagesToSend = this.messages;
+      this.lastCompressionEntities = null; // Reset for this iteration
+      this.compressionBuffer = '';
       if (this.enableCompression && this.messages.length > 2) {
         const compressed = compressContext(this.messages);
         if (compressed.entities.size > 0) {
-          messagesToSend = compressed.messages;
-          this.lastCompressionStats = getCompressionStats(compressed);
-
-          // Add entity legend to system context
           const legend = generateEntityLegend(compressed.entities);
-          systemContext += `\n\n${legend}\n\nNote: The conversation uses entity references (E1, E2, etc.) to reduce context size. Refer to the legend above when you see these references.`;
+          const stats = getCompressionStats(compressed);
 
-          logger.compressionStats(
-            this.lastCompressionStats.savings,
-            this.lastCompressionStats.savingsPercent,
-            this.lastCompressionStats.entityCount
-          );
+          // Calculate actual sizes to ensure compression is beneficial
+          const originalSize = this.messages.reduce((sum, m) =>
+            sum + JSON.stringify(m.content).length, 0);
+          const compressedSize = compressed.messages.reduce((sum, m) =>
+            sum + JSON.stringify(m.content).length, 0) + legend.length;
+
+          // Only use compression if it actually reduces size
+          if (compressedSize < originalSize) {
+            messagesToSend = compressed.messages;
+            this.lastCompressionEntities = compressed.entities;
+            this.lastCompressionStats = stats;
+
+            // Add entity legend to system context
+            systemContext += `\n\n${legend}\n\nNote: The conversation uses entity references (E1, E2, etc.) to reduce context size. Refer to the legend above when you see these references.`;
+
+            logger.compressionStats(stats.savings, stats.savingsPercent, stats.entityCount);
+            logger.debug(`Compression saved ${originalSize - compressedSize} chars`);
+          } else {
+            logger.debug(`Compression skipped - no savings (${compressedSize} >= ${originalSize})`);
+          }
         }
       }
 
@@ -523,7 +603,20 @@ Always use tools to interact with the filesystem rather than asking the user to 
         if (chunk) {
           streamedChars += chunk.length;
         }
-        this.callbacks.onText?.(chunk);
+        // Decompress streaming output if compression is active
+        if (this.lastCompressionEntities?.size) {
+          this.compressionBuffer += chunk;
+          const { decompressed, remaining } = decompressWithBuffer(
+            this.compressionBuffer,
+            this.lastCompressionEntities
+          );
+          this.compressionBuffer = remaining;
+          if (decompressed) {
+            this.callbacks.onText?.(decompressed);
+          }
+        } else {
+          this.callbacks.onText?.(chunk);
+        }
       };
       let streamedReasoningChars = 0;
       const onReasoningChunk = (chunk: string): void => {
@@ -1030,6 +1123,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
       this.auditLogger?.maxIterations(iterations, AGENT_CONFIG.MAX_ITERATIONS);
     }
 
+    // Decompress final response if compression was used
+    if (this.lastCompressionEntities?.size) {
+      // Flush any remaining buffer
+      if (this.compressionBuffer) {
+        const flushed = decompressText(this.compressionBuffer, this.lastCompressionEntities);
+        this.callbacks.onText?.(flushed);
+        this.compressionBuffer = '';
+      }
+      finalResponse = decompressText(finalResponse, this.lastCompressionEntities);
+    }
+
     return finalResponse;
   }
 
@@ -1093,6 +1197,26 @@ Always use tools to interact with the filesystem rather than asking the user to 
     this.provider = provider;
     // Update useTools based on new provider's capabilities
     this.useTools = provider.supportsToolUse();
+    // Recalculate maxContextTokens if not explicitly set by user
+    if (!this.maxContextTokensExplicit) {
+      this.maxContextTokens = Math.floor(provider.getContextWindow() * 0.4);
+    }
+  }
+
+  /**
+   * Set indexed files from RAG for code relevance scoring.
+   * Messages discussing indexed files get higher importance during compaction.
+   */
+  setIndexedFiles(files: string[]): void {
+    this.indexedFiles = new Set(files);
+  }
+
+  /**
+   * Set embedding provider for semantic message deduplication.
+   * When set, similar messages are grouped together during compaction.
+   */
+  setEmbeddingProvider(provider: import('./rag/embeddings/base.js').BaseEmbeddingProvider): void {
+    this.embeddingProvider = provider;
   }
 
   /**
@@ -1153,8 +1277,13 @@ Always use tools to interact with the filesystem rather than asking the user to 
       return { before, after: before, summary: this.conversationSummary };
     }
 
-    // Score messages and use smart windowing
-    const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
+    // Score messages and use smart windowing (pass indexed files for RAG-enhanced scoring)
+    const scores = scoreMessages(
+      this.messages,
+      CONTEXT_OPTIMIZATION.WEIGHTS,
+      undefined, // entities
+      this.indexedFiles ?? undefined
+    );
     const windowConfig: WindowingConfig = {
       minRecentMessages: CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES,
       maxMessages: Math.min(CONTEXT_OPTIMIZATION.MAX_MESSAGES, Math.ceil(this.messages.length / 2)),
@@ -1173,6 +1302,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
     }
 
     const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
+
+    // Extract file paths from messages for better context preservation
+    const discussedFiles = new Set<string>();
+    for (const msg of messagesToSummarize) {
+      const text = getMessageText(msg);
+      const paths = extractFilePaths(text);
+      paths.forEach(p => discussedFiles.add(p));
+    }
+
     const oldContent = messagesToSummarize
       .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
       .join('\n\n');
@@ -1181,13 +1319,18 @@ Always use tools to interact with the filesystem rather than asking the user to 
       ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
       : oldContent;
 
+    // Build enhanced summary prompt with file context
+    const filesContext = discussedFiles.size > 0
+      ? `\n\nFiles discussed: ${[...discussedFiles].join(', ')}`
+      : '';
+
     try {
       // Use secondary provider for summarization if configured
       const summaryProvider = this.getSummaryProvider();
       const summaryResponse = await summaryProvider.streamChat(
         [{
           role: 'user',
-          content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+          content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.${filesContext}\n\n${contextToSummarize}`,
         }],
         undefined,
         undefined

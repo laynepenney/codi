@@ -7,6 +7,7 @@ import {
   compressContext,
   generateEntityLegend,
   decompressText,
+  decompressWithBuffer,
   getCompressionStats,
   type Entity,
 } from '../src/compression.js';
@@ -276,6 +277,73 @@ describe('compression', () => {
 
       // Decompressed should match original
       expect(decompressed).toBe(originalText);
+    });
+  });
+
+  describe('decompressWithBuffer', () => {
+    it('should decompress complete text without buffering', () => {
+      const entities = new Map<string, Entity>([
+        ['E1', { id: 'E1', value: 'UserService', type: 'class', count: 2, firstSeen: 0 }],
+        ['E2', { id: 'E2', value: 'src/auth.ts', type: 'path', count: 2, firstSeen: 0 }],
+      ]);
+
+      const { decompressed, remaining } = decompressWithBuffer('The E1 is in E2.', entities);
+
+      expect(decompressed).toBe('The UserService is in src/auth.ts.');
+      expect(remaining).toBe('');
+    });
+
+    it('should buffer partial entity reference at end', () => {
+      const entities = new Map<string, Entity>([
+        ['E1', { id: 'E1', value: 'UserService', type: 'class', count: 2, firstSeen: 0 }],
+        ['E12', { id: 'E12', value: 'AuthService', type: 'class', count: 2, firstSeen: 0 }],
+      ]);
+
+      // "E" at end could be start of E1 or E12
+      const { decompressed, remaining } = decompressWithBuffer('Look at E', entities);
+
+      expect(decompressed).toBe('Look at ');
+      expect(remaining).toBe('E');
+    });
+
+    it('should buffer partial entity with digits at end', () => {
+      const entities = new Map<string, Entity>([
+        ['E12', { id: 'E12', value: 'AuthService', type: 'class', count: 2, firstSeen: 0 }],
+        ['E123', { id: 'E123', value: 'TokenService', type: 'class', count: 2, firstSeen: 0 }],
+      ]);
+
+      // "E1" could be start of E12 or E123
+      const { decompressed, remaining } = decompressWithBuffer('Use E1', entities);
+
+      expect(decompressed).toBe('Use ');
+      expect(remaining).toBe('E1');
+    });
+
+    it('should not buffer if entity is complete', () => {
+      const entities = new Map<string, Entity>([
+        ['E1', { id: 'E1', value: 'UserService', type: 'class', count: 2, firstSeen: 0 }],
+      ]);
+
+      // E1 is complete, no need to buffer
+      const { decompressed, remaining } = decompressWithBuffer('Use E1', entities);
+
+      expect(decompressed).toBe('Use UserService');
+      expect(remaining).toBe('');
+    });
+
+    it('should handle streaming chunks correctly', () => {
+      const entities = new Map<string, Entity>([
+        ['E1', { id: 'E1', value: 'MyClass', type: 'class', count: 2, firstSeen: 0 }],
+      ]);
+
+      // Simulate streaming: first chunk ends with partial entity
+      const chunk1 = decompressWithBuffer('The E', entities);
+      expect(chunk1.remaining).toBe('E');
+
+      // Second chunk completes the entity
+      const chunk2 = decompressWithBuffer(chunk1.remaining + '1 is ready', entities);
+      expect(chunk2.decompressed).toBe('MyClass is ready');
+      expect(chunk2.remaining).toBe('');
     });
   });
 });

@@ -99,10 +99,11 @@ export const CONTEXT_OPTIMIZATION = {
 
   // Importance scoring weights (should sum to ~1.0)
   WEIGHTS: {
-    recency: 0.3,           // Recent messages are important
-    referenceCount: 0.2,    // Often-referenced content is important
-    userEmphasis: 0.3,      // User messages and emphasis markers
+    recency: 0.25,          // Recent messages are important
+    referenceCount: 0.15,   // Often-referenced content is important
+    userEmphasis: 0.25,     // User messages and emphasis markers
     actionRelevance: 0.2,   // Tool calls and results
+    codeRelevance: 0.15,    // Messages about indexed code (RAG-enhanced)
   },
 
   // Smart windowing

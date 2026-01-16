@@ -57,6 +57,65 @@ describe('BaseProvider', () => {
     const provider = new TestProvider();
     expect(provider.supportsVision()).toBe(false);
   });
+
+  describe('getContextWindow', () => {
+    it('returns context window for known models', () => {
+      class ClaudeProvider extends TestProvider {
+        getModel() { return 'claude-sonnet-4-20250514'; }
+      }
+      const provider = new ClaudeProvider();
+      expect(provider.getContextWindow()).toBe(200000);
+    });
+
+    it('returns context window for GPT-4o', () => {
+      class GPT4oProvider extends TestProvider {
+        getModel() { return 'gpt-4o'; }
+      }
+      const provider = new GPT4oProvider();
+      expect(provider.getContextWindow()).toBe(128000);
+    });
+
+    it('returns context window for GPT-4 base', () => {
+      class GPT4Provider extends TestProvider {
+        getModel() { return 'gpt-4'; }
+      }
+      const provider = new GPT4Provider();
+      expect(provider.getContextWindow()).toBe(8192);
+    });
+
+    it('returns default 128k for unknown models', () => {
+      class UnknownProvider extends TestProvider {
+        getModel() { return 'unknown-model-xyz'; }
+      }
+      const provider = new UnknownProvider();
+      expect(provider.getContextWindow()).toBe(128000);
+    });
+
+    it('handles prefix matching for versioned models', () => {
+      class VersionedProvider extends TestProvider {
+        getModel() { return 'claude-3-5-sonnet-20241022'; }
+      }
+      const provider = new VersionedProvider();
+      expect(provider.getContextWindow()).toBe(200000);
+    });
+
+    it('does not match gpt-4 to gpt-4o (different models)', () => {
+      // gpt-4 and gpt-4o are different models with different context windows
+      // gpt-4 = 8192 tokens, gpt-4o = 128000 tokens
+      class GPT4Provider extends TestProvider {
+        getModel() { return 'gpt-4'; }
+      }
+      class GPT4oProvider extends TestProvider {
+        getModel() { return 'gpt-4o'; }
+      }
+      const gpt4 = new GPT4Provider();
+      const gpt4o = new GPT4oProvider();
+      // They should have different context windows
+      expect(gpt4.getContextWindow()).toBe(8192);
+      expect(gpt4o.getContextWindow()).toBe(128000);
+      expect(gpt4.getContextWindow()).not.toBe(gpt4o.getContextWindow());
+    });
+  });
 });
 
 describe('AnthropicProvider', () => {
