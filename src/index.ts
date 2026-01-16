@@ -270,6 +270,7 @@ import {
   setCurrentSessionName,
 } from './commands/session-commands.js';
 import { registerConfigCommands } from './commands/config-commands.js';
+import { registerCodiCommands } from './commands/codi-commands.js';
 import { registerHistoryCommands } from './commands/history-commands.js';
 import { registerPlanCommands } from './commands/plan-commands.js';
 import { registerUsageCommands } from './commands/usage-commands.js';
@@ -2220,6 +2221,7 @@ async function main() {
   registerGitCommands();
   registerSessionCommands();
   registerConfigCommands();
+  registerCodiCommands();
   registerHistoryCommands();
   registerPlanCommands();
   registerUsageCommands();
