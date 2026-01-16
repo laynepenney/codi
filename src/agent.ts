@@ -18,7 +18,7 @@ import {
   type CompressionStats,
   type Entity,
 } from './compression.js';
-import { scoreMessages, type MessageScore } from './importance-scorer.js';
+import { scoreMessages, extractFilePaths, type MessageScore } from './importance-scorer.js';
 import {
   selectMessagesToKeep,
   updateWorkingSet,
@@ -35,6 +35,7 @@ import {
   truncateOldToolResults,
   parseImageResult,
   checkDangerousBash,
+  groupBySimilarity,
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
 import type { AuditLogger } from './audit.js';
@@ -104,59 +105,6 @@ export interface AgentOptions {
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
   onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
-}
-
-/**
- * Compute cosine similarity between two embedding vectors.
- * Returns value between -1 and 1 (1 = identical, 0 = orthogonal, -1 = opposite).
- */
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0;
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-  return denominator === 0 ? 0 : dotProduct / denominator;
-}
-
-/**
- * Group messages by semantic similarity using embeddings.
- * Messages with similarity > threshold are grouped together.
- * Returns array of groups, each containing indices of similar messages.
- */
-function groupSimilarMessages(
-  embeddings: number[][],
-  threshold: number = 0.85
-): number[][] {
-  const n = embeddings.length;
-  const assigned = new Set<number>();
-  const groups: number[][] = [];
-
-  for (let i = 0; i < n; i++) {
-    if (assigned.has(i)) continue;
-
-    const group = [i];
-    assigned.add(i);
-
-    for (let j = i + 1; j < n; j++) {
-      if (assigned.has(j)) continue;
-
-      const similarity = cosineSimilarity(embeddings[i], embeddings[j]);
-      if (similarity >= threshold) {
-        group.push(j);
-        assigned.add(j);
-      }
-    }
-
-    groups.push(group);
-  }
-
-  return groups;
 }
 
 /**
@@ -448,7 +396,6 @@ Always use tools to interact with the filesystem rather than asking the user to 
     const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
 
     // Extract file paths from messages for better context preservation
-    const { extractFilePaths } = await import('./importance-scorer.js');
     const discussedFiles = new Set<string>();
     for (const msg of messagesToSummarize) {
       const text = getMessageText(msg);
@@ -465,7 +412,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
         const embeddings = await this.embeddingProvider.embed(messageTexts);
 
         // Group similar messages
-        const groups = groupSimilarMessages(embeddings, 0.85);
+        const groups = groupBySimilarity(embeddings, 0.85);
         logger.debug(`Semantic dedup: ${messagesToSummarize.length} messages → ${groups.length} groups`);
 
         // Format grouped content
@@ -1357,7 +1304,6 @@ Always use tools to interact with the filesystem rather than asking the user to 
     const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
 
     // Extract file paths from messages for better context preservation
-    const { extractFilePaths } = await import('./importance-scorer.js');
     const discussedFiles = new Set<string>();
     for (const msg of messagesToSummarize) {
       const text = getMessageText(msg);

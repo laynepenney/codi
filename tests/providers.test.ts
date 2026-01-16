@@ -98,6 +98,23 @@ describe('BaseProvider', () => {
       const provider = new VersionedProvider();
       expect(provider.getContextWindow()).toBe(200000);
     });
+
+    it('does not match gpt-4 to gpt-4o (different models)', () => {
+      // gpt-4 and gpt-4o are different models with different context windows
+      // gpt-4 = 8192 tokens, gpt-4o = 128000 tokens
+      class GPT4Provider extends TestProvider {
+        getModel() { return 'gpt-4'; }
+      }
+      class GPT4oProvider extends TestProvider {
+        getModel() { return 'gpt-4o'; }
+      }
+      const gpt4 = new GPT4Provider();
+      const gpt4o = new GPT4oProvider();
+      // They should have different context windows
+      expect(gpt4.getContextWindow()).toBe(8192);
+      expect(gpt4o.getContextWindow()).toBe(128000);
+      expect(gpt4.getContextWindow()).not.toBe(gpt4o.getContextWindow());
+    });
   });
 });
 

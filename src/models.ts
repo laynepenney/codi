@@ -214,9 +214,24 @@ export function getModelContextWindow(modelId: string): number | undefined {
   }
 
   // Try prefix match for versioned models (e.g., claude-sonnet-4-20250514 → claude-sonnet-4)
+  // Only match if the next character after the prefix is a version separator (-) or end of string
+  // This prevents "gpt-4" from matching "gpt-4o"
   for (const model of STATIC_MODELS) {
-    if (modelId.startsWith(model.id) || model.id.startsWith(modelId)) {
-      return model.contextWindow;
+    // Case 1: modelId is a versioned extension of registry model
+    // e.g., modelId="claude-sonnet-4-20250514" matches model.id="claude-sonnet-4"
+    if (modelId.startsWith(model.id)) {
+      const nextChar = modelId[model.id.length];
+      if (nextChar === undefined || nextChar === '-') {
+        return model.contextWindow;
+      }
+    }
+    // Case 2: modelId is a base name matching registry model
+    // e.g., modelId="claude-sonnet-4" matches model.id="claude-sonnet-4-20250514"
+    if (model.id.startsWith(modelId)) {
+      const nextChar = model.id[modelId.length];
+      if (nextChar === undefined || nextChar === '-') {
+        return model.contextWindow;
+      }
     }
   }
 
