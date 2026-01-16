@@ -12,8 +12,11 @@ import {
   compressContext,
   generateEntityLegend,
   getCompressionStats,
+  decompressText,
+  decompressWithBuffer,
   type CompressedContext,
   type CompressionStats,
+  type Entity,
 } from './compression.js';
 import { scoreMessages, type MessageScore } from './importance-scorer.js';
 import {
@@ -129,6 +132,8 @@ export class Agent {
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
   private lastCompressionStats: CompressionStats | null = null;
+  private lastCompressionEntities: Map<string, Entity> | null = null;
+  private compressionBuffer = ''; // Buffer for streaming decompression
   private workingSet: WorkingSet = createWorkingSet();
   private callbacks: {
     onText?: (text: string) => void;
@@ -167,7 +172,9 @@ export class Agent {
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
-    this.maxContextTokens = options.maxContextTokens ?? AGENT_CONFIG.MAX_CONTEXT_TOKENS;
+    // Use 40% of model's context window as default, leaving room for system prompt, tools, and response
+    this.maxContextTokens = options.maxContextTokens ??
+      Math.floor(this.provider.getContextWindow() * 0.4);
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
@@ -482,23 +489,36 @@ Always use tools to interact with the filesystem rather than asking the user to 
         systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
       }
 
-      // Apply compression if enabled
+      // Apply compression if enabled and it actually saves space
       let messagesToSend = this.messages;
+      this.lastCompressionEntities = null; // Reset for this iteration
+      this.compressionBuffer = '';
       if (this.enableCompression && this.messages.length > 2) {
         const compressed = compressContext(this.messages);
         if (compressed.entities.size > 0) {
-          messagesToSend = compressed.messages;
-          this.lastCompressionStats = getCompressionStats(compressed);
-
-          // Add entity legend to system context
           const legend = generateEntityLegend(compressed.entities);
-          systemContext += `\n\n${legend}\n\nNote: The conversation uses entity references (E1, E2, etc.) to reduce context size. Refer to the legend above when you see these references.`;
+          const stats = getCompressionStats(compressed);
 
-          logger.compressionStats(
-            this.lastCompressionStats.savings,
-            this.lastCompressionStats.savingsPercent,
-            this.lastCompressionStats.entityCount
-          );
+          // Calculate actual sizes to ensure compression is beneficial
+          const originalSize = this.messages.reduce((sum, m) =>
+            sum + JSON.stringify(m.content).length, 0);
+          const compressedSize = compressed.messages.reduce((sum, m) =>
+            sum + JSON.stringify(m.content).length, 0) + legend.length;
+
+          // Only use compression if it actually reduces size
+          if (compressedSize < originalSize) {
+            messagesToSend = compressed.messages;
+            this.lastCompressionEntities = compressed.entities;
+            this.lastCompressionStats = stats;
+
+            // Add entity legend to system context
+            systemContext += `\n\n${legend}\n\nNote: The conversation uses entity references (E1, E2, etc.) to reduce context size. Refer to the legend above when you see these references.`;
+
+            logger.compressionStats(stats.savings, stats.savingsPercent, stats.entityCount);
+            logger.debug(`Compression saved ${originalSize - compressedSize} chars`);
+          } else {
+            logger.debug(`Compression skipped - no savings (${compressedSize} >= ${originalSize})`);
+          }
         }
       }
 
@@ -523,7 +543,20 @@ Always use tools to interact with the filesystem rather than asking the user to 
         if (chunk) {
           streamedChars += chunk.length;
         }
-        this.callbacks.onText?.(chunk);
+        // Decompress streaming output if compression is active
+        if (this.lastCompressionEntities?.size) {
+          this.compressionBuffer += chunk;
+          const { decompressed, remaining } = decompressWithBuffer(
+            this.compressionBuffer,
+            this.lastCompressionEntities
+          );
+          this.compressionBuffer = remaining;
+          if (decompressed) {
+            this.callbacks.onText?.(decompressed);
+          }
+        } else {
+          this.callbacks.onText?.(chunk);
+        }
       };
       let streamedReasoningChars = 0;
       const onReasoningChunk = (chunk: string): void => {
@@ -1028,6 +1061,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
       this.callbacks.onText?.(maxIterMsg);
       // Audit log
       this.auditLogger?.maxIterations(iterations, AGENT_CONFIG.MAX_ITERATIONS);
+    }
+
+    // Decompress final response if compression was used
+    if (this.lastCompressionEntities?.size) {
+      // Flush any remaining buffer
+      if (this.compressionBuffer) {
+        const flushed = decompressText(this.compressionBuffer, this.lastCompressionEntities);
+        this.callbacks.onText?.(flushed);
+        this.compressionBuffer = '';
+      }
+      finalResponse = decompressText(finalResponse, this.lastCompressionEntities);
     }
 
     return finalResponse;

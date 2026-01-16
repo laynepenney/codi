@@ -282,6 +282,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -299,6 +300,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -321,6 +323,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({
@@ -383,6 +386,7 @@ describe('Agent', () => {
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
+      getContextWindow: () => 128000,
     };
 
     const agent = new Agent({

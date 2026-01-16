@@ -325,7 +325,7 @@ program
   .option('--debug', 'Show API and context details')
   .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
-  .option('-c, --compress', 'Context compression (enabled by default, use --no-compress to disable)')
+  .option('-c, --compress', 'Enable context compression (experimental, disabled by default)')
   .option('--context-window <tokens>', 'Context window size (tokens) before compaction')
   .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
   .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')

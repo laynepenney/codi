@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig } from '../types.js';
+import { getModelContextWindow } from '../models.js';
 
 /**
  * Information about an available model.
@@ -98,4 +99,14 @@ export abstract class BaseProvider {
    * @returns List of available models with their info
    */
   async listModels?(): Promise<ModelInfo[]>;
+
+  /**
+   * Get the context window size for the current model.
+   * Uses static model registry lookup with fallback to default.
+   * @returns Context window size in tokens
+   */
+  getContextWindow(): number {
+    const modelId = this.getModel();
+    return getModelContextWindow(modelId) ?? 128000; // Default 128k
+  }
 }

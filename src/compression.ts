@@ -390,6 +390,41 @@ export function decompressText(text: string, entities: Map<string, Entity>): str
 }
 
 /**
+ * Decompress text for streaming, handling partial entity references at chunk boundaries.
+ * Returns the decompressed text and any remaining buffer that might be a partial entity.
+ */
+export function decompressWithBuffer(
+  text: string,
+  entities: Map<string, Entity>
+): { decompressed: string; remaining: string } {
+  // Entity references are E followed by digits (E1, E12, etc.)
+  // Check if text ends with a partial entity reference
+  const match = text.match(/E\d*$/);
+
+  if (match) {
+    // Check if this could be a valid entity ID
+    const potentialId = match[0];
+    // If it's just "E" or a valid entity ID prefix, buffer it
+    const isPartialMatch = potentialId === 'E' ||
+      [...entities.keys()].some(id => id.startsWith(potentialId) && id !== potentialId);
+
+    if (isPartialMatch) {
+      const remaining = potentialId;
+      const toProcess = text.slice(0, -remaining.length);
+      return {
+        decompressed: decompressText(toProcess, entities),
+        remaining,
+      };
+    }
+  }
+
+  return {
+    decompressed: decompressText(text, entities),
+    remaining: '',
+  };
+}
+
+/**
  * Statistics about compression effectiveness.
  */
 export interface CompressionStats {

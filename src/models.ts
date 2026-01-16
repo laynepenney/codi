@@ -201,3 +201,24 @@ export function getModelPricing(modelId: string): { input: number; output: numbe
 
   return undefined;
 }
+
+/**
+ * Get context window size for a specific model.
+ * Returns undefined if model is not found in registry.
+ */
+export function getModelContextWindow(modelId: string): number | undefined {
+  // Try exact match first
+  const exactMatch = STATIC_MODELS.find(m => m.id === modelId);
+  if (exactMatch?.contextWindow) {
+    return exactMatch.contextWindow;
+  }
+
+  // Try prefix match for versioned models (e.g., claude-sonnet-4-20250514 → claude-sonnet-4)
+  for (const model of STATIC_MODELS) {
+    if (modelId.startsWith(model.id) || model.id.startsWith(modelId)) {
+      return model.contextWindow;
+    }
+  }
+
+  return undefined;
+}
