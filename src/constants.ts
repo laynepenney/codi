@@ -11,19 +11,19 @@
  */
 export const AGENT_CONFIG = {
   /** Maximum iterations before stopping (prevents infinite loops) */
-  MAX_ITERATIONS: 20,
+  MAX_ITERATIONS: 2000,
   /** Stop after this many consecutive errors */
   MAX_CONSECUTIVE_ERRORS: 3,
   /** Trigger context compaction when token count exceeds this */
-  MAX_CONTEXT_TOKENS: 8000,
+  MAX_CONTEXT_TOKENS: 80000,
   /** Keep this many recent messages verbatim during compaction */
-  RECENT_MESSAGES_TO_KEEP: 6,
+  RECENT_MESSAGES_TO_KEEP: 600,
   /** Truncate old tool results longer than this (characters) */
-  TOOL_RESULT_TRUNCATE_THRESHOLD: 500,
+  TOOL_RESULT_TRUNCATE_THRESHOLD: 500000,
   /** Keep this many recent tool result messages untruncated */
-  RECENT_TOOL_RESULTS_TO_KEEP: 2,
+  RECENT_TOOL_RESULTS_TO_KEEP: 20,
   /** Truncate immediate tool results longer than this (characters) - helps smaller models */
-  MAX_IMMEDIATE_TOOL_RESULT: 20000,
+  MAX_IMMEDIATE_TOOL_RESULT: 500000,
 } as const;
 
 /**
