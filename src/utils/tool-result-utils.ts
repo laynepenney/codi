@@ -9,6 +9,9 @@
 import type { Message } from '../types.js';
 import { AGENT_CONFIG } from '../constants.js';
 
+const TOOL_RESULT_HEADER_REGEX = /(ERROR from|Result from) ([^:\n]+):\s*/g;
+const TOOL_RESULT_HEADER_TEST = /(ERROR from|Result from) ([^:\n]+):/;
+
 /**
  * Create a short summary of a tool result for truncation.
  */
@@ -46,6 +49,53 @@ export function summarizeToolResult(toolName: string, content: string, isError: 
   }
 }
 
+function looksLikeToolResultText(text: string): boolean {
+  return TOOL_RESULT_HEADER_TEST.test(text);
+}
+
+function truncateToolResultText(text: string): string | null {
+  const matches = Array.from(text.matchAll(new RegExp(TOOL_RESULT_HEADER_REGEX.source, 'g')));
+  if (matches.length === 0) return null;
+
+  let rebuilt = '';
+  let lastIndex = 0;
+  let changed = false;
+
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const headerStart = match.index ?? 0;
+    const headerEnd = headerStart + match[0].length;
+    const nextStart = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+
+    rebuilt += text.slice(lastIndex, headerStart);
+
+    const toolName = match[2].trim();
+    const isError = match[1] === 'ERROR from';
+    const rawContent = text.slice(headerEnd, nextStart);
+    const trimmedContent = rawContent.trim();
+
+    if (trimmedContent.length > AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD) {
+      const summary = summarizeToolResult(toolName, trimmedContent, isError);
+      if (isError) {
+        rebuilt += `ERROR from ${toolName}: ${summary}\n\n`;
+      } else {
+        rebuilt += `Result from ${toolName}:\n${summary}\n\n`;
+      }
+      changed = true;
+    } else {
+      rebuilt += text.slice(headerStart, nextStart);
+    }
+
+    lastIndex = nextStart;
+  }
+
+  if (lastIndex < text.length) {
+    rebuilt += text.slice(lastIndex);
+  }
+
+  return changed ? rebuilt : text;
+}
+
 /**
  * Truncate old tool results in message history to save context.
  * Keeps recent tool results intact, truncates older ones to summaries.
@@ -55,11 +105,16 @@ export function truncateOldToolResults(messages: Message[]): void {
   const toolResultIndices: number[] = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    if (typeof msg.content !== 'string') {
-      const hasToolResult = msg.content.some(block => block.type === 'tool_result');
-      if (hasToolResult) {
+    if (typeof msg.content === 'string') {
+      if (looksLikeToolResultText(msg.content)) {
         toolResultIndices.push(i);
       }
+      continue;
+    }
+
+    const hasToolResult = msg.content.some(block => block.type === 'tool_result');
+    if (hasToolResult) {
+      toolResultIndices.push(i);
     }
   }
 
@@ -68,7 +123,13 @@ export function truncateOldToolResults(messages: Message[]): void {
 
   for (const idx of indicesToTruncate) {
     const msg = messages[idx];
-    if (typeof msg.content === 'string') continue;
+    if (typeof msg.content === 'string') {
+      const truncated = truncateToolResultText(msg.content);
+      if (truncated && truncated !== msg.content) {
+        msg.content = truncated;
+      }
+      continue;
+    }
 
     msg.content = msg.content.map(block => {
       if (block.type !== 'tool_result') return block;

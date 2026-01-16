@@ -373,6 +373,7 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 - When you need a tool, emit a tool call (do not describe tool usage in plain text).
 - Do not put tool-call syntax or commands in your normal response.
 - Do not present shell commands in fenced code blocks like \`\`\`bash\`\`\`; use the bash tool instead.
+- Only call tools when you need file contents, codebase search results, or command output to answer the user's request. If the user asks for general guidance or meta/instructional help, respond directly without calling tools.
 - Wait for tool results before continuing; if a tool fails, explain and try a different tool.
 
 ## Available Tools

@@ -166,6 +166,13 @@ describe('tool-result-utils', () => {
       };
     }
 
+    function createTextToolResultMessage(text: string): Message {
+      return {
+        role: 'user',
+        content: text,
+      };
+    }
+
     it('truncates old tool results', () => {
       const longContent = 'A'.repeat(5000);
       const messages: Message[] = [
@@ -264,6 +271,34 @@ describe('tool-result-utils', () => {
       expect(firstContent.type).toBe('tool_result');
       expect(firstContent.tool_use_id).toBeDefined();
       expect(firstContent.content).toContain('ERROR');
+    });
+
+    it('truncates old text-based tool results', () => {
+      const longOutput = 'A'.repeat(600);
+      const messages: Message[] = [
+        createTextToolResultMessage(`Result from read_file:\n${longOutput}\n\n`),
+        createTextMessage('Response 1'),
+        createTextToolResultMessage(`ERROR from bash: ${longOutput}\n\n`),
+        createTextMessage('Response 2'),
+        createTextToolResultMessage(`Result from read_file:\n${longOutput}\n\n`), // Recent
+        createTextMessage('Response 3'),
+        createTextToolResultMessage(`Result from read_file:\n${longOutput}\n\n`), // Recent
+      ];
+
+      truncateOldToolResults(messages);
+
+      const first = messages[0].content as string;
+      expect(first).toContain('[read_file:');
+      expect(first.length).toBeLessThan(200);
+
+      const second = messages[2].content as string;
+      expect(second).toContain('[bash ERROR:');
+
+      const recent = messages[4].content as string;
+      expect(recent).toContain(longOutput);
+
+      const mostRecent = messages[6].content as string;
+      expect(mostRecent).toContain(longOutput);
     });
   });
 });
