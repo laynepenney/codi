@@ -425,14 +425,20 @@ describe('Agent', () => {
       toolRegistry: new ToolRegistry(),
     });
 
-    // Initial maxTokens should be 40% of 200k = 80k
-    expect(agent.getContextInfo().maxTokens).toBe(80000);
+    // Initial maxTokens should use adaptive calculation (contextWindow - overhead)
+    // For 200k context, should be much larger than the old 40% (80k)
+    const initialTokens = agent.getContextInfo().maxTokens;
+    expect(initialTokens).toBeGreaterThan(80000); // Better than old 40%
+    expect(initialTokens).toBeLessThan(200000); // But still leaves room for overhead
 
     // Switch to smaller provider
     agent.setProvider(smallContextProvider as any);
 
-    // maxTokens should now be 40% of 8192 ≈ 3276
-    expect(agent.getContextInfo().maxTokens).toBe(Math.floor(8192 * 0.4));
+    // maxTokens should be recalculated for new provider
+    // For 8k context, minimum is 30% = 2457 tokens (since overhead exceeds available)
+    const newTokens = agent.getContextInfo().maxTokens;
+    expect(newTokens).toBeLessThan(initialTokens); // Should be smaller
+    expect(newTokens).toBeGreaterThanOrEqual(Math.floor(8192 * 0.3)); // At least minimum 30%
   });
 
   it('setProvider preserves maxContextTokens when explicitly set', () => {

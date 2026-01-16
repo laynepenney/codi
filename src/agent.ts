@@ -182,11 +182,12 @@ export class Agent {
     this.enableCompression = options.enableCompression ?? false;
     // Track if user explicitly set maxContextTokens (so we preserve it on provider switch)
     this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
-    // Use 40% of model's context window as default, leaving room for system prompt, tools, and response
-    this.maxContextTokens = options.maxContextTokens ??
-      Math.floor(this.provider.getContextWindow() * 0.4);
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
+
+    // Calculate adaptive context limit based on actual overhead
+    this.maxContextTokens = options.maxContextTokens ??
+      this.calculateAdaptiveContextLimit(this.provider);
     this.callbacks = {
       onText: options.onText,
       onReasoning: options.onReasoning,
@@ -232,6 +233,48 @@ export class Agent {
       this.approvedPathCategories
     );
     return result.approved;
+  }
+
+  /**
+   * Calculate adaptive context limit based on actual overhead.
+   * Uses: contextWindow - systemPrompt - tools - maxOutput - buffer
+   * Falls back to MIN_CONTEXT_PERCENT of context window as minimum.
+   */
+  private calculateAdaptiveContextLimit(provider: BaseProvider): number {
+    const contextWindow = provider.getContextWindow();
+
+    // Calculate overhead components
+    const systemPromptTokens = estimateSystemPromptTokens(this.systemPrompt);
+    const toolDefinitions = this.useTools ? this.toolRegistry.getDefinitions() : [];
+    const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
+    const outputReserve = AGENT_CONFIG.MAX_OUTPUT_TOKENS;
+    const safetyBuffer = AGENT_CONFIG.CONTEXT_SAFETY_BUFFER;
+
+    const totalOverhead = systemPromptTokens + toolDefinitionTokens + outputReserve + safetyBuffer;
+
+    // Calculate available context for messages
+    const adaptiveLimit = contextWindow - totalOverhead;
+    const minimumLimit = Math.floor(contextWindow * AGENT_CONFIG.MIN_CONTEXT_PERCENT);
+
+    // Use the larger of adaptive calculation or minimum percentage
+    const finalLimit = Math.max(adaptiveLimit, minimumLimit);
+
+    // Warn if context budget is very tight
+    if (finalLimit < AGENT_CONFIG.MIN_VIABLE_CONTEXT) {
+      logger.warn(
+        `Tight context budget: ${finalLimit} tokens for messages. ` +
+        `Model has ${contextWindow} context, overhead is ${totalOverhead} tokens. ` +
+        `Consider using a model with larger context window.`
+      );
+    }
+
+    logger.debug(
+      `Adaptive context: ${finalLimit} tokens ` +
+      `(window: ${contextWindow}, system: ${systemPromptTokens}, tools: ${toolDefinitionTokens}, ` +
+      `output: ${outputReserve}, buffer: ${safetyBuffer})`
+    );
+
+    return finalLimit;
   }
 
   /**
@@ -1213,7 +1256,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     this.useTools = provider.supportsToolUse();
     // Recalculate maxContextTokens if not explicitly set by user
     if (!this.maxContextTokensExplicit) {
-      this.maxContextTokens = Math.floor(provider.getContextWindow() * 0.4);
+      this.maxContextTokens = this.calculateAdaptiveContextLimit(provider);
     }
   }
 

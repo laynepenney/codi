@@ -14,8 +14,16 @@ export const AGENT_CONFIG = {
   MAX_ITERATIONS: 2000,
   /** Stop after this many consecutive errors */
   MAX_CONSECUTIVE_ERRORS: 3,
-  /** Trigger context compaction when token count exceeds this */
+  /** Fallback context token limit (used when adaptive calculation unavailable) */
   MAX_CONTEXT_TOKENS: 80000,
+  /** Maximum output tokens to reserve for model response */
+  MAX_OUTPUT_TOKENS: 8192,
+  /** Safety buffer for context calculations (tokens) */
+  CONTEXT_SAFETY_BUFFER: 2000,
+  /** Minimum percentage of context window to use (floor for adaptive calculation) */
+  MIN_CONTEXT_PERCENT: 0.3,
+  /** Warn when message budget falls below this threshold */
+  MIN_VIABLE_CONTEXT: 5000,
   /** Keep this many recent messages verbatim during compaction */
   RECENT_MESSAGES_TO_KEEP: 600,
   /** Truncate old tool results longer than this (characters) */
