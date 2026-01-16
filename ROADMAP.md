@@ -29,6 +29,7 @@ This would help bridge the gap between different model training data and Codi's 
 **Current Mitigations**:
 - Added parameter aliases to `grep` tool (`query` -> `pattern`, `max_results`/`max`/`limit` -> `head_limit`)
 - Added `print_tree` tool (commonly expected by models)
+- Consider a vector-embedding index for tool/parameter semantics (similar to `search_codebase`) to improve matches beyond string similarity.
 
 ---
 

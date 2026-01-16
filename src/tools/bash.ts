@@ -114,6 +114,10 @@ export class BashTool extends BaseTool {
   }
 
   private normalizeCommandInput(command: unknown): string | null {
+    if (command === null || command === undefined) {
+      return null;
+    }
+
     if (typeof command === 'string') {
       return command;
     }
@@ -121,21 +125,27 @@ export class BashTool extends BaseTool {
     if (Array.isArray(command)) {
       const parts = command.filter((part): part is string => typeof part === 'string' && part.trim() !== '');
       if (parts.length === 0) {
-        return null;
+        return this.stringifyCommand(command);
       }
 
       if (parts[0] === 'bash' && parts[1] === '-lc') {
         const script = parts.slice(2).join(' ');
-        if (!script) {
-          return null;
-        }
         return `bash -lc ${JSON.stringify(script)}`;
       }
 
       return parts.join(' ');
     }
 
-    return null;
+    return this.stringifyCommand(command);
+  }
+
+  private stringifyCommand(command: unknown): string {
+    try {
+      const json = JSON.stringify(command);
+      return json === undefined ? String(command) : json;
+    } catch {
+      return String(command);
+    }
   }
 
   /**

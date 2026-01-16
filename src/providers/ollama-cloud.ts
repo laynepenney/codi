@@ -237,10 +237,7 @@ export class OllamaCloudProvider extends BaseProvider {
             toolCalls = this.extractToolCalls(toolExtractionText, tools);
           }
 
-          // Clean hallucinated traces from content (after tool extraction)
-          const cleanedContent = toolCalls.length > 0
-            ? this.cleanHallucinatedTraces(finalContent)
-            : finalContent;
+          const cleanedContent = this.maybeCleanHallucinatedTraces(finalContent, toolCalls);
 
           return createProviderResponse({
             content: cleanedContent,
@@ -384,10 +381,7 @@ export class OllamaCloudProvider extends BaseProvider {
             toolCalls = this.extractToolCalls(toolExtractionText, tools);
           }
 
-          // Clean hallucinated traces from content (after tool extraction)
-          const cleanedContent = toolCalls.length > 0
-            ? this.cleanHallucinatedTraces(finalContent)
-            : finalContent;
+          const cleanedContent = this.maybeCleanHallucinatedTraces(finalContent, toolCalls);
 
           return createProviderResponse({
             content: cleanedContent,
@@ -670,6 +664,19 @@ export class OllamaCloudProvider extends BaseProvider {
     }
 
     return { content: cleanedContent, thinking };
+  }
+
+  private maybeCleanHallucinatedTraces(content: string, toolCalls: ToolCall[]): string {
+    if (!this.config.cleanHallucinatedTraces || toolCalls.length === 0) {
+      return content;
+    }
+
+    const cleanedContent = this.cleanHallucinatedTraces(content);
+    if (cleanedContent !== content) {
+      console.warn('[ollama-cloud] Cleaned hallucinated tool traces from model output.');
+    }
+
+    return cleanedContent;
   }
 
   /**

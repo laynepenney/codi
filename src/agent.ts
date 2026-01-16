@@ -643,7 +643,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       } else if (isExtractedToolCall) {
         // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
         const combinedContent = thinkingText
-          ? `${response.content || ''}${response.content ? '\n\n' : ''}[Thinking]:\n${thinkingText}`
+          ? `[Thinking]:\n${thinkingText}${response.content ? `\n\n${response.content}` : ''}`
           : (response.content || '');
         this.messages.push({
           role: 'assistant',

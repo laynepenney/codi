@@ -73,6 +73,9 @@ export interface WorkspaceConfig {
   /** Maximum context tokens before compaction */
   maxContextTokens?: number;
 
+  /** Strip hallucinated tool traces from provider content (provider-specific) */
+  cleanHallucinatedTraces?: boolean;
+
   /** Context optimization settings */
   contextOptimization?: {
     /** Enable semantic deduplication (merge case variants) */
@@ -220,6 +223,7 @@ export interface ResolvedConfig {
   projectContext?: string;
   enableCompression: boolean;
   maxContextTokens: number;
+  cleanHallucinatedTraces: boolean;
   /** Secondary model for summarization */
   summarizeProvider?: string;
   summarizeModel?: string;
@@ -241,6 +245,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   commandAliases: {},
   enableCompression: true, // Enabled by default for token savings
   maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
+  cleanHallucinatedTraces: false,
   toolsConfig: {
     disabled: [],
     defaults: {},
@@ -376,6 +381,9 @@ export function mergeConfig(
     if (workspaceConfig.maxContextTokens !== undefined && Number.isFinite(workspaceConfig.maxContextTokens)) {
       config.maxContextTokens = workspaceConfig.maxContextTokens;
     }
+    if (workspaceConfig.cleanHallucinatedTraces !== undefined) {
+      config.cleanHallucinatedTraces = workspaceConfig.cleanHallucinatedTraces;
+    }
     // Summarize model from workspace config
     if (workspaceConfig.models?.summarize?.provider) config.summarizeProvider = workspaceConfig.models.summarize.provider;
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
@@ -482,6 +490,7 @@ export function getExampleConfig(): string {
     projectContext: '',
     enableCompression: true,
     maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
+    cleanHallucinatedTraces: false,
     models: {
       summarize: {
         provider: 'ollama',

@@ -2338,6 +2338,7 @@ async function main() {
       model: resolvedConfig.model,
       baseUrl: resolvedConfig.baseUrl,
       endpointId: resolvedConfig.endpointId,
+      cleanHallucinatedTraces: resolvedConfig.cleanHallucinatedTraces,
     });
   }
 

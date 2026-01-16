@@ -169,6 +169,7 @@ export interface ProviderResponse {
  * @property {string} [model] - The AI model to use, if applicable.
  * @property {number} [temperature] - Sampling temperature for generation.
  * @property {number} [maxTokens] - Maximum number of tokens to generate.
+ * @property {boolean} [cleanHallucinatedTraces] - Strip hallucinated tool traces from provider content (provider-specific).
  */
 export interface ProviderConfig {
   apiKey?: string;
@@ -176,4 +177,5 @@ export interface ProviderConfig {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  cleanHallucinatedTraces?: boolean;
 }
