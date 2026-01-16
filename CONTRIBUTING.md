@@ -44,13 +44,21 @@ pnpm build
 
 ## Making Changes
 
+> **IMPORTANT**: Never push directly to main. Always use feature/bugfix branches and pull requests.
+
 1. **Fork the repository** and clone your fork
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+2. **Create a feature branch**: `git checkout -b feat/amazing-feature` (or `fix/`, `chore/`)
 3. **Make your changes** following the coding guidelines below
 4. **Run tests**: `pnpm test`
 5. **Commit your changes**: `git commit -m 'feat: add amazing feature'`
-6. **Push to your fork**: `git push origin feature/amazing-feature`
-7. **Open a Pull Request**
+6. **Push to your fork**: `git push -u origin feat/amazing-feature`
+7. **Open a Pull Request**: `gh pr create` or via GitHub UI
+
+### Branch Naming Convention
+
+- `feat/` - New features
+- `fix/` - Bug fixes
+- `chore/` - Maintenance, refactoring, documentation updates
 
 ## Coding Guidelines
 
