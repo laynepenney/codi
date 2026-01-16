@@ -163,7 +163,6 @@ describe('BaseTool', () => {
 
 describe('Tool implementations (filesystem / process tools)', () => {
   let root: string;
-  let prevCwd: string;
 
   beforeEach(async () => {
     root = tmpDir();
@@ -171,29 +170,26 @@ describe('Tool implementations (filesystem / process tools)', () => {
     await fs.writeFile(path.join(root, 'a.txt'), 'hello');
     await fs.mkdir(path.join(root, 'sub'), { recursive: true });
     await fs.writeFile(path.join(root, 'sub', 'b.txt'), 'world');
-    prevCwd = process.cwd();
-    process.chdir(root);
   });
 
   afterEach(async () => {
-    process.chdir(prevCwd);
     await fs.rm(root, { recursive: true, force: true });
   });
 
   it('ReadFileTool reads file contents', async () => {
     const tool = new ReadFileTool();
-    const out = await tool.execute({ path: 'a.txt' });
+    const out = await tool.execute({ path: path.join(root, 'a.txt') });
     expect(out).toContain('hello');
   });
 
   it('ReadFileTool errors on missing file', async () => {
     const tool = new ReadFileTool();
-    await expect(tool.execute({ path: 'nope.txt' })).rejects.toThrow(/not found/i);
+    await expect(tool.execute({ path: path.join(root, 'nope.txt') })).rejects.toThrow(/not found/i);
   });
 
   it('WriteFileTool writes file and returns success message', async () => {
     const tool = new WriteFileTool();
-    const out = await tool.execute({ path: 'new.txt', content: 'x' });
+    const out = await tool.execute({ path: path.join(root, 'new.txt'), content: 'x' });
     expect(out).toMatch(/wrote/i);
     await expect(fs.readFile(path.join(root, 'new.txt'), 'utf8')).resolves.toBe('x');
   });
@@ -202,7 +198,7 @@ describe('Tool implementations (filesystem / process tools)', () => {
     await fs.writeFile(path.join(root, 'edit.txt'), 'one two three');
     const tool = new EditFileTool();
     const out = await tool.execute({
-      path: 'edit.txt',
+      path: path.join(root, 'edit.txt'),
       old_string: 'two',
       new_string: 'TWO',
     });
@@ -214,42 +210,42 @@ describe('Tool implementations (filesystem / process tools)', () => {
     await fs.writeFile(path.join(root, 'edit2.txt'), 'abc');
     const tool = new EditFileTool();
     await expect(
-      tool.execute({ path: 'edit2.txt', old_string: 'zzz', new_string: 'x' }),
+      tool.execute({ path: path.join(root, 'edit2.txt'), old_string: 'zzz', new_string: 'x' }),
     ).rejects.toThrow(/not found/i);
   });
 
   it('InsertLineTool inserts at given line', async () => {
     await fs.writeFile(path.join(root, 'i.txt'), '1\n2\n3\n');
     const tool = new InsertLineTool();
-    const out = await tool.execute({ path: 'i.txt', line: 2, content: 'X' });
+    const out = await tool.execute({ path: path.join(root, 'i.txt'), line: 2, content: 'X' });
     expect(out).toMatch(/inserted/i);
     await expect(fs.readFile(path.join(root, 'i.txt'), 'utf8')).resolves.toBe('1\nX\n2\n3\n');
   });
 
   it('GlobTool returns matching paths', async () => {
     const tool = new GlobTool();
-    const out = await tool.execute({ pattern: '**/*.txt' });
+    const out = await tool.execute({ pattern: '**/*.txt', cwd: root });
     expect(out).toContain('a.txt');
     expect(out).toContain('sub/b.txt');
   });
 
   it('GrepTool finds matches in files', async () => {
     const tool = new GrepTool();
-    const out = await tool.execute({ pattern: 'world', path: '.' });
+    const out = await tool.execute({ pattern: 'world', path: root });
     expect(out).toContain('sub/b.txt');
     expect(out).toContain('world');
   });
 
   it('ListDirectoryTool lists directory contents', async () => {
     const tool = new ListDirectoryTool();
-    const out = await tool.execute({ path: '.' });
+    const out = await tool.execute({ path: root });
     expect(out).toContain('a.txt');
     expect(out).toContain('sub');
   });
 
   it('BashTool runs command', async () => {
     const tool = new BashTool();
-    const out = await tool.execute({ command: 'echo hello' });
+    const out = await tool.execute({ command: 'echo hello', cwd: root });
     expect(out).toContain('hello');
   });
 });
@@ -338,6 +334,65 @@ describe('Agent', () => {
     expect(info).toHaveProperty('hasSummary');
     expect(info.messages).toBe(0);
     expect(info.hasSummary).toBe(false);
+  });
+
+  it('extracts tool calls from reasoning when content is empty', async () => {
+    const toolRegistry = new ToolRegistry();
+    let receivedInput: Record<string, unknown> | null = null;
+
+    class CaptureTool extends BaseTool {
+      getDefinition() {
+        return {
+          name: 'capture',
+          description: 'capture input',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              value: { type: 'number' },
+            },
+            required: ['value'],
+          },
+        };
+      }
+
+      async execute(input: Record<string, unknown>): Promise<string> {
+        receivedInput = input;
+        return 'ok';
+      }
+    }
+
+    toolRegistry.register(new CaptureTool());
+
+    const mockProvider = {
+      streamChat: vi.fn()
+        .mockImplementationOnce(async (_messages, _tools, _onChunk, _systemPrompt, onReasoningChunk) => {
+          const reasoning = '[Calling capture]: {"value": 42}';
+          onReasoningChunk?.(reasoning);
+          return {
+            content: '',
+            toolCalls: [],
+            stopReason: 'end_turn',
+            reasoningContent: reasoning,
+          };
+        })
+        .mockImplementationOnce(async () => ({
+          content: 'done',
+          toolCalls: [],
+          stopReason: 'end_turn',
+        })),
+      supportsToolUse: () => true,
+      getName: () => 'mock',
+      getModel: () => 'mock-model',
+    };
+
+    const agent = new Agent({
+      provider: mockProvider as any,
+      toolRegistry,
+    });
+
+    const result = await agent.chat('continue');
+    expect(result).toBe('done');
+    expect(receivedInput).toEqual({ value: 42 });
   });
 });
 

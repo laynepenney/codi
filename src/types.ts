@@ -150,6 +150,7 @@ export interface TokenUsage {
  * @property {{'end_turn' | 'tool_use' | 'max_tokens'}} stopReason - Reason for stopping the response generation.
  * @property {string} [reasoningContent] - Optional reasoning/thinking content from reasoning models.
  * @property {TokenUsage} [usage] - Token usage information if available.
+ * @property {unknown} [rawResponse] - Raw provider response payload for audit/debugging.
  */
 export interface ProviderResponse {
   content: string;
@@ -157,6 +158,7 @@ export interface ProviderResponse {
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
   reasoningContent?: string;
   usage?: TokenUsage;
+  rawResponse?: unknown;
 }
 
 // Provider configuration
@@ -167,6 +169,7 @@ export interface ProviderResponse {
  * @property {string} [model] - The AI model to use, if applicable.
  * @property {number} [temperature] - Sampling temperature for generation.
  * @property {number} [maxTokens] - Maximum number of tokens to generate.
+ * @property {boolean} [cleanHallucinatedTraces] - Strip hallucinated tool traces from provider content (provider-specific).
  */
 export interface ProviderConfig {
   apiKey?: string;
@@ -174,4 +177,5 @@ export interface ProviderConfig {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  cleanHallucinatedTraces?: boolean;
 }

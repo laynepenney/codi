@@ -326,6 +326,7 @@ program
   .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
   .option('-c, --compress', 'Context compression (enabled by default, use --no-compress to disable)')
+  .option('--context-window <tokens>', 'Context window size (tokens) before compaction')
   .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
   .option('--summarize-provider <type>', 'Provider for summarization model (default: primary provider)')
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
@@ -366,6 +367,13 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 4. **Follow conventions**: Match the existing code style and patterns
 5. **Handle errors**: Include appropriate error handling
 6. **Test awareness**: Consider how changes affect tests
+
+## Tool Use Rules
+- The tool list below is authoritative for this run. Use only these tool names and their parameters.
+- When you need a tool, emit a tool call (do not describe tool usage in plain text).
+- Do not put tool-call syntax or commands in your normal response.
+- Do not present shell commands in fenced code blocks like \`\`\`bash\`\`\`; use the bash tool instead.
+- Wait for tool results before continuing; if a tool fails, explain and try a different tool.
 
 ## Available Tools
 
@@ -2143,6 +2151,15 @@ async function main() {
   }
 
   // Merge workspace config with CLI options
+  const parsedContextWindow = options.contextWindow ? Number(options.contextWindow) : NaN;
+  const contextWindowTokens = Number.isFinite(parsedContextWindow) && parsedContextWindow > 0
+    ? Math.floor(parsedContextWindow)
+    : undefined;
+
+  if (options.contextWindow && contextWindowTokens === undefined) {
+    console.warn(chalk.yellow('Invalid --context-window value; expected a positive number.'));
+  }
+
   const resolvedConfig = mergeConfig(workspaceConfig, {
     provider: options.provider,
     model: options.model,
@@ -2153,6 +2170,7 @@ async function main() {
     session: options.session,
     summarizeProvider: options.summarizeProvider,
     summarizeModel: options.summarizeModel,
+    maxContextTokens: contextWindowTokens,
   });
 
   // Register tools and commands
@@ -2320,6 +2338,7 @@ async function main() {
       model: resolvedConfig.model,
       baseUrl: resolvedConfig.baseUrl,
       endpointId: resolvedConfig.endpointId,
+      cleanHallucinatedTraces: resolvedConfig.cleanHallucinatedTraces,
     });
   }
 
@@ -2442,6 +2461,7 @@ async function main() {
 
   // Track if we've received streaming output (to manage spinner)
   let isStreaming = false;
+  let isReasoningStreaming = false;
 
   // Track tool start times for duration logging
   const toolStartTimes = new Map<string, number>();
@@ -2464,6 +2484,7 @@ async function main() {
     customDangerousPatterns,
     logLevel,
     enableCompression: options.compress ?? resolvedConfig.enableCompression,
+    maxContextTokens: resolvedConfig.maxContextTokens,
     onText: (text) => {
       // Stop spinner when we start receiving text
       if (!isStreaming) {
@@ -2477,6 +2498,14 @@ async function main() {
       console.log(chalk.dim.italic('\n💭 Thinking...'));
       console.log(chalk.dim(reasoning));
       console.log(chalk.dim.italic('---\n'));
+    },
+    onReasoningChunk: (chunk) => {
+      if (!isReasoningStreaming) {
+        isReasoningStreaming = true;
+        spinner.stop();
+        console.log(chalk.dim.italic('\n💭 Thinking...'));
+      }
+      process.stdout.write(chalk.dim(chunk));
     },
     onToolCall: (name, input) => {
       // Stop any spinner and record start time
@@ -2696,7 +2725,7 @@ async function main() {
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
       console.log(chalk.bold('\nContext Status:'));
-      console.log(chalk.dim(`  Tokens: ${info.tokens} / 8000`));
+      console.log(chalk.dim(`  Tokens: ${info.tokens} / ${info.maxTokens}`));
       console.log(chalk.dim(`  Messages: ${info.messages}`));
       console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
       console.log(chalk.dim(`  Compression: ${info.compressionEnabled ? 'enabled' : 'disabled'}`));
@@ -3315,6 +3344,10 @@ async function main() {
               spinner.thinking();
               const startTime = Date.now();
               await agent.chat(result, { taskType: command.taskType });
+              if (isReasoningStreaming) {
+                console.log(chalk.dim.italic('\n---\n'));
+                isReasoningStreaming = false;
+              }
               const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
               console.log(chalk.dim(`\n(${elapsed}s)`));
             }
@@ -3340,6 +3373,10 @@ async function main() {
     try {
       const startTime = Date.now();
       await agent.chat(trimmed);
+      if (isReasoningStreaming) {
+        console.log(chalk.dim.italic('\n---\n'));
+        isReasoningStreaming = false;
+      }
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(chalk.dim(`\n(${elapsed}s)`));
     } catch (error) {

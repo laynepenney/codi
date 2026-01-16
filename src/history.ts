@@ -7,13 +7,26 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 
 /** Maximum number of history entries to keep */
 const MAX_HISTORY_SIZE = 50;
 
-/** Directory where history is stored */
-const HISTORY_DIR = path.join(homedir(), '.codi', 'history');
+/** Directory where history is stored (allow test override). */
+const DEFAULT_HISTORY_DIR = path.join(homedir(), '.codi', 'history');
+const TEST_HISTORY_DIR = path.join(tmpdir(), `.codi-history-${process.pid}`);
+
+function resolveHistoryDir(): string {
+  if (process.env.CODI_HISTORY_DIR) {
+    return process.env.CODI_HISTORY_DIR;
+  }
+
+  if (process.env.VITEST || process.env.NODE_ENV === 'test') {
+    return TEST_HISTORY_DIR;
+  }
+
+  return DEFAULT_HISTORY_DIR;
+}
 
 /**
  * Types of file operations that can be undone.
@@ -54,21 +67,21 @@ interface HistoryIndex {
  * Get the path to the history index file.
  */
 function getIndexPath(): string {
-  return path.join(HISTORY_DIR, 'index.json');
+  return path.join(resolveHistoryDir(), 'index.json');
 }
 
 /**
  * Get the path to a backup file.
  */
 function getBackupPath(id: string): string {
-  return path.join(HISTORY_DIR, 'backups', `${id}.backup`);
+  return path.join(resolveHistoryDir(), 'backups', `${id}.backup`);
 }
 
 /**
  * Ensure the history directory exists.
  */
 function ensureHistoryDir(): void {
-  const backupsDir = path.join(HISTORY_DIR, 'backups');
+  const backupsDir = path.join(resolveHistoryDir(), 'backups');
   if (!fs.existsSync(backupsDir)) {
     fs.mkdirSync(backupsDir, { recursive: true });
   }
@@ -331,7 +344,7 @@ export function clearHistory(): number {
   const count = index.entries.length;
 
   // Delete all backup files
-  const backupsDir = path.join(HISTORY_DIR, 'backups');
+  const backupsDir = path.join(resolveHistoryDir(), 'backups');
   if (fs.existsSync(backupsDir)) {
     try {
       fs.rmSync(backupsDir, { recursive: true });
@@ -379,5 +392,5 @@ export function formatHistoryEntry(entry: HistoryEntry): string {
  * Get the history directory path.
  */
 export function getHistoryDir(): string {
-  return HISTORY_DIR;
+  return resolveHistoryDir();
 }

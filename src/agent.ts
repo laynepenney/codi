@@ -91,11 +91,13 @@ export interface AgentOptions {
   logLevel?: LogLevel; // Log level for debug output (replaces debug)
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
+  maxContextTokens?: number; // Maximum context tokens before compaction
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
+  onReasoningChunk?: (chunk: string) => void; // Streaming reasoning output
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
   onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
@@ -122,6 +124,7 @@ export class Agent {
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
   private logLevel: LogLevel;
   private enableCompression: boolean;
+  private maxContextTokens: number;
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -130,6 +133,7 @@ export class Agent {
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
+    onReasoningChunk?: (chunk: string) => void;
     onToolCall?: (name: string, input: Record<string, unknown>) => void;
     onToolResult?: (name: string, result: string, isError: boolean) => void;
     onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>;
@@ -163,11 +167,13 @@ export class Agent {
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
+    this.maxContextTokens = options.maxContextTokens ?? AGENT_CONFIG.MAX_CONTEXT_TOKENS;
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
     this.callbacks = {
       onText: options.onText,
       onReasoning: options.onReasoning,
+      onReasoningChunk: options.onReasoningChunk,
       onToolCall: options.onToolCall,
       onToolResult: options.onToolResult,
       onConfirm: options.onConfirm,
@@ -338,11 +344,11 @@ Always use tools to interact with the filesystem rather than asking the user to 
   private async compactContext(): Promise<void> {
     const totalTokens = countMessageTokens(this.messages);
 
-    if (totalTokens <= AGENT_CONFIG.MAX_CONTEXT_TOKENS) {
+    if (totalTokens <= this.maxContextTokens) {
       return; // No compaction needed
     }
 
-    logger.debug(`Compacting: ${totalTokens} tokens exceeds ${AGENT_CONFIG.MAX_CONTEXT_TOKENS} limit`);
+    logger.debug(`Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`);
 
     // Score messages by importance
     const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
@@ -512,11 +518,26 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
       // Call the model with streaming (using native system prompt support)
       const apiStartTime = Date.now();
+      let streamedChars = 0;
+      const onChunk = (chunk: string): void => {
+        if (chunk) {
+          streamedChars += chunk.length;
+        }
+        this.callbacks.onText?.(chunk);
+      };
+      let streamedReasoningChars = 0;
+      const onReasoningChunk = (chunk: string): void => {
+        if (chunk) {
+          streamedReasoningChars += chunk.length;
+        }
+        this.callbacks.onReasoningChunk?.(chunk);
+      };
       const response = await chatProvider.streamChat(
         messagesToSend,
         tools,
-        this.callbacks.onText,
-        systemContext
+        onChunk,
+        systemContext,
+        onReasoningChunk
       );
       const apiDuration = (Date.now() - apiStartTime) / 1000;
 
@@ -541,7 +562,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
         response.content,
         response.toolCalls,
         response.usage,
-        Date.now() - apiStartTime
+        Date.now() - apiStartTime,
+        response.rawResponse
       );
 
       // Record usage for cost tracking
@@ -550,15 +572,40 @@ Always use tools to interact with the filesystem rather than asking the user to 
       }
 
       // Call reasoning callback if reasoning content is present (e.g., from DeepSeek-R1)
-      if (response.reasoningContent && this.callbacks.onReasoning) {
+      if (response.reasoningContent && this.callbacks.onReasoning && streamedReasoningChars === 0) {
         this.callbacks.onReasoning(response.reasoningContent);
       }
 
       // If no tool calls were detected via API but tools are enabled,
       // try to extract tool calls from the text (for models that output JSON as text)
-      if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText && response.content) {
-        const availableTools = this.toolRegistry.listTools();
-        const extractedCalls = extractToolCallsFromText(response.content, availableTools);
+      if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText) {
+        const toolDefinitions = this.toolRegistry.getDefinitions();
+        const fallbackConfig = this.toolRegistry.getFallbackConfig();
+        const contentText = response.content?.trim() || '';
+        const reasoningText = response.reasoningContent?.trim() || '';
+        const contentMatchesReasoning = Boolean(
+          contentText &&
+          reasoningText &&
+          contentText === reasoningText
+        );
+        const toolTracePattern = /\[(?:Calling|Running)\s+[a-z_][a-z0-9_]*\]|\{\s*"name"\s*:\s*"[a-z_][a-z0-9_]*"/i;
+        const hasToolTrace = (text: string): boolean => toolTracePattern.test(text);
+
+        let extractedCalls: ToolCall[] = [];
+
+        if (contentText && (!contentMatchesReasoning || hasToolTrace(contentText))) {
+          extractedCalls = extractToolCallsFromText(contentText, toolDefinitions, fallbackConfig);
+        }
+
+        if (
+          extractedCalls.length === 0 &&
+          !contentText &&
+          reasoningText &&
+          hasToolTrace(reasoningText)
+        ) {
+          extractedCalls = extractToolCallsFromText(reasoningText, toolDefinitions, fallbackConfig);
+        }
+
         if (extractedCalls.length > 0) {
           response.toolCalls = extractedCalls;
           response.stopReason = 'tool_use';
@@ -574,15 +621,41 @@ Always use tools to interact with the filesystem rather than asking the user to 
         finalResponse = response.content;
       }
 
-      if (isExtractedToolCall) {
-        // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
+      const thinkingText = response.reasoningContent?.trim();
+      const shouldAddThinkingBlock = !!thinkingText &&
+        (!response.content || response.content.trim() !== thinkingText);
+
+      const shouldEmitFallback = !response.content &&
+        response.toolCalls.length === 0 &&
+        streamedChars === 0;
+
+      if (shouldEmitFallback) {
+        const fallbackMessage = response.reasoningContent
+          ? 'Model returned reasoning without a final answer. Try again or check --audit for the raw response.'
+          : 'Model returned an empty response. Try again or check --audit for the raw response.';
+
+        finalResponse = fallbackMessage;
         this.messages.push({
           role: 'assistant',
-          content: response.content || '',
+          content: fallbackMessage,
+        });
+        this.callbacks.onText?.(fallbackMessage);
+      } else if (isExtractedToolCall) {
+        // For extracted tool calls, store as plain text (model doesn't understand tool_use blocks)
+        const combinedContent = thinkingText
+          ? `[Thinking]:\n${thinkingText}${response.content ? `\n\n${response.content}` : ''}`
+          : (response.content || '');
+        this.messages.push({
+          role: 'assistant',
+          content: combinedContent,
         });
       } else if (response.content || response.toolCalls.length > 0) {
         // For native tool calls, use content blocks
         const contentBlocks: ContentBlock[] = [];
+
+        if (shouldAddThinkingBlock && thinkingText) {
+          contentBlocks.push({ type: 'thinking', text: thinkingText });
+        }
 
         if (response.content) {
           contentBlocks.push({ type: 'text', text: response.content });
@@ -868,7 +941,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
             resultText += `Result from ${toolName}:\n${content}\n\n`;
           }
         }
-        resultText += this.buildContinuationPrompt(originalTask);
+        // lp 1/16/26: skip this for now. I believe it is causing issues
+        // resultText += this.buildContinuationPrompt(originalTask);
 
         this.messages.push({
           role: 'user',
@@ -1026,6 +1100,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
    */
   getContextInfo(): {
     tokens: number;
+    maxTokens: number;
     messages: number;
     hasSummary: boolean;
     compression: CompressionStats | null;
@@ -1034,6 +1109,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
   } {
     return {
       tokens: countMessageTokens(this.messages),
+      maxTokens: this.maxContextTokens,
       messages: this.messages.length,
       hasSummary: this.conversationSummary !== null,
       compression: this.lastCompressionStats,

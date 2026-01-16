@@ -95,7 +95,8 @@ export class OpenAICompatibleProvider extends BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onChunk?: (chunk: string) => void,
-    systemPrompt?: string
+    systemPrompt?: string,
+    onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
     const convertedMessages = this.convertMessages(messages);
     const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
@@ -118,14 +119,17 @@ export class OpenAICompatibleProvider extends BaseProvider {
     let reasoningContent = '';
     const toolCallAccumulator = new StreamingToolCallAccumulator();
     let streamUsage: { prompt_tokens: number; completion_tokens: number; cached_tokens?: number } | null = null;
+    const rawChunks: OpenAI.ChatCompletionChunk[] = [];
 
     for await (const chunk of stream) {
+      rawChunks.push(chunk);
       const delta = chunk.choices[0]?.delta;
 
       // Handle reasoning content from reasoning models (e.g., DeepSeek-R1)
       const reasoningDelta = (delta as any)?.reasoning_content;
       if (reasoningDelta) {
         reasoningContent += reasoningDelta;
+        onReasoningChunk?.(reasoningDelta);
       }
 
       if (delta?.content) {
@@ -168,6 +172,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       inputTokens,
       outputTokens,
       cachedInputTokens: streamUsage?.cached_tokens,
+      rawResponse: { stream: true, chunks: rawChunks },
     });
   }
 
@@ -300,6 +305,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
         } : null,
         // Thinking blocks are converted to text for OpenAI (it doesn't have native thinking input)
         thinking: (b) => ({ kind: 'text', text: b.text || '' }),
+        unknown: (b) => ({ kind: 'text', text: b.text || b.content || '' }),
       };
 
       // Process blocks and collect by type
@@ -479,6 +485,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       inputTokens,
       outputTokens,
       cachedInputTokens: cachedTokens,
+      rawResponse: response,
     });
   }
 }

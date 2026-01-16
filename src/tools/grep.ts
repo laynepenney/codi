@@ -44,19 +44,27 @@ export class GrepTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<string> {
-    const pattern = input.pattern as string;
+    // Support parameter aliases for model compatibility:
+    // - query -> pattern (common model assumption)
+    // - max_results, max, limit -> head_limit (various naming conventions)
+    const pattern = (input.pattern as string) || (input.query as string);
     const path = (input.path as string) || '.';
     const filePattern = (input.file_pattern as string) || '**/*';
     const ignoreCase = (input.ignore_case as boolean) || false;
+    const headLimit = (input.head_limit as number) ||
+                      (input.max_results as number) ||
+                      (input.max as number) ||
+                      (input.limit as number) ||
+                      100;
 
     if (!pattern) {
-      throw new Error('Pattern is required');
+      throw new Error('Pattern is required (or use "query" alias)');
     }
 
     const resolvedPath = resolve(process.cwd(), path);
     const regex = new RegExp(pattern, ignoreCase ? 'gi' : 'g');
     const matches: Match[] = [];
-    const MAX_MATCHES = 100;
+    const MAX_MATCHES = headLimit;
 
     // Get list of files to search
     const files: string[] = [];

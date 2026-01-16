@@ -3,6 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { AGENT_CONFIG } from './constants.js';
 
 /**
  * Workspace configuration for Codi.
@@ -68,6 +69,12 @@ export interface WorkspaceConfig {
 
   /** Enable context compression (reduces token usage) */
   enableCompression?: boolean;
+
+  /** Maximum context tokens before compaction */
+  maxContextTokens?: number;
+
+  /** Strip hallucinated tool traces from provider content (provider-specific) */
+  cleanHallucinatedTraces?: boolean;
 
   /** Context optimization settings */
   contextOptimization?: {
@@ -155,6 +162,20 @@ export interface WorkspaceConfig {
       [toolName: string]: Record<string, unknown>;
     };
   };
+
+  /** Tool fallback settings for handling unknown tools and parameter aliases */
+  toolFallback?: {
+    /** Enable semantic tool fallback (default: true) */
+    enabled?: boolean;
+    /** Threshold for auto-correcting tool names (0-1, default: 0.85) */
+    autoCorrectThreshold?: number;
+    /** Threshold for suggesting similar tools (0-1, default: 0.6) */
+    suggestionThreshold?: number;
+    /** Auto-execute corrected tools without confirmation (default: false) */
+    autoExecute?: boolean;
+    /** Enable parameter aliasing (default: true) */
+    parameterAliasing?: boolean;
+  };
 }
 
 /**
@@ -201,6 +222,8 @@ export interface ResolvedConfig {
   commandAliases: Record<string, string>;
   projectContext?: string;
   enableCompression: boolean;
+  maxContextTokens: number;
+  cleanHallucinatedTraces: boolean;
   /** Secondary model for summarization */
   summarizeProvider?: string;
   summarizeModel?: string;
@@ -221,6 +244,8 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   extractToolsFromText: true,
   commandAliases: {},
   enableCompression: true, // Enabled by default for token savings
+  maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
+  cleanHallucinatedTraces: false,
   toolsConfig: {
     disabled: [],
     defaults: {},
@@ -304,6 +329,12 @@ export function validateConfig(config: WorkspaceConfig): string[] {
     }
   }
 
+  if (config.maxContextTokens !== undefined) {
+    if (!Number.isFinite(config.maxContextTokens) || config.maxContextTokens <= 0) {
+      warnings.push('maxContextTokens must be a positive number');
+    }
+  }
+
   return warnings;
 }
 
@@ -323,6 +354,7 @@ export function mergeConfig(
     session?: string;
     summarizeProvider?: string;
     summarizeModel?: string;
+    maxContextTokens?: number;
   }
 ): ResolvedConfig {
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -346,6 +378,12 @@ export function mergeConfig(
     if (workspaceConfig.commandAliases) config.commandAliases = workspaceConfig.commandAliases;
     if (workspaceConfig.projectContext) config.projectContext = workspaceConfig.projectContext;
     if (workspaceConfig.enableCompression !== undefined) config.enableCompression = workspaceConfig.enableCompression;
+    if (workspaceConfig.maxContextTokens !== undefined && Number.isFinite(workspaceConfig.maxContextTokens)) {
+      config.maxContextTokens = workspaceConfig.maxContextTokens;
+    }
+    if (workspaceConfig.cleanHallucinatedTraces !== undefined) {
+      config.cleanHallucinatedTraces = workspaceConfig.cleanHallucinatedTraces;
+    }
     // Summarize model from workspace config
     if (workspaceConfig.models?.summarize?.provider) config.summarizeProvider = workspaceConfig.models.summarize.provider;
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
@@ -362,6 +400,9 @@ export function mergeConfig(
   if (cliOptions.baseUrl) config.baseUrl = cliOptions.baseUrl;
   if (cliOptions.endpointId) config.endpointId = cliOptions.endpointId;
   if (cliOptions.session) config.defaultSession = cliOptions.session;
+  if (cliOptions.maxContextTokens !== undefined && Number.isFinite(cliOptions.maxContextTokens)) {
+    config.maxContextTokens = cliOptions.maxContextTokens;
+  }
 
   // CLI --yes flag adds all tools to autoApprove
   if (cliOptions.yes) {
@@ -448,6 +489,8 @@ export function getExampleConfig(): string {
     },
     projectContext: '',
     enableCompression: true,
+    maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
+    cleanHallucinatedTraces: false,
     models: {
       summarize: {
         provider: 'ollama',

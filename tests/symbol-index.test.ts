@@ -9,11 +9,39 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createRequire } from 'module';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { SymbolIndexService } from '../src/symbol-index/service.js';
-import { SymbolDatabase, getIndexDirectory } from '../src/symbol-index/database.js';
+
+type SymbolIndexServiceCtor = typeof import('../src/symbol-index/service.js').SymbolIndexService;
+type SymbolIndexServiceInstance = InstanceType<SymbolIndexServiceCtor>;
+type GetIndexDirectoryFn = typeof import('../src/symbol-index/database.js').getIndexDirectory;
+
+const require = createRequire(import.meta.url);
+let sqliteLoadError: string | null = null;
+
+try {
+  const Database = require('better-sqlite3');
+  const db = new Database(':memory:');
+  db.close();
+} catch (error) {
+  sqliteLoadError = error instanceof Error ? error.message : String(error);
+}
+
+if (sqliteLoadError) {
+  console.warn(`[tests] Skipping symbol-index tests: ${sqliteLoadError}`);
+}
+
+const describeSymbolIndex = sqliteLoadError ? describe.skip : describe;
+let SymbolIndexService: SymbolIndexServiceCtor | null = null;
+let getIndexDirectory: GetIndexDirectoryFn | null = null;
+const getSymbolIndexServiceCtor = (): SymbolIndexServiceCtor => {
+  if (!SymbolIndexService) {
+    throw new Error('SymbolIndexService not loaded.');
+  }
+  return SymbolIndexService;
+};
 
 // Test fixtures directory
 const TEST_DIR = path.join(os.tmpdir(), 'symbol-index-test-' + Date.now());
@@ -264,27 +292,47 @@ class MainActivity : ComponentActivity() {
   }, null, 2));
 }
 
-describe('Symbol Index Validation Suite', () => {
-  let service: SymbolIndexService;
+describeSymbolIndex('Symbol Index Validation Suite', () => {
+  let service: SymbolIndexServiceInstance | null = null;
 
   beforeAll(async () => {
+    if (sqliteLoadError) {
+      return;
+    }
+
+    const serviceModule = await import('../src/symbol-index/service.js');
+    const databaseModule = await import('../src/symbol-index/database.js');
+    SymbolIndexService = serviceModule.SymbolIndexService;
+    getIndexDirectory = databaseModule.getIndexDirectory;
+
+    if (!SymbolIndexService || !getIndexDirectory) {
+      throw new Error('Symbol index dependencies failed to load.');
+    }
+
     // Create test project
     createTestProject();
 
     // Initialize service and build index with deep indexing enabled
     // (needed for usage-based dependency tests)
-    service = new SymbolIndexService(TEST_DIR);
+    const Service = getSymbolIndexServiceCtor();
+    service = new Service(TEST_DIR);
     await service.initialize();
     await service.rebuild({ deepIndex: true });
   });
 
   afterAll(() => {
+    if (!service) {
+      return;
+    }
+
     service.close();
     // Clean up test directory
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
     // Clean up index directory
-    const indexDir = getIndexDirectory(TEST_DIR);
-    fs.rmSync(indexDir, { recursive: true, force: true });
+    if (getIndexDirectory) {
+      const indexDir = getIndexDirectory(TEST_DIR);
+      fs.rmSync(indexDir, { recursive: true, force: true });
+    }
   });
 
   // =========================================================================
@@ -633,7 +681,8 @@ describe('Symbol Index Validation Suite', () => {
   describe('Parallel Processing', () => {
     it('should accept parallelJobs option in rebuild', async () => {
       // Create a fresh service for this test
-      const testService = new SymbolIndexService(TEST_DIR);
+      const Service = getSymbolIndexServiceCtor();
+      const testService = new Service(TEST_DIR);
       await testService.initialize();
 
       // Rebuild with different job counts should work
@@ -650,7 +699,8 @@ describe('Symbol Index Validation Suite', () => {
 
     it('should produce same dependencies with different parallelJobs values', async () => {
       // Rebuild with 1 job
-      const testService1 = new SymbolIndexService(TEST_DIR);
+      const Service = getSymbolIndexServiceCtor();
+      const testService1 = new Service(TEST_DIR);
       await testService1.initialize();
       await testService1.rebuild({ deepIndex: true, parallelJobs: 1 });
       const deps1 = testService1.getDependencyGraph(
@@ -660,7 +710,7 @@ describe('Symbol Index Validation Suite', () => {
       );
 
       // Rebuild with 4 jobs
-      const testService4 = new SymbolIndexService(TEST_DIR);
+      const testService4 = new Service(TEST_DIR);
       await testService4.initialize();
       await testService4.rebuild({ deepIndex: true, parallelJobs: 4 });
       const deps4 = testService4.getDependencyGraph(
@@ -676,7 +726,8 @@ describe('Symbol Index Validation Suite', () => {
     });
 
     it('should default to 4 parallel jobs when not specified', async () => {
-      const testService = new SymbolIndexService(TEST_DIR);
+      const Service = getSymbolIndexServiceCtor();
+      const testService = new Service(TEST_DIR);
       await testService.initialize();
 
       // Just verify it doesn't throw with default parallelJobs

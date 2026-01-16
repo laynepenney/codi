@@ -13,6 +13,8 @@ import { withRetry, type RetryOptions } from './retry.js';
 import { getProviderRateLimiter, type RateLimiter } from './rate-limiter.js';
 import { messageToText } from './message-converter.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+import { DEFAULT_FALLBACK_CONFIG, findBestToolMatch } from '../tools/tool-fallback.js';
+import { logger, LogLevel } from '../logger.js';
 
 /** Ollama message format */
 interface OllamaMessage {
@@ -56,6 +58,7 @@ interface OllamaChatResponse {
   message: {
     role: string;
     content: string;
+    thinking?: string;
     tool_calls?: OllamaToolCall[];
   };
   done: boolean;
@@ -216,23 +219,35 @@ export class OllamaCloudProvider extends BaseProvider {
             }));
           }
 
+          const rawContent = responseData.message.content || '';
+          const thinkingField = responseData.message.thinking || '';
+
           // Extract thinking content from <think> tags
-          const { content: cleanedContent, thinking } = this.extractThinkingContent(
-            responseData.message.content
+          const { content: thinkingCleanedContent, thinking: tagThinking } = this.extractThinkingContent(
+            rawContent
           );
+          const combinedThinking = [thinkingField, tagThinking].filter(Boolean).join('\n');
+          const hasContent = thinkingCleanedContent.trim().length > 0;
+          const useFallbackContent = !hasContent && combinedThinking.length > 0;
+          const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
+          const reasoningContent = combinedThinking || undefined;
+          const toolExtractionText = thinkingCleanedContent;
 
           // Fall back to extracting tool calls from text if no native calls
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(cleanedContent, tools);
+            toolCalls = this.extractToolCalls(toolExtractionText, tools);
           }
+
+          const cleanedContent = this.maybeCleanHallucinatedTraces(finalContent, toolCalls);
 
           return createProviderResponse({
             content: cleanedContent,
             toolCalls,
             stopReason: responseData.done_reason,
-            reasoningContent: thinking || undefined,
+            reasoningContent,
             inputTokens: responseData.prompt_eval_count,
             outputTokens: responseData.eval_count,
+            rawResponse: responseData,
           });
         },
         {
@@ -247,7 +262,8 @@ export class OllamaCloudProvider extends BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onChunk?: (chunk: string) => void,
-    systemPrompt?: string
+    systemPrompt?: string,
+    onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
     const ollamaMessages = this.convertMessages(messages, systemPrompt);
 
@@ -284,10 +300,14 @@ export class OllamaCloudProvider extends BaseProvider {
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let fullText = '';
+          let thinkingText = '';
+          let streamedContentChars = 0;
+          let streamedThinkingChars = 0;
           let inputTokens: number | undefined;
           let outputTokens: number | undefined;
           let stopReason: string | undefined;
           const nativeToolCalls: ToolCall[] = [];
+          const rawChunks: OllamaChatResponse[] = [];
 
           // Process streamed chunks
           while (true) {
@@ -300,11 +320,23 @@ export class OllamaCloudProvider extends BaseProvider {
             for (const line of lines) {
               try {
                 const data: OllamaChatResponse = JSON.parse(line);
+                rawChunks.push(data);
 
                 if (data.message?.content) {
                   const content = data.message.content;
                   fullText += content;
-                  if (onChunk) onChunk(content);
+                  if (content) {
+                    streamedContentChars += content.length;
+                    if (onChunk) onChunk(content);
+                  }
+                }
+
+                if (data.message?.thinking) {
+                  thinkingText += data.message.thinking;
+                  if (onReasoningChunk) {
+                    streamedThinkingChars += data.message.thinking.length;
+                    onReasoningChunk(data.message.thinking);
+                  }
                 }
 
                 // Capture native tool calls from Ollama API
@@ -332,21 +364,34 @@ export class OllamaCloudProvider extends BaseProvider {
           }
 
           // Extract thinking content from <think> tags (used by qwen3:thinking and similar models)
-          const { content: cleanedContent, thinking } = this.extractThinkingContent(fullText);
+          const { content: thinkingCleanedContent, thinking: tagThinking } = this.extractThinkingContent(fullText);
+          const combinedThinking = [thinkingText, tagThinking].filter(Boolean).join('\n');
+          const hasContent = thinkingCleanedContent.trim().length > 0;
+          const useFallbackContent = !hasContent && combinedThinking.length > 0;
+          const finalContent = useFallbackContent ? combinedThinking : thinkingCleanedContent;
+          const reasoningContent = combinedThinking || undefined;
+          const toolExtractionText = thinkingCleanedContent;
+
+          if (streamedContentChars === 0 && finalContent && onChunk && streamedThinkingChars === 0) {
+            onChunk(finalContent);
+          }
 
           // Use native tool calls if available, otherwise extract from text
           let toolCalls: ToolCall[] = nativeToolCalls;
           if (toolCalls.length === 0 && tools && tools.length > 0) {
-            toolCalls = this.extractToolCalls(cleanedContent, tools);
+            toolCalls = this.extractToolCalls(toolExtractionText, tools);
           }
+
+          const cleanedContent = this.maybeCleanHallucinatedTraces(finalContent, toolCalls);
 
           return createProviderResponse({
             content: cleanedContent,
             toolCalls,
             stopReason: stopReason || 'stop',
-            reasoningContent: thinking || undefined,
+            reasoningContent,
             inputTokens,
             outputTokens,
+            rawResponse: { stream: true, chunks: rawChunks },
           });
         },
         {
@@ -447,7 +492,12 @@ export class OllamaCloudProvider extends BaseProvider {
    */
   private extractToolCalls(content: string, tools: ToolDefinition[]): ToolCall[] {
     const toolCalls: ToolCall[] = [];
-    const toolNames = new Set(tools.map(t => t.name));
+    const resolveToolName = (requestedName: string): string | null => {
+      const match = findBestToolMatch(requestedName, tools, DEFAULT_FALLBACK_CONFIG);
+      if (match.exactMatch) return requestedName;
+      if (match.shouldAutoCorrect && match.matchedName) return match.matchedName;
+      return null;
+    };
 
     // Pattern 1: JSON in code blocks - most reliable
     const codeBlockPattern = /```(?:json)?\s*([\s\S]*?)```/g;
@@ -455,7 +505,7 @@ export class OllamaCloudProvider extends BaseProvider {
 
     while ((match = codeBlockPattern.exec(content)) !== null) {
       const jsonContent = match[1].trim();
-      const extracted = this.tryParseToolCall(jsonContent, toolNames);
+      const extracted = this.tryParseToolCall(jsonContent, resolveToolName);
       if (extracted) {
         toolCalls.push(extracted);
       }
@@ -475,13 +525,43 @@ export class OllamaCloudProvider extends BaseProvider {
       const normalizedName = this.normalizeToolName(rawToolName);
       const argsString = match[2];
 
-      if (toolNames.has(normalizedName)) {
+      const resolvedName = resolveToolName(normalizedName);
+      if (resolvedName) {
         const args = this.parseFunctionCallArgs(argsString);
         toolCalls.push({
           id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          name: normalizedName,
+          name: resolvedName,
           input: args,
         });
+      }
+    }
+
+    if (toolCalls.length > 0) {
+      return toolCalls;
+    }
+
+    // Pattern 3: [Calling tool_name]: {json} format
+    // Used by some models that simulate agent traces. We extract the call but ignore
+    // any "[Result from ...]" which are hallucinated results.
+    const callingPattern = /\[Calling\s+([a-z_][a-z0-9_]*)\]\s*:\s*(\{[^}]*\})/gi;
+
+    while ((match = callingPattern.exec(content)) !== null) {
+      const rawToolName = match[1];
+      const normalizedName = this.normalizeToolName(rawToolName);
+      const jsonArgs = match[2];
+
+      const resolvedName = resolveToolName(normalizedName);
+      if (resolvedName) {
+        try {
+          const args = JSON.parse(jsonArgs);
+          toolCalls.push({
+            id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: resolvedName,
+            input: args,
+          });
+        } catch {
+          // Invalid JSON, skip
+        }
       }
     }
 
@@ -494,7 +574,7 @@ export class OllamaCloudProvider extends BaseProvider {
     const jsonPattern = /\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}/g;
 
     while ((match = jsonPattern.exec(content)) !== null) {
-      const extracted = this.tryParseToolCall(match[0], toolNames);
+      const extracted = this.tryParseToolCall(match[0], resolveToolName);
       if (extracted) {
         toolCalls.push(extracted);
       }
@@ -539,17 +619,21 @@ export class OllamaCloudProvider extends BaseProvider {
   /**
    * Try to parse a JSON string as a tool call.
    */
-  private tryParseToolCall(jsonString: string, validToolNames: Set<string>): ToolCall | null {
+  private tryParseToolCall(
+    jsonString: string,
+    resolveToolName: (requestedName: string) => string | null
+  ): ToolCall | null {
     try {
       const parsed = JSON.parse(jsonString);
 
       // Check if it has a valid tool name (normalize to strip prefixes)
       if (parsed.name) {
         const normalizedName = this.normalizeToolName(parsed.name);
-        if (validToolNames.has(normalizedName)) {
+        const resolvedName = resolveToolName(normalizedName);
+        if (resolvedName) {
           return {
             id: `extracted_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            name: normalizedName,
+            name: resolvedName,
             input: parsed.arguments || parsed.input || parsed.parameters || {},
           };
         }
@@ -581,6 +665,47 @@ export class OllamaCloudProvider extends BaseProvider {
     }
 
     return { content: cleanedContent, thinking };
+  }
+
+  private maybeCleanHallucinatedTraces(content: string, toolCalls: ToolCall[]): string {
+    if (!this.config.cleanHallucinatedTraces || toolCalls.length === 0) {
+      return content;
+    }
+
+    const matches = content.match(this.getHallucinatedTracePattern()) || [];
+    const cleanedContent = this.cleanHallucinatedTraces(content);
+    if (cleanedContent !== content) {
+      if (logger.isLevelEnabled(LogLevel.VERBOSE) && matches.length > 0) {
+        const joined = matches.join('\n');
+        const clipped = joined.length > 2000
+          ? `${joined.slice(0, 2000)}\n... [truncated ${joined.length - 2000} chars]`
+          : joined;
+        logger.verbose(`[ollama-cloud] Stripped hallucinated traces:\n${clipped}`);
+      }
+      logger.warn('Ollama Cloud: cleaned hallucinated tool traces from model output.');
+    }
+
+    return cleanedContent;
+  }
+
+  /**
+   * Clean hallucinated agent trace patterns from content.
+   * Some models output fake "[Calling tool]: {json}[Result from tool]: result" traces.
+   * This should be called AFTER extractToolCalls to clean up the display content.
+   */
+  private cleanHallucinatedTraces(content: string): string {
+    // Pattern: [Calling tool_name]: {json}[Result from tool_name]: any text until next [ or end
+    const hallucinatedTracePattern = this.getHallucinatedTracePattern();
+    let cleanedContent = content.replace(hallucinatedTracePattern, '').trim();
+
+    // Clean up multiple newlines
+    cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
+
+    return cleanedContent;
+  }
+
+  private getHallucinatedTracePattern(): RegExp {
+    return /\[Calling\s+[a-z_][a-z0-9_]*\]\s*:\s*\{[^}]*\}\s*(?:\[Result from\s+[a-z_][a-z0-9_]*\]\s*:\s*[^\[]*)?/gi;
   }
 
   /**

@@ -65,7 +65,8 @@ export abstract class BaseProvider {
     messages: Message[],
     tools?: ToolDefinition[],
     onChunk?: (chunk: string) => void,
-    systemPrompt?: string
+    systemPrompt?: string,
+    onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse>;
 
   /**
