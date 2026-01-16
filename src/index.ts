@@ -935,7 +935,12 @@ function handleInitOutput(output: string): void {
 
   for (const result of results) {
     const [fileType, status, filePath] = result.split(':');
-    const fileName = fileType === 'config' ? '.codi.json' : 'codi-models.yaml';
+    const fileNames: Record<string, string> = {
+      config: '.codi.json',
+      modelmap: 'codi-models.yaml',
+      context: 'CODI.md',
+    };
+    const fileName = fileNames[fileType] || fileType;
 
     switch (status) {
       case 'created':

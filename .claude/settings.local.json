@@ -23,7 +23,8 @@
       "Bash(git fetch:*)",
       "Bash(gh release create:*)",
       "Bash(git pull:*)",
-      "Bash(gh pr list:*)"
+      "Bash(gh pr list:*)",
+      "Bash(ls:*)"
     ]
   }
 }
