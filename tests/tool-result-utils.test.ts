@@ -6,6 +6,7 @@ import {
   summarizeToolResult,
   truncateOldToolResults,
 } from '../src/utils/tool-result-utils.js';
+import { AGENT_CONFIG } from '../src/constants.js';
 import type { Message, ContentBlock } from '../src/types.js';
 
 describe('tool-result-utils', () => {
@@ -167,16 +168,16 @@ describe('tool-result-utils', () => {
     }
 
     it('truncates old tool results', () => {
-      const longContent = 'A'.repeat(5000);
+      const longContent = 'A'.repeat(AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD + 50);
       const messages: Message[] = [
         createToolResultMessage('read_file', longContent),
         createTextMessage('Response 1'),
-        createToolResultMessage('read_file', longContent),
-        createTextMessage('Response 2'),
-        createToolResultMessage('read_file', longContent), // Recent - should not be truncated
-        createTextMessage('Response 3'),
-        createToolResultMessage('read_file', longContent), // Recent - should not be truncated
       ];
+
+      for (let i = 0; i < AGENT_CONFIG.RECENT_TOOL_RESULTS_TO_KEEP; i++) {
+        messages.push(createToolResultMessage('read_file', 'OK'));
+        messages.push(createTextMessage(`Response ${i + 2}`));
+      }
 
       truncateOldToolResults(messages);
 
@@ -187,8 +188,8 @@ describe('tool-result-utils', () => {
       expect((firstContent as any).content.length).toBeLessThan(100);
 
       // Recent tool results should remain intact
-      const lastContent = (messages[6].content as ContentBlock[])[0];
-      expect((lastContent as any).content).toBe(longContent);
+      const lastContent = (messages[messages.length - 2].content as ContentBlock[])[0];
+      expect((lastContent as any).content).toBe('OK');
     });
 
     it('preserves short tool results', () => {
@@ -227,7 +228,7 @@ describe('tool-result-utils', () => {
               type: 'tool_result' as const,
               tool_use_id: 'id1',
               name: 'read_file',
-              content: 'A'.repeat(5000),
+              content: 'A'.repeat(AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD + 50),
             },
           ],
         },
@@ -248,12 +249,14 @@ describe('tool-result-utils', () => {
 
     it('preserves tool result metadata when truncating', () => {
       const messages: Message[] = [
-        createToolResultMessage('read_file', 'A'.repeat(5000)),
-        createTextMessage('Response'),
-        createToolResultMessage('read_file', 'B'.repeat(5000)),
-        createTextMessage('Response'),
-        createToolResultMessage('read_file', 'C'.repeat(5000)), // Recent
+        createToolResultMessage('read_file', 'A'.repeat(AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD + 50)),
+        createTextMessage('Response 1'),
       ];
+
+      for (let i = 0; i < AGENT_CONFIG.RECENT_TOOL_RESULTS_TO_KEEP; i++) {
+        messages.push(createToolResultMessage('read_file', 'OK'));
+        messages.push(createTextMessage(`Response ${i + 2}`));
+      }
 
       // Mark first as error
       ((messages[0].content as ContentBlock[])[0] as any).is_error = true;
