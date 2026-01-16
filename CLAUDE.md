@@ -31,6 +31,40 @@ OPENAI_API_KEY=... pnpm dev -- --provider openai
 pnpm dev -- --provider ollama --model llama3.2
 ```
 
+## Git Workflow
+
+**IMPORTANT: Never push directly to main.** Always use feature/bugfix branches and pull requests.
+
+```bash
+# Start new work
+git checkout -b feat/my-feature    # or fix/my-bugfix
+# ... make changes ...
+git add -A && git commit -m "feat: description"
+git push -u origin feat/my-feature
+
+# Create PR
+gh pr create --title "feat: description" --body "Summary of changes"
+
+# After PR is approved and merged
+git checkout main
+git pull origin main
+```
+
+### Branch Naming
+- `feat/` - New features
+- `fix/` - Bug fixes
+- `chore/` - Maintenance, refactoring, docs
+
+### Releases
+After merging PRs, tag and release from main:
+```bash
+# Update version in package.json and src/version.ts
+git add -A && git commit -m "chore: bump version to X.Y.Z"
+git tag -a vX.Y.Z -m "vX.Y.Z: Brief description"
+git push origin main && git push origin vX.Y.Z
+gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
+```
+
 ## Architecture Overview
 
 ```
