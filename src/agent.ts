@@ -941,7 +941,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
             resultText += `Result from ${toolName}:\n${content}\n\n`;
           }
         }
-        resultText += this.buildContinuationPrompt(originalTask);
+        // lp 1/16/26: skip this for now. I believe it is causing issues
+        // resultText += this.buildContinuationPrompt(originalTask);
 
         this.messages.push({
           role: 'user',
