@@ -2237,6 +2237,7 @@ async function main() {
   // Initialize RAG system (enabled by default unless explicitly disabled)
   let ragIndexer: BackgroundIndexer | null = null;
   let ragRetriever: Retriever | null = null;
+  let ragEmbeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null;
 
   // RAG is enabled by default - only skip if explicitly disabled
   const ragEnabled = workspaceConfig?.rag?.enabled !== false;
@@ -2260,11 +2261,11 @@ async function main() {
         parallelJobs: workspaceConfig?.rag?.parallelJobs,
       };
 
-      const embeddingProvider = createEmbeddingProvider(ragConfig);
-      console.log(chalk.dim(`RAG: ${embeddingProvider.getName()} (${embeddingProvider.getModel()})`));
+      ragEmbeddingProvider = createEmbeddingProvider(ragConfig);
+      console.log(chalk.dim(`RAG: ${ragEmbeddingProvider.getName()} (${ragEmbeddingProvider.getModel()})`));
 
-      ragIndexer = new BackgroundIndexer(process.cwd(), embeddingProvider, ragConfig);
-      ragRetriever = new Retriever(process.cwd(), embeddingProvider, ragConfig);
+      ragIndexer = new BackgroundIndexer(process.cwd(), ragEmbeddingProvider, ragConfig);
+      ragRetriever = new Retriever(process.cwd(), ragEmbeddingProvider, ragConfig);
 
       // Share vector store between indexer and retriever
       ragRetriever.setVectorStore(ragIndexer.getVectorStore());
@@ -2613,6 +2614,23 @@ async function main() {
     provider: provider.getName(),
     model: provider.getModel(),
   };
+
+  // Set indexed files from RAG for code relevance scoring
+  if (ragRetriever) {
+    try {
+      const indexedFiles = await ragRetriever.getIndexedFiles();
+      agent.setIndexedFiles(indexedFiles);
+      logger.debug(`RAG: ${indexedFiles.length} indexed files available for relevance scoring`);
+    } catch (err) {
+      logger.debug(`RAG: Could not get indexed files: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Set embedding provider for semantic deduplication during compaction
+  if (ragEmbeddingProvider) {
+    agent.setEmbeddingProvider(ragEmbeddingProvider);
+    logger.debug(`RAG: Embedding provider set for semantic message deduplication`);
+  }
 
   // Deprecated: setSessionAgent is now a no-op
   // Agent reference is passed via commandContext

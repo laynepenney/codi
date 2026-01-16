@@ -107,6 +107,59 @@ export interface AgentOptions {
 }
 
 /**
+ * Compute cosine similarity between two embedding vectors.
+ * Returns value between -1 and 1 (1 = identical, 0 = orthogonal, -1 = opposite).
+ */
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0;
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+  return denominator === 0 ? 0 : dotProduct / denominator;
+}
+
+/**
+ * Group messages by semantic similarity using embeddings.
+ * Messages with similarity > threshold are grouped together.
+ * Returns array of groups, each containing indices of similar messages.
+ */
+function groupSimilarMessages(
+  embeddings: number[][],
+  threshold: number = 0.85
+): number[][] {
+  const n = embeddings.length;
+  const assigned = new Set<number>();
+  const groups: number[][] = [];
+
+  for (let i = 0; i < n; i++) {
+    if (assigned.has(i)) continue;
+
+    const group = [i];
+    assigned.add(i);
+
+    for (let j = i + 1; j < n; j++) {
+      if (assigned.has(j)) continue;
+
+      const similarity = cosineSimilarity(embeddings[i], embeddings[j]);
+      if (similarity >= threshold) {
+        group.push(j);
+        assigned.add(j);
+      }
+    }
+
+    groups.push(group);
+  }
+
+  return groups;
+}
+
+/**
  * The Agent orchestrates the conversation between the user, model, and tools.
  * It implements the agentic loop: send message -> receive response -> execute tools -> repeat.
  */
@@ -136,6 +189,8 @@ export class Agent {
   private lastCompressionEntities: Map<string, Entity> | null = null;
   private compressionBuffer = ''; // Buffer for streaming decompression
   private workingSet: WorkingSet = createWorkingSet();
+  private indexedFiles: Set<string> | null = null; // RAG indexed files for code relevance scoring
+  private embeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null; // For semantic deduplication
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -360,8 +415,13 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
     logger.debug(`Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`);
 
-    // Score messages by importance
-    const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
+    // Score messages by importance (pass indexed files for RAG-enhanced scoring)
+    const scores = scoreMessages(
+      this.messages,
+      CONTEXT_OPTIMIZATION.WEIGHTS,
+      undefined, // entities
+      this.indexedFiles ?? undefined
+    );
 
     // Configure windowing
     const windowConfig: WindowingConfig = {
@@ -387,26 +447,76 @@ Always use tools to interact with the filesystem rather than asking the user to 
     // Get messages to summarize
     const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
 
-    // Format older messages for summarization
-    const oldContent = messagesToSummarize
-      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
-      .join('\n\n');
+    // Extract file paths from messages for better context preservation
+    const { extractFilePaths } = await import('./importance-scorer.js');
+    const discussedFiles = new Set<string>();
+    for (const msg of messagesToSummarize) {
+      const text = getMessageText(msg);
+      const paths = extractFilePaths(text);
+      paths.forEach(p => discussedFiles.add(p));
+    }
+
+    // Try semantic deduplication if embedding provider is available
+    let oldContent: string;
+    if (this.embeddingProvider && messagesToSummarize.length > 2) {
+      try {
+        // Generate embeddings for messages
+        const messageTexts = messagesToSummarize.map(m => getMessageText(m).slice(0, 1000));
+        const embeddings = await this.embeddingProvider.embed(messageTexts);
+
+        // Group similar messages
+        const groups = groupSimilarMessages(embeddings, 0.85);
+        logger.debug(`Semantic dedup: ${messagesToSummarize.length} messages → ${groups.length} groups`);
+
+        // Format grouped content
+        oldContent = groups.map((group, i) => {
+          if (group.length === 1) {
+            const msg = messagesToSummarize[group[0]];
+            return `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`;
+          } else {
+            // Multiple similar messages - show as a group
+            const groupMessages = group.map(idx => {
+              const msg = messagesToSummarize[idx];
+              return `  - [${msg.role}]: ${getMessageText(msg).slice(0, 200)}`;
+            }).join('\n');
+            return `[Similar discussion #${i + 1}, ${group.length} messages]:\n${groupMessages}`;
+          }
+        }).join('\n\n');
+      } catch (err) {
+        // Fall back to standard formatting
+        logger.debug(`Semantic dedup failed: ${err instanceof Error ? err.message : err}`);
+        oldContent = messagesToSummarize
+          .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+          .join('\n\n');
+      }
+    } else {
+      // Standard formatting without semantic deduplication
+      oldContent = messagesToSummarize
+        .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
+        .join('\n\n');
+    }
 
     // Include existing summary if present
     const contextToSummarize = this.conversationSummary
       ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
       : oldContent;
 
+    // Build enhanced summary prompt with file context
+    const filesContext = discussedFiles.size > 0
+      ? `\n\nFiles discussed: ${[...discussedFiles].join(', ')}`
+      : '';
+
     try {
       // Ask the model to create a summary (use secondary provider if configured)
       const summaryProvider = this.getSummaryProvider();
       logger.debug(`Using ${summaryProvider.getName()} (${summaryProvider.getModel()}) for summarization`);
+      logger.debug(`Files context for summary: ${discussedFiles.size} files`);
 
       const summaryResponse = await summaryProvider.streamChat(
         [
           {
             role: 'user',
-            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.${filesContext}\n\n${contextToSummarize}`,
           },
         ],
         undefined, // No tools for summary
@@ -1147,6 +1257,22 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   /**
+   * Set indexed files from RAG for code relevance scoring.
+   * Messages discussing indexed files get higher importance during compaction.
+   */
+  setIndexedFiles(files: string[]): void {
+    this.indexedFiles = new Set(files);
+  }
+
+  /**
+   * Set embedding provider for semantic message deduplication.
+   * When set, similar messages are grouped together during compaction.
+   */
+  setEmbeddingProvider(provider: import('./rag/embeddings/base.js').BaseEmbeddingProvider): void {
+    this.embeddingProvider = provider;
+  }
+
+  /**
    * Get current context size information.
    */
   getContextInfo(): {
@@ -1204,8 +1330,13 @@ Always use tools to interact with the filesystem rather than asking the user to 
       return { before, after: before, summary: this.conversationSummary };
     }
 
-    // Score messages and use smart windowing
-    const scores = scoreMessages(this.messages, CONTEXT_OPTIMIZATION.WEIGHTS);
+    // Score messages and use smart windowing (pass indexed files for RAG-enhanced scoring)
+    const scores = scoreMessages(
+      this.messages,
+      CONTEXT_OPTIMIZATION.WEIGHTS,
+      undefined, // entities
+      this.indexedFiles ?? undefined
+    );
     const windowConfig: WindowingConfig = {
       minRecentMessages: CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES,
       maxMessages: Math.min(CONTEXT_OPTIMIZATION.MAX_MESSAGES, Math.ceil(this.messages.length / 2)),
@@ -1224,6 +1355,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
     }
 
     const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
+
+    // Extract file paths from messages for better context preservation
+    const { extractFilePaths } = await import('./importance-scorer.js');
+    const discussedFiles = new Set<string>();
+    for (const msg of messagesToSummarize) {
+      const text = getMessageText(msg);
+      const paths = extractFilePaths(text);
+      paths.forEach(p => discussedFiles.add(p));
+    }
+
     const oldContent = messagesToSummarize
       .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
       .join('\n\n');
@@ -1232,13 +1373,18 @@ Always use tools to interact with the filesystem rather than asking the user to 
       ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
       : oldContent;
 
+    // Build enhanced summary prompt with file context
+    const filesContext = discussedFiles.size > 0
+      ? `\n\nFiles discussed: ${[...discussedFiles].join(', ')}`
+      : '';
+
     try {
       // Use secondary provider for summarization if configured
       const summaryProvider = this.getSummaryProvider();
       const summaryResponse = await summaryProvider.streamChat(
         [{
           role: 'user',
-          content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.\n\n${contextToSummarize}`,
+          content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.${filesContext}\n\n${contextToSummarize}`,
         }],
         undefined,
         undefined

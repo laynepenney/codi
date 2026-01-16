@@ -8,6 +8,7 @@ import {
   buildEntityReferenceMap,
   getTopMessages,
   getMessagesAboveThreshold,
+  extractFilePaths,
   DEFAULT_IMPORTANCE_WEIGHTS,
 } from '../src/importance-scorer.js';
 import type { Message } from '../src/types.js';
@@ -191,6 +192,7 @@ describe('Importance Scorer', () => {
         referenceCount: 0,
         userEmphasis: 0,
         actionRelevance: 0,
+        codeRelevance: 0,
       };
 
       const scores = scoreMessages(messages, customWeights);
@@ -334,6 +336,122 @@ describe('Importance Scorer', () => {
       const above = getMessagesAboveThreshold(scores, 0.9);
 
       expect(above.length).toBe(0);
+    });
+  });
+
+  describe('extractFilePaths', () => {
+    it('extracts file paths with extensions', () => {
+      const text = 'Check src/components/Button.tsx for the issue';
+      const paths = extractFilePaths(text);
+      expect(paths.has('src/components/Button.tsx')).toBe(true);
+    });
+
+    it('extracts multiple file paths', () => {
+      const text = 'Look at src/index.ts and src/utils/helpers.js';
+      const paths = extractFilePaths(text);
+      expect(paths.has('src/index.ts')).toBe(true);
+      expect(paths.has('src/utils/helpers.js')).toBe(true);
+    });
+
+    it('handles paths with dots in directory names', () => {
+      const text = 'The file src/@types/node.d.ts defines types';
+      const paths = extractFilePaths(text);
+      expect(paths.size).toBeGreaterThan(0);
+    });
+
+    it('removes leading ./ from paths', () => {
+      const text = 'Run ./scripts/build.sh';
+      const paths = extractFilePaths(text);
+      expect(paths.has('scripts/build.sh')).toBe(true);
+    });
+
+    it('returns empty set for text without paths', () => {
+      const text = 'This is just a plain text message';
+      const paths = extractFilePaths(text);
+      expect(paths.size).toBe(0);
+    });
+
+    it('extracts paths from quoted strings', () => {
+      const text = 'Edit "src/config.ts" to change settings';
+      const paths = extractFilePaths(text);
+      expect(paths.has('src/config.ts')).toBe(true);
+    });
+  });
+
+  describe('code relevance scoring', () => {
+    it('gives higher score to messages discussing indexed files', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Look at src/agent.ts' },
+        { role: 'user', content: 'What about unrelated topic?' },
+      ];
+
+      const indexedFiles = new Set(['src/agent.ts', 'src/index.ts']);
+
+      const scores = scoreMessages(
+        messages,
+        DEFAULT_IMPORTANCE_WEIGHTS,
+        undefined,
+        indexedFiles
+      );
+
+      // Message mentioning indexed file should have higher codeRelevance
+      expect(scores[0].factors.codeRelevance).toBeGreaterThan(scores[1].factors.codeRelevance);
+    });
+
+    it('gives neutral score when no indexed files provided', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Look at src/agent.ts' },
+      ];
+
+      const scores = scoreMessages(messages, DEFAULT_IMPORTANCE_WEIGHTS);
+
+      // Should get neutral score (0.5) when no indexed files
+      expect(scores[0].factors.codeRelevance).toBe(0.5);
+    });
+
+    it('gives low score to messages not mentioning any files', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'What is the meaning of life?' },
+      ];
+
+      const indexedFiles = new Set(['src/agent.ts']);
+
+      const scores = scoreMessages(
+        messages,
+        DEFAULT_IMPORTANCE_WEIGHTS,
+        undefined,
+        indexedFiles
+      );
+
+      // Should get low score (0.3) when message has no file paths
+      expect(scores[0].factors.codeRelevance).toBe(0.3);
+    });
+
+    it('includes codeRelevance in total score calculation', () => {
+      const messages: Message[] = [
+        { role: 'user', content: 'Check src/important.ts file' },
+      ];
+
+      const indexedFiles = new Set(['src/important.ts']);
+
+      // Use weights that only count codeRelevance
+      const customWeights = {
+        recency: 0,
+        referenceCount: 0,
+        userEmphasis: 0,
+        actionRelevance: 0,
+        codeRelevance: 1,
+      };
+
+      const scores = scoreMessages(
+        messages,
+        customWeights,
+        undefined,
+        indexedFiles
+      );
+
+      // Total score should equal codeRelevance factor
+      expect(scores[0].totalScore).toBeCloseTo(scores[0].factors.codeRelevance, 2);
     });
   });
 });

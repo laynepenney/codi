@@ -24,20 +24,22 @@ import { getMessageText } from './utils/token-counter.js';
  * Should sum to approximately 1.0 for normalized scores.
  */
 export interface ImportanceWeights {
-  recency: number;           // Weight for message recency (0.3 default)
-  referenceCount: number;    // Weight for forward references (0.2 default)
-  userEmphasis: number;      // Weight for user emphasis (0.3 default)
+  recency: number;           // Weight for message recency (0.25 default)
+  referenceCount: number;    // Weight for forward references (0.15 default)
+  userEmphasis: number;      // Weight for user emphasis (0.25 default)
   actionRelevance: number;   // Weight for tool call relevance (0.2 default)
+  codeRelevance: number;     // Weight for indexed code references (0.15 default, RAG-enhanced)
 }
 
 /**
  * Default importance weights.
  */
 export const DEFAULT_IMPORTANCE_WEIGHTS: ImportanceWeights = {
-  recency: 0.3,
-  referenceCount: 0.2,
-  userEmphasis: 0.3,
+  recency: 0.25,
+  referenceCount: 0.15,
+  userEmphasis: 0.25,
   actionRelevance: 0.2,
+  codeRelevance: 0.15,
 };
 
 /**
@@ -51,6 +53,7 @@ export interface MessageScore {
     referenceCount: number;  // 0-1 based on forward refs
     userEmphasis: number;    // 0-1 based on role and content
     actionRelevance: number; // 0-1 based on tool usage
+    codeRelevance: number;   // 0-1 based on indexed code references (RAG-enhanced)
   };
 }
 
@@ -199,12 +202,72 @@ function calculateActionRelevanceScore(
 }
 
 /**
+ * Extract file paths from message text.
+ * Matches common file path patterns like src/foo/bar.ts, ./file.js, /path/to/file
+ */
+export function extractFilePaths(text: string): Set<string> {
+  const paths = new Set<string>();
+
+  // Match file paths (src/foo/bar.ts, ./file.js, /path/to/file.ext, src/@types/foo.d.ts)
+  // Allow @ in directory names for scoped packages
+  const pathRegex = /(?:^|[\s"'`(])(\.\/)?((?:[@\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,10})(?=[\s"'`),:;]|$)/gm;
+  let match;
+  while ((match = pathRegex.exec(text)) !== null) {
+    // Get the path (group 2, after optional ./)
+    const path = match[2];
+    paths.add(path);
+  }
+
+  return paths;
+}
+
+/**
+ * Calculate code relevance score based on indexed files.
+ * Returns higher score if the message discusses code that's in the RAG index.
+ */
+function calculateCodeRelevanceScore(
+  message: Message,
+  indexedFiles?: Set<string>
+): number {
+  // If no indexed files provided, return neutral score
+  if (!indexedFiles || indexedFiles.size === 0) {
+    return 0.5; // Neutral score when RAG not available
+  }
+
+  const text = getMessageText(message);
+  const mentionedPaths = extractFilePaths(text);
+
+  if (mentionedPaths.size === 0) {
+    return 0.3; // Low score for messages not mentioning files
+  }
+
+  // Count how many mentioned paths are in the index
+  let indexedCount = 0;
+  for (const path of mentionedPaths) {
+    // Check for exact match or partial match (file.ts matches src/foo/file.ts)
+    const isIndexed = indexedFiles.has(path) ||
+      [...indexedFiles].some(f => f.endsWith('/' + path) || f === path);
+    if (isIndexed) {
+      indexedCount++;
+    }
+  }
+
+  // Score based on proportion of indexed paths mentioned
+  const proportion = indexedCount / mentionedPaths.size;
+
+  // Scale from 0.3 (no indexed paths) to 1.0 (all mentioned paths are indexed)
+  return 0.3 + (proportion * 0.7);
+}
+
+/**
  * Score all messages by importance.
+ * @param indexedFiles - Optional set of file paths from RAG index for code relevance scoring
  */
 export function scoreMessages(
   messages: Message[],
   weights: ImportanceWeights = DEFAULT_IMPORTANCE_WEIGHTS,
-  entities?: Map<string, Entity>
+  entities?: Map<string, Entity>,
+  indexedFiles?: Set<string>
 ): MessageScore[] {
   if (messages.length === 0) return [];
 
@@ -227,12 +290,15 @@ export function scoreMessages(
 
     const actionRelevance = calculateActionRelevanceScore(msg, i, messages);
 
+    const codeRelevance = calculateCodeRelevanceScore(msg, indexedFiles);
+
     // Calculate weighted total
     const totalScore =
       recency * weights.recency +
       referenceCount * weights.referenceCount +
       userEmphasis * weights.userEmphasis +
-      actionRelevance * weights.actionRelevance;
+      actionRelevance * weights.actionRelevance +
+      codeRelevance * weights.codeRelevance;
 
     scores.push({
       messageIndex: i,
@@ -242,6 +308,7 @@ export function scoreMessages(
         referenceCount,
         userEmphasis,
         actionRelevance,
+        codeRelevance,
       },
     });
   }
