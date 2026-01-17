@@ -65,6 +65,32 @@ git push origin main && git push origin vX.Y.Z
 gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
 ```
 
+### PR Review Process
+
+**Always review your own PRs before requesting merge.** This creates a traceable review history.
+
+1. **Create the PR** with clear title and description
+2. **Review the diff** thoroughly using `gh pr diff <number>`
+3. **Add comments on issues found** - use `gh` CLI to comment:
+   ```bash
+   # Add a review comment on specific issues
+   gh pr review <number> --comment --body "Found issue: description of problem"
+
+   # Or add a general comment
+   gh pr comment <number> --body "Review notes: ..."
+   ```
+4. **Fix the issues** in a new commit (don't amend if already pushed)
+5. **Resolve comments** after fixing by pushing the fix commit
+6. **For issues to address later**, create a GitHub issue:
+   ```bash
+   gh issue create --title "Title" --body "Description of future work"
+   ```
+
+This ensures:
+- All review feedback is tracked in the PR history
+- Future contributors can understand why changes were made
+- Deferred work is captured as issues, not forgotten
+
 ## Architecture Overview
 
 ```
