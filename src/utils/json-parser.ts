@@ -16,6 +16,7 @@ import {
 /**
  * Attempt to fix common JSON issues from LLM output:
  * - Single quotes instead of double quotes
+ * - Raw newlines inside strings (should be escaped as \n)
  */
 export function tryFixJson(jsonStr: string): string {
   let fixed = jsonStr;
@@ -24,7 +25,62 @@ export function tryFixJson(jsonStr: string): string {
   // Match: : 'content' and replace with : "content"
   fixed = fixed.replace(/:(\s*)'((?:[^'\\]|\\.)*)'/gs, ':$1"$2"');
 
+  // Escape raw newlines inside double-quoted strings
+  // This handles LLM output that includes literal newlines in JSON strings
+  fixed = escapeNewlinesInStrings(fixed);
+
   return fixed;
+}
+
+/**
+ * Escape raw newlines inside JSON string values.
+ * Walks through the string tracking quote state to only escape
+ * newlines that appear inside quoted strings.
+ */
+function escapeNewlinesInStrings(jsonStr: string): string {
+  const result: string[] = [];
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < jsonStr.length; i++) {
+    const char = jsonStr[i];
+
+    if (isEscaped) {
+      result.push(char);
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      result.push(char);
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      result.push(char);
+      continue;
+    }
+
+    // If we're inside a string and hit a raw newline, escape it
+    if (inString && (char === '\n' || char === '\r')) {
+      if (char === '\r' && jsonStr[i + 1] === '\n') {
+        // Handle CRLF as single \n
+        result.push('\\n');
+        i++; // Skip the \n
+      } else if (char === '\n') {
+        result.push('\\n');
+      } else {
+        result.push('\\r');
+      }
+      continue;
+    }
+
+    result.push(char);
+  }
+
+  return result.join('');
 }
 
 /**
