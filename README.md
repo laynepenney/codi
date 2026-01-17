@@ -25,6 +25,10 @@
   <a href="#extending-codi">Extend</a>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Codi Demo" width="800" />
+</p>
+
 ---
 
 ## Features
