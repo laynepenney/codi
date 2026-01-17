@@ -3,31 +3,27 @@
 
 /**
  * Code commands that take action on files (modify, create, etc).
+ * All commands are consolidated under /code <subcommand>.
  * For information-only prompts, see prompt-commands.ts.
  */
 
 import { registerCommand, type Command, type CommandContext } from './index.js';
 
-export const refactorCommand: Command = {
-  name: 'refactor',
-  aliases: ['r'],
-  description: 'Suggest refactoring improvements for code',
-  usage: '/refactor <file_path> [focus_area]',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path: /refactor <file_path> [focus_area]';
-    }
+// Subcommand implementations
+function refactorPrompt(args: string, _context: CommandContext): string {
+  if (!args.trim()) {
+    return 'Please provide a file path: /code refactor <file_path> [focus_area]';
+  }
 
-    const parts = args.trim().split(/\s+/);
-    const filePath = parts[0];
-    const focusArea = parts.slice(1).join(' ');
+  const parts = args.trim().split(/\s+/);
+  const filePath = parts[0];
+  const focusArea = parts.slice(1).join(' ');
 
-    let prompt = `Refactor "${filePath}" to improve code quality.`;
-    if (focusArea) {
-      prompt += ` Focus on: ${focusArea}.`;
-    }
-    prompt += `\n\nSteps:
+  let prompt = `Refactor "${filePath}" to improve code quality.`;
+  if (focusArea) {
+    prompt += ` Focus on: ${focusArea}.`;
+  }
+  prompt += `\n\nSteps:
 1. Read the file using read_file
 2. Analyze for improvements:
    - Code readability and clarity
@@ -39,30 +35,23 @@ export const refactorCommand: Command = {
 
 IMPORTANT: Use edit_file to make changes. Do not just output code.`;
 
-    return prompt;
-  },
-};
+  return prompt;
+}
 
-export const fixCommand: Command = {
-  name: 'fix',
-  aliases: ['f'],
-  description: 'Fix bugs or issues in code',
-  usage: '/fix <file_path> <issue_description>',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path and issue: /fix <file_path> <issue_description>';
-    }
+function fixPrompt(args: string, _context: CommandContext): string {
+  if (!args.trim()) {
+    return 'Please provide a file path and issue: /code fix <file_path> <issue_description>';
+  }
 
-    const parts = args.trim().split(/\s+/);
-    const filePath = parts[0];
-    const issue = parts.slice(1).join(' ');
+  const parts = args.trim().split(/\s+/);
+  const filePath = parts[0];
+  const issue = parts.slice(1).join(' ');
 
-    if (!issue) {
-      return `Please describe the issue to fix: /fix ${filePath} <issue_description>`;
-    }
+  if (!issue) {
+    return `Please describe the issue to fix: /code fix ${filePath} <issue_description>`;
+  }
 
-    return `Fix this issue in "${filePath}": ${issue}
+  return `Fix this issue in "${filePath}": ${issue}
 
 Steps:
 1. Read the file using read_file
@@ -71,40 +60,33 @@ Steps:
 4. Briefly explain what was wrong and how you fixed it
 
 IMPORTANT: Use edit_file to apply the fix. Do not just output code.`;
-  },
-};
+}
 
-export const testCommand: Command = {
-  name: 'test',
-  aliases: ['t'],
-  description: 'Generate tests for code',
-  usage: '/test <file_path> [function_name]',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path: /test <file_path> [function_name]';
+function testPrompt(args: string, context: CommandContext): string {
+  if (!args.trim()) {
+    return 'Please provide a file path: /code test <file_path> [function_name]';
+  }
+
+  const parts = args.trim().split(/\s+/);
+  const filePath = parts[0];
+  const functionName = parts[1];
+
+  let prompt = `Please read "${filePath}" and generate comprehensive tests.`;
+  if (functionName) {
+    prompt += ` Focus on testing the "${functionName}" function/method.`;
+  }
+
+  // Add framework context
+  if (context.projectInfo) {
+    const { type, framework } = context.projectInfo;
+    if (type === 'node') {
+      prompt += `\n\nThis is a ${framework || 'Node.js'} project. Use appropriate testing frameworks (Jest, Vitest, or Mocha).`;
+    } else if (type === 'python') {
+      prompt += `\n\nThis is a Python project. Use pytest for testing.`;
     }
+  }
 
-    const parts = args.trim().split(/\s+/);
-    const filePath = parts[0];
-    const functionName = parts[1];
-
-    let prompt = `Please read "${filePath}" and generate comprehensive tests.`;
-    if (functionName) {
-      prompt += ` Focus on testing the "${functionName}" function/method.`;
-    }
-
-    // Add framework context
-    if (context.projectInfo) {
-      const { type, framework } = context.projectInfo;
-      if (type === 'node') {
-        prompt += `\n\nThis is a ${framework || 'Node.js'} project. Use appropriate testing frameworks (Jest, Vitest, or Mocha).`;
-      } else if (type === 'python') {
-        prompt += `\n\nThis is a Python project. Use pytest for testing.`;
-      }
-    }
-
-    prompt += `\n\nInclude:
+  prompt += `\n\nInclude:
 1. Unit tests for individual functions
 2. Edge cases and error conditions
 3. Happy path scenarios
@@ -112,26 +94,19 @@ export const testCommand: Command = {
 
 Create the test file and write the tests.`;
 
-    return prompt;
-  },
-};
+  return prompt;
+}
 
-export const docCommand: Command = {
-  name: 'doc',
-  aliases: ['d'],
-  description: 'Generate documentation for code',
-  usage: '/doc <file_path_or_pattern>',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path: /doc <file_path>';
-    }
+function docPrompt(args: string, _context: CommandContext): string {
+  if (!args.trim()) {
+    return 'Please provide a file path: /code doc <file_path>';
+  }
 
-    const filePath = args.trim();
-    const isGlobPattern = filePath.includes('*');
+  const filePath = args.trim();
+  const isGlobPattern = filePath.includes('*');
 
-    if (isGlobPattern) {
-      return `Add JSDoc documentation to files matching "${filePath}".
+  if (isGlobPattern) {
+    return `Add JSDoc documentation to files matching "${filePath}".
 
 Steps:
 1. Use glob: {"pattern": "${filePath}"}
@@ -143,9 +118,9 @@ For each file:
 3. Use write_file to save the complete documented file
 
 IMPORTANT: Use write_file with the COMPLETE file content including all original code plus your JSDoc comments.`;
-    }
+  }
 
-    return `Add JSDoc documentation to "${filePath}".
+  return `Add JSDoc documentation to "${filePath}".
 
 Steps:
 1. Use read_file: {"path": "${filePath}"} to see the current code
@@ -172,23 +147,16 @@ export interface Example {
 \`\`\`
 
 CRITICAL: Use write_file with path "${filePath}" and the COMPLETE file content (all original code with JSDoc comments added before each definition).`;
-  },
-};
+}
 
-export const optimizeCommand: Command = {
-  name: 'optimize',
-  aliases: ['opt'],
-  description: 'Optimize code for performance',
-  usage: '/optimize <file_path>',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path: /optimize <file_path>';
-    }
+function optimizePrompt(args: string, _context: CommandContext): string {
+  if (!args.trim()) {
+    return 'Please provide a file path: /code optimize <file_path>';
+  }
 
-    const filePath = args.trim();
+  const filePath = args.trim();
 
-    return `Optimize "${filePath}" for performance.
+  return `Optimize "${filePath}" for performance.
 
 Steps:
 1. Read the file using read_file
@@ -201,15 +169,96 @@ Steps:
 4. Briefly explain the improvements
 
 IMPORTANT: Use edit_file to apply changes. Do not just output code.`;
+}
+
+// Main /code command with subcommands
+export const codeCommand: Command = {
+  name: 'code',
+  aliases: ['c'],
+  description: 'Code action commands that modify files',
+  usage: '/code <action> <file_path> [args]',
+  taskType: 'code',
+  subcommands: ['refactor', 'fix', 'test', 'doc', 'optimize'],
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    const parts = args.trim().split(/\s+/);
+    const subcommand = parts[0]?.toLowerCase() || '';
+    const subArgs = parts.slice(1).join(' ');
+
+    switch (subcommand) {
+      case 'refactor':
+      case 'r':
+        return refactorPrompt(subArgs, context);
+
+      case 'fix':
+      case 'f':
+        return fixPrompt(subArgs, context);
+
+      case 'test':
+      case 't':
+        return testPrompt(subArgs, context);
+
+      case 'doc':
+      case 'd':
+        return docPrompt(subArgs, context);
+
+      case 'optimize':
+      case 'opt':
+        return optimizePrompt(subArgs, context);
+
+      default:
+        return `Unknown code action: "${subcommand}"
+
+Available actions:
+  /code refactor <file> [focus]  - Refactor code for quality
+  /code fix <file> <issue>       - Fix a bug or issue
+  /code test <file> [function]   - Generate tests
+  /code doc <file>               - Generate documentation
+  /code optimize <file>          - Optimize for performance
+
+Aliases: /c refactor, /c fix, etc.`;
+    }
   },
 };
 
-// Register all code commands (action-taking commands that modify files)
-// For prompt-only commands, see prompt-commands.ts
+// Standalone aliases for common commands
+export const refactorAlias: Command = {
+  name: 'refactor',
+  aliases: ['r'],
+  description: 'Alias for /code refactor',
+  usage: '/refactor <file_path> [focus_area]',
+  taskType: 'code',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    return refactorPrompt(args, context);
+  },
+};
+
+export const fixAlias: Command = {
+  name: 'fix',
+  aliases: ['f'],
+  description: 'Alias for /code fix',
+  usage: '/fix <file_path> <issue_description>',
+  taskType: 'code',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    return fixPrompt(args, context);
+  },
+};
+
+export const testAlias: Command = {
+  name: 'test',
+  aliases: ['t'],
+  description: 'Alias for /code test',
+  usage: '/test <file_path> [function_name]',
+  taskType: 'code',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    return testPrompt(args, context);
+  },
+};
+
+// Register all code commands
 export function registerCodeCommands(): void {
-  registerCommand(refactorCommand);
-  registerCommand(fixCommand);
-  registerCommand(testCommand);
-  registerCommand(docCommand);
-  registerCommand(optimizeCommand);
+  registerCommand(codeCommand);
+  // Register standalone aliases for convenience
+  registerCommand(refactorAlias);
+  registerCommand(fixAlias);
+  registerCommand(testAlias);
 }
