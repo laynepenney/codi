@@ -44,6 +44,39 @@ describe('json-parser', () => {
       const fixed = tryFixJson(input);
       expect(fixed).toContain('""');
     });
+
+    it('escapes raw newlines inside strings', () => {
+      const input = '{"command": "line1\nline2"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"command": "line1\\nline2"}');
+    });
+
+    it('escapes multiple raw newlines inside strings', () => {
+      const input = '{"notes": "What\'s New\n\nVideo Upload:\n- Added feature"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toContain('\\n\\n');
+      expect(fixed).not.toContain('\n');
+    });
+
+    it('preserves newlines outside of strings', () => {
+      const input = '{\n  "key": "value"\n}';
+      const fixed = tryFixJson(input);
+      // Newlines outside strings should be preserved
+      expect(fixed).toBe('{\n  "key": "value"\n}');
+    });
+
+    it('handles CRLF in strings', () => {
+      const input = '{"text": "line1\r\nline2"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"text": "line1\\nline2"}');
+    });
+
+    it('handles already escaped newlines', () => {
+      const input = '{"text": "line1\\nline2"}';
+      const fixed = tryFixJson(input);
+      // Already escaped should remain escaped (not double-escaped)
+      expect(fixed).toBe('{"text": "line1\\nline2"}');
+    });
   });
 
   describe('tryParseJson', () => {
@@ -86,6 +119,21 @@ describe('json-parser', () => {
     it('handles null and boolean values', () => {
       const result = tryParseJson('{"a": null, "b": true, "c": false}');
       expect(result).toEqual({ a: null, b: true, c: false });
+    });
+
+    it('parses JSON with raw newlines inside strings after fixing', () => {
+      const input = '{"command": "gh release create --notes \\"What\'s New\n\n- Feature 1\n- Feature 2\\""}';
+      const result = tryParseJson(input);
+      expect(result).not.toBeNull();
+      expect((result as Record<string, string>).command).toContain("What's New");
+    });
+
+    it('parses bash command with escaped newlines', () => {
+      // Input has escaped \n which JSON interprets as actual newline
+      const input = '{"command": "echo \\"line1\\nline2\\""}';
+      const result = tryParseJson(input);
+      // After JSON parsing, \\n becomes actual newline character
+      expect(result).toEqual({ command: 'echo "line1\nline2"' });
     });
   });
 
