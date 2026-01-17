@@ -131,15 +131,25 @@ codi --provider runpod --endpoint-id your-endpoint-id
 ## Commands
 
 <details>
-<summary><strong>📝 Code Assistance</strong></summary>
+<summary><strong>📝 Information Prompts</strong></summary>
 
 | Command | Description |
 |---------|-------------|
-| `/explain <file> [function]` | Explain code in a file or specific function |
+| `/prompt explain <file>` | Explain code in a file |
+| `/prompt review <file>` | Code review for a file |
+| `/prompt analyze <file>` | Analyze code structure |
+| `/prompt summarize <file>` | Summarize code purpose |
+
+</details>
+
+<details>
+<summary><strong>🛠️ Code Actions</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `/refactor <file> [focus]` | Suggest refactoring improvements |
 | `/fix <file> <issue>` | Fix a specific bug or issue |
 | `/test <file> [function]` | Generate tests for code |
-| `/review <file>` | Perform a comprehensive code review |
 | `/doc <file>` | Generate documentation |
 | `/optimize <file>` | Optimize code for performance |
 
@@ -220,15 +230,27 @@ codi --provider runpod --endpoint-id your-endpoint-id
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `/symbols rebuild [--deep] [--jobs N]` | `/sym`, `/index` | Rebuild the symbol index |
+| `/symbols rebuild` | `/sym`, `/index` | Rebuild the symbol index |
 | `/symbols update` | - | Incremental update of changed files |
 | `/symbols stats` | - | Show index statistics |
 | `/symbols search <name>` | - | Search for symbols by name |
 | `/symbols clear` | - | Clear the index |
 
-The symbol index enables IDE-like code navigation for the AI:
-- **Deep mode** (`--deep`): Tracks usage-based dependencies across files
-- **Parallel processing** (`--jobs N`): Speed up indexing with multiple workers
+The symbol index enables IDE-like code navigation for the AI.
+
+</details>
+
+<details>
+<summary><strong>📦 Context Management</strong></summary>
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/compact` | `/compress` | Show context status |
+| `/compact summarize` | - | Summarize older messages to reduce context |
+| `/compact compress [on\|off]` | - | Toggle entity-based compression |
+| `/revert-file` | `/rf`, `/fileundo` | Undo the last file change |
+| `/filehistory` | `/fh` | Show file change history |
+| `/redo` | - | Redo an undone change |
 
 </details>
 
@@ -278,7 +300,7 @@ Dangerous operations trigger confirmation prompts:
 
 **Diff Preview**: See exactly what will change before approving file modifications.
 
-**Undo System**: Use `/fileundo` to revert any file change.
+**Undo System**: Use `/revert-file` to undo any file change.
 
 ---
 
@@ -419,19 +441,9 @@ export const myCommand = {
 registerCommand(myCommand);
 ```
 
-### Plugins
+### Plugins (Coming Soon)
 
-Create plugins in `~/.codi/plugins/`:
-
-```javascript
-// ~/.codi/plugins/my-plugin/index.js
-export default {
-  name: 'my-plugin',
-  version: '1.0.0',
-  commands: [/* custom commands */],
-  tools: [/* custom tools */],
-};
-```
+Plugin support is temporarily disabled while we improve the architecture. The plugin system will allow custom commands, tools, and providers via `~/.codi/plugins/`.
 
 ---
 
