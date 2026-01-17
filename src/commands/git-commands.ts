@@ -596,6 +596,17 @@ export const prAlias: Command = {
   },
 };
 
+export const logAlias: Command = {
+  name: 'log',
+  aliases: ['history'],
+  description: 'Alias for /git log',
+  usage: '/log [target]',
+  taskType: 'fast',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    return logPrompt(args, context);
+  },
+};
+
 // Register all git commands
 export function registerGitCommands(): void {
   registerCommand(gitCommand);
@@ -603,4 +614,5 @@ export function registerGitCommands(): void {
   registerCommand(commitAlias);
   registerCommand(branchAlias);
   registerCommand(prAlias);
+  registerCommand(logAlias);
 }
