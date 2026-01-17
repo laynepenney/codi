@@ -1,206 +1,20 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import {
-  createPasteDebounceHandler,
   createPasteInterceptor,
-  processBracketedPaste,
+  consumePendingPaste,
+  hasPendingPaste,
   PASTE_START,
   PASTE_END,
 } from '../src/paste-debounce';
 
-describe('paste debounce handler', () => {
-  it('combines rapid successive lines into one multiline input', () => {
-    const handleInput = vi.fn();
-    let closed = false;
-
-    const timeouts: Array<() => void> = [];
-    const setTimeoutFn = ((cb: () => void) => {
-      timeouts.push(cb);
-      return timeouts.length as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
-
-    const clearTimeoutFn = vi.fn();
-
-    const onLine = createPasteDebounceHandler({
-      handleInput,
-      rlClosed: () => closed,
-      setTimeoutFn,
-      clearTimeoutFn: clearTimeoutFn as unknown as typeof clearTimeout,
-      debounceMs: 50,
-    });
-
-    onLine('a');
-    onLine('b');
-    onLine('c');
-
-    expect(handleInput).not.toHaveBeenCalled();
-
-    // simulate debounce firing once
-    const last = timeouts[timeouts.length - 1];
-    last();
-
-    expect(handleInput).toHaveBeenCalledTimes(1);
-    expect(handleInput).toHaveBeenCalledWith('a\nb\nc');
-  });
-
-  it('does nothing if readline is closed', () => {
-    const handleInput = vi.fn();
-    const onLine = createPasteDebounceHandler({
-      handleInput,
-      rlClosed: () => true,
-      debounceMs: 50,
-    });
-
-    onLine('hello');
-    expect(handleInput).not.toHaveBeenCalled();
-  });
-});
-
-describe('processBracketedPaste', () => {
-  it('detects paste start marker', () => {
-    const result = processBracketedPaste(`${PASTE_START}hello`, false);
-    expect(result.cleanedInput).toBe('hello');
-    expect(result.inPaste).toBe(true);
-    expect(result.pasteEnded).toBe(false);
-  });
-
-  it('detects paste end marker', () => {
-    const result = processBracketedPaste(`world${PASTE_END}`, true);
-    expect(result.cleanedInput).toBe('world');
-    expect(result.inPaste).toBe(false);
-    expect(result.pasteEnded).toBe(true);
-  });
-
-  it('handles both markers in one line', () => {
-    const result = processBracketedPaste(`${PASTE_START}single line${PASTE_END}`, false);
-    expect(result.cleanedInput).toBe('single line');
-    expect(result.inPaste).toBe(false);
-    expect(result.pasteEnded).toBe(true);
-  });
-
-  it('passes through normal input without markers', () => {
-    const result = processBracketedPaste('normal input', false);
-    expect(result.cleanedInput).toBe('normal input');
-    expect(result.inPaste).toBe(false);
-    expect(result.pasteEnded).toBe(false);
-  });
-
-  it('preserves inPaste state when no markers present', () => {
-    const result = processBracketedPaste('middle line', true);
-    expect(result.cleanedInput).toBe('middle line');
-    expect(result.inPaste).toBe(true);
-    expect(result.pasteEnded).toBe(false);
-  });
-});
-
-describe('bracketed paste mode', () => {
-  it('immediately processes input when paste end marker is received', () => {
-    const handleInput = vi.fn();
-    const timeouts: Array<() => void> = [];
-    const setTimeoutFn = ((cb: () => void) => {
-      timeouts.push(cb);
-      return timeouts.length as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
-    const clearTimeoutFn = vi.fn();
-
-    const onLine = createPasteDebounceHandler({
-      handleInput,
-      rlClosed: () => false,
-      setTimeoutFn,
-      clearTimeoutFn: clearTimeoutFn as unknown as typeof clearTimeout,
-      debounceMs: 50,
-    });
-
-    // Simulate bracketed paste: start marker, lines, end marker
-    onLine(`${PASTE_START}line1`);
-    onLine('line2');
-    onLine(`line3${PASTE_END}`);
-
-    // Should have been called immediately without waiting for timeout
-    expect(handleInput).toHaveBeenCalledTimes(1);
-    expect(handleInput).toHaveBeenCalledWith('line1\nline2\nline3');
-  });
-
-  it('buffers lines during bracketed paste without setting timeout', () => {
-    const handleInput = vi.fn();
-    const timeouts: Array<() => void> = [];
-    const setTimeoutFn = ((cb: () => void) => {
-      timeouts.push(cb);
-      return timeouts.length as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
-    const clearTimeoutFn = vi.fn();
-
-    const onLine = createPasteDebounceHandler({
-      handleInput,
-      rlClosed: () => false,
-      setTimeoutFn,
-      clearTimeoutFn: clearTimeoutFn as unknown as typeof clearTimeout,
-      debounceMs: 50,
-    });
-
-    // Start paste but don't end it
-    onLine(`${PASTE_START}line1`);
-    onLine('line2');
-
-    // No timeout should have been set (paste is ongoing)
-    expect(handleInput).not.toHaveBeenCalled();
-    // The timeout from the first line should have been cleared
-    // when the second line came in, but no new timeout set because we're in paste mode
-  });
-
-  it('handles single-line bracketed paste', () => {
-    const handleInput = vi.fn();
-    const setTimeoutFn = vi.fn();
-    const clearTimeoutFn = vi.fn();
-
-    const onLine = createPasteDebounceHandler({
-      handleInput,
-      rlClosed: () => false,
-      setTimeoutFn: setTimeoutFn as unknown as typeof setTimeout,
-      clearTimeoutFn: clearTimeoutFn as unknown as typeof clearTimeout,
-      debounceMs: 50,
-    });
-
-    // Single line with both markers
-    onLine(`${PASTE_START}quick paste${PASTE_END}`);
-
-    expect(handleInput).toHaveBeenCalledTimes(1);
-    expect(handleInput).toHaveBeenCalledWith('quick paste');
-    // No timeout should be needed
-    expect(setTimeoutFn).not.toHaveBeenCalled();
-  });
-
-  it('falls back to debounce for non-bracketed paste', () => {
-    const handleInput = vi.fn();
-    const timeouts: Array<() => void> = [];
-    const setTimeoutFn = ((cb: () => void) => {
-      timeouts.push(cb);
-      return timeouts.length as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
-    const clearTimeoutFn = vi.fn();
-
-    const onLine = createPasteDebounceHandler({
-      handleInput,
-      rlClosed: () => false,
-      setTimeoutFn,
-      clearTimeoutFn: clearTimeoutFn as unknown as typeof clearTimeout,
-      debounceMs: 50,
-    });
-
-    // No paste markers - should use debounce
-    onLine('line1');
-    onLine('line2');
-
-    expect(handleInput).not.toHaveBeenCalled();
-    expect(timeouts.length).toBeGreaterThan(0);
-
-    // Fire the last timeout
-    timeouts[timeouts.length - 1]();
-    expect(handleInput).toHaveBeenCalledWith('line1\nline2');
-  });
+// Reset pending paste state before each test
+beforeEach(() => {
+  // Consume any pending paste to reset state
+  consumePendingPaste();
 });
 
 describe('createPasteInterceptor', () => {
@@ -257,7 +71,7 @@ describe('createPasteInterceptor', () => {
     Object.defineProperty(process.stdin, 'setRawMode', { value: originalSetRawMode, configurable: true });
   });
 
-  it('passes data through the transform stream', async () => {
+  it('passes normal data through unchanged', async () => {
     const interceptor = createPasteInterceptor();
     const chunks: string[] = [];
 
@@ -265,7 +79,7 @@ describe('createPasteInterceptor', () => {
       chunks.push(chunk.toString());
     });
 
-    // Write some data
+    // Write some data without paste markers
     interceptor.write('hello world');
     interceptor.end();
 
@@ -273,11 +87,16 @@ describe('createPasteInterceptor', () => {
     await new Promise<void>(resolve => interceptor.on('finish', resolve));
 
     expect(chunks.join('')).toBe('hello world');
+    expect(hasPendingPaste()).toBe(false);
   });
 
-  it('strips paste markers while passing other data through', async () => {
+  it('captures paste content and emits newline', async () => {
     const interceptor = createPasteInterceptor();
     const chunks: string[] = [];
+
+    // Mock stdout.write to suppress the "[pasted N chars]" message
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
 
     interceptor.on('data', (chunk: Buffer) => {
       chunks.push(chunk.toString());
@@ -290,6 +109,121 @@ describe('createPasteInterceptor', () => {
     // Wait for stream to finish
     await new Promise<void>(resolve => interceptor.on('finish', resolve));
 
-    expect(chunks.join('')).toBe('pasted content');
+    // Should emit a newline (to trigger readline's line event)
+    expect(chunks.join('')).toBe('\n');
+
+    // Paste content should be stored for consumption
+    expect(hasPendingPaste()).toBe(true);
+    expect(consumePendingPaste()).toBe('pasted content');
+    expect(hasPendingPaste()).toBe(false);
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
+  });
+
+  it('captures multi-line paste content', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    // Mock stdout.write to suppress the "[pasted N chars]" message
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Write multi-line paste
+    interceptor.write(`${PASTE_START}line1\nline2\nline3${PASTE_END}`);
+    interceptor.end();
+
+    // Wait for stream to finish
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    // Paste content should be stored
+    expect(consumePendingPaste()).toBe('line1\nline2\nline3');
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
+  });
+
+  it('handles paste markers split across chunks', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    // Mock stdout.write
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Write paste markers in separate chunks
+    interceptor.write(PASTE_START);
+    interceptor.write('content');
+    interceptor.write(PASTE_END);
+    interceptor.end();
+
+    // Wait for stream to finish
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    expect(consumePendingPaste()).toBe('content');
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
+  });
+
+  it('passes through content before and after paste', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    // Mock stdout.write
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Write with content before and after paste
+    interceptor.write(`before${PASTE_START}pasted${PASTE_END}after`);
+    interceptor.end();
+
+    // Wait for stream to finish
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    // "before" should pass through, then newline for paste, then "after"
+    expect(chunks.join('')).toBe('before\nafter');
+    expect(consumePendingPaste()).toBe('pasted');
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
+  });
+});
+
+describe('consumePendingPaste', () => {
+  it('returns null when no paste pending', () => {
+    expect(consumePendingPaste()).toBe(null);
+  });
+
+  it('clears pending paste after consumption', async () => {
+    const interceptor = createPasteInterceptor();
+
+    // Mock stdout.write
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.write(`${PASTE_START}content${PASTE_END}`);
+    interceptor.end();
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    expect(hasPendingPaste()).toBe(true);
+    expect(consumePendingPaste()).toBe('content');
+    expect(hasPendingPaste()).toBe(false);
+    expect(consumePendingPaste()).toBe(null);
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
   });
 });

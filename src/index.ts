@@ -4,11 +4,10 @@
 
 import { createInterface, type Interface } from 'readline';
 import {
-  createPasteDebounceHandler,
   createPasteInterceptor,
   enableBracketedPaste,
   disableBracketedPaste,
-  DEFAULT_PASTE_DEBOUNCE_MS,
+  consumePendingPaste,
 } from './paste-debounce.js';
 import { program } from 'commander';
 import chalk from 'chalk';
@@ -3293,17 +3292,22 @@ async function main() {
 
   // Paste detection via debouncing
   // When lines arrive rapidly (within debounce window), they're buffered
-  // and processed as a single multiline input
-  // Can be overridden via CODI_PASTE_DEBOUNCE_MS environment variable
-  const PASTE_DEBOUNCE_MS = parseInt(process.env.CODI_PASTE_DEBOUNCE_MS || '', 10) || DEFAULT_PASTE_DEBOUNCE_MS;
+  // Line handler that checks for pasted content
+  const onLine = (line: string) => {
+    if (rlClosed) return;
 
-  const onLine = createPasteDebounceHandler({
-    handleInput,
-    rlClosed: () => rlClosed,
-    debounceMs: PASTE_DEBOUNCE_MS,
-  });
+    // Check if there's pending paste content (captured by PasteInterceptor)
+    const pastedContent = consumePendingPaste();
+    if (pastedContent !== null) {
+      // Use the full paste content instead of the empty line
+      handleInput(pastedContent);
+    } else {
+      // Normal typed input
+      handleInput(line);
+    }
+  };
 
-  // Set up line handler for REPL with paste detection
+  // Set up line handler for REPL
   rl.on('line', onLine);
 
   console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
