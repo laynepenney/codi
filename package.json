@@ -2,7 +2,16 @@
   "name": "codi",
   "version": "0.8.5",
   "description": "Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models",
+  "author": "Layne Penney",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/laynepenney/codi.git"
+  },
+  "homepage": "https://github.com/laynepenney/codi",
+  "bugs": {
+    "url": "https://github.com/laynepenney/codi/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "engines": {

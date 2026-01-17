@@ -13,7 +13,7 @@ We welcome contributions! Whether you're fixing bugs, adding features, or improv
 
 ```bash
 # Clone and enter the repo
-git clone https://github.com/yourusername/codi.git
+git clone https://github.com/laynepenney/codi.git
 cd codi
 
 # Enable pnpm via Corepack

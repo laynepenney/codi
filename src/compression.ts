@@ -167,7 +167,7 @@ export function extractEntities(messages: Message[]): Map<string, Entity> {
           entityCounts.set(value, {
             type,
             count,
-            firstSeen: 0, // TODO: track actual message index
+            firstSeen: 0, // Index tracking not needed for compression decisions
           });
         }
       }
