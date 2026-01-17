@@ -3,16 +3,10 @@
 
 import { describe, expect, it, beforeAll } from 'vitest';
 import {
-  commitCommand,
-  branchCommand,
-  diffCommand,
-  prCommand,
-  stashCommand,
-  logCommand,
-  statusCommand,
-  undoCommand,
-  mergeCommand,
-  rebaseCommand,
+  gitCommand,
+  commitAlias,
+  branchAlias,
+  prAlias,
   registerGitCommands,
 } from '../src/commands/git-commands';
 import { getCommand, getAllCommands } from '../src/commands/index';
@@ -34,41 +28,43 @@ describe('Git Commands', () => {
   });
 
   describe('registerGitCommands', () => {
-    it('registers all git commands', () => {
+    it('registers git command and aliases', () => {
       const commands = getAllCommands();
       const names = commands.map((c) => c.name);
 
+      expect(names).toContain('git');
       expect(names).toContain('commit');
       expect(names).toContain('branch');
-      expect(names).toContain('diff');
       expect(names).toContain('pr');
-      expect(names).toContain('stash');
-      expect(names).toContain('log');
-      expect(names).toContain('gitstatus');
-      expect(names).toContain('undo');
-      expect(names).toContain('merge');
-      expect(names).toContain('rebase');
     });
 
     it('registers aliases correctly', () => {
+      expect(getCommand('g')).toBe(getCommand('git'));
       expect(getCommand('ci')).toBe(getCommand('commit'));
       expect(getCommand('br')).toBe(getCommand('branch'));
-      expect(getCommand('gs')).toBe(getCommand('gitstatus'));
-      expect(getCommand('history')).toBe(getCommand('log'));
       expect(getCommand('pull-request')).toBe(getCommand('pr'));
-      expect(getCommand('revert')).toBe(getCommand('undo'));
     });
   });
 
-  describe('commitCommand', () => {
+  describe('gitCommand', () => {
     it('has correct metadata', () => {
-      expect(commitCommand.name).toBe('commit');
-      expect(commitCommand.aliases).toContain('ci');
-      expect(commitCommand.description).toContain('commit');
+      expect(gitCommand.name).toBe('git');
+      expect(gitCommand.aliases).toContain('g');
+      expect(gitCommand.subcommands).toContain('commit');
+      expect(gitCommand.subcommands).toContain('branch');
     });
 
+    it('shows help for unknown subcommand', async () => {
+      const result = await gitCommand.execute('', mockContext);
+      expect(result).toContain('Available actions');
+      expect(result).toContain('commit');
+      expect(result).toContain('branch');
+    });
+  });
+
+  describe('git commit', () => {
     it('generates prompt for basic commit', async () => {
-      const result = await commitCommand.execute('', mockContext);
+      const result = await gitCommand.execute('commit', mockContext);
       expect(result).toContain('git commit');
       expect(result).toContain('git status');
       expect(result).toContain('git diff');
@@ -76,270 +72,268 @@ describe('Git Commands', () => {
     });
 
     it('includes commit type when specified', async () => {
-      const result = await commitCommand.execute('feat', mockContext);
+      const result = await gitCommand.execute('commit feat', mockContext);
       expect(result).toContain('feat');
       expect(result).toContain('A new feature');
     });
 
     it('handles fix commit type', async () => {
-      const result = await commitCommand.execute('fix', mockContext);
+      const result = await gitCommand.execute('commit fix', mockContext);
       expect(result).toContain('fix');
       expect(result).toContain('bug fix');
     });
   });
 
-  describe('branchCommand', () => {
+  describe('commitAlias', () => {
     it('has correct metadata', () => {
-      expect(branchCommand.name).toBe('branch');
-      expect(branchCommand.aliases).toContain('br');
+      expect(commitAlias.name).toBe('commit');
+      expect(commitAlias.aliases).toContain('ci');
     });
 
+    it('generates same output as git commit', async () => {
+      const aliasResult = await commitAlias.execute('feat', mockContext);
+      const gitResult = await gitCommand.execute('commit feat', mockContext);
+      expect(aliasResult).toBe(gitResult);
+    });
+  });
+
+  describe('git branch', () => {
     it('defaults to list action', async () => {
-      const result = await branchCommand.execute('', mockContext);
+      const result = await gitCommand.execute('branch', mockContext);
       expect(result).toContain('git branch');
       expect(result.toLowerCase()).toContain('list');
     });
 
     it('handles create action', async () => {
-      const result = await branchCommand.execute('create feature/test', mockContext);
+      const result = await gitCommand.execute('branch create feature/test', mockContext);
       expect(result).toContain('Create');
       expect(result).toContain('feature/test');
     });
 
     it('handles switch action', async () => {
-      const result = await branchCommand.execute('switch main', mockContext);
+      const result = await gitCommand.execute('branch switch main', mockContext);
       expect(result).toContain('Switch');
       expect(result).toContain('main');
     });
 
     it('handles delete action', async () => {
-      const result = await branchCommand.execute('delete old-branch', mockContext);
+      const result = await gitCommand.execute('branch delete old-branch', mockContext);
       expect(result).toContain('Delete');
       expect(result).toContain('old-branch');
     });
 
     it('handles rename action', async () => {
-      const result = await branchCommand.execute('rename new-name', mockContext);
+      const result = await gitCommand.execute('branch rename new-name', mockContext);
       expect(result).toContain('Rename');
       expect(result).toContain('new-name');
     });
 
     it('treats unknown action as branch name to switch to', async () => {
-      const result = await branchCommand.execute('feature-x', mockContext);
+      const result = await gitCommand.execute('branch feature-x', mockContext);
       expect(result).toContain('Switch');
       expect(result).toContain('feature-x');
     });
   });
 
-  describe('diffCommand', () => {
+  describe('branchAlias', () => {
     it('has correct metadata', () => {
-      expect(diffCommand.name).toBe('diff');
+      expect(branchAlias.name).toBe('branch');
+      expect(branchAlias.aliases).toContain('br');
     });
 
+    it('generates same output as git branch', async () => {
+      const aliasResult = await branchAlias.execute('create test', mockContext);
+      const gitResult = await gitCommand.execute('branch create test', mockContext);
+      expect(aliasResult).toBe(gitResult);
+    });
+  });
+
+  describe('git diff', () => {
     it('shows all diffs when no target specified', async () => {
-      const result = await diffCommand.execute('', mockContext);
+      const result = await gitCommand.execute('diff', mockContext);
       expect(result).toContain('git diff');
       expect(result).toContain('git diff --cached');
     });
 
     it('handles file path target', async () => {
-      const result = await diffCommand.execute('src/index.ts', mockContext);
+      const result = await gitCommand.execute('diff src/index.ts', mockContext);
       expect(result).toContain('src/index.ts');
     });
 
     it('handles branch/commit target', async () => {
-      const result = await diffCommand.execute('main', mockContext);
+      const result = await gitCommand.execute('diff main', mockContext);
       expect(result).toContain('main');
       expect(result).toContain('differences');
     });
   });
 
-  describe('prCommand', () => {
-    it('has correct metadata', () => {
-      expect(prCommand.name).toBe('pr');
-      expect(prCommand.aliases).toContain('pull-request');
-    });
-
+  describe('git pr', () => {
     it('defaults to main base branch', async () => {
-      const result = await prCommand.execute('', mockContext);
+      const result = await gitCommand.execute('pr', mockContext);
       expect(result).toContain('main');
       expect(result).toContain('pull request');
     });
 
     it('uses specified base branch', async () => {
-      const result = await prCommand.execute('develop', mockContext);
+      const result = await gitCommand.execute('pr develop', mockContext);
       expect(result).toContain('develop');
     });
 
     it('includes PR template structure', async () => {
-      const result = await prCommand.execute('', mockContext);
+      const result = await gitCommand.execute('pr', mockContext);
       expect(result).toContain('Summary');
       expect(result).toContain('Changes');
       expect(result).toContain('Testing');
     });
   });
 
-  describe('stashCommand', () => {
+  describe('prAlias', () => {
     it('has correct metadata', () => {
-      expect(stashCommand.name).toBe('stash');
+      expect(prAlias.name).toBe('pr');
+      expect(prAlias.aliases).toContain('pull-request');
     });
 
+    it('generates same output as git pr', async () => {
+      const aliasResult = await prAlias.execute('develop', mockContext);
+      const gitResult = await gitCommand.execute('pr develop', mockContext);
+      expect(aliasResult).toBe(gitResult);
+    });
+  });
+
+  describe('git stash', () => {
     it('defaults to save action', async () => {
-      const result = await stashCommand.execute('', mockContext);
+      const result = await gitCommand.execute('stash', mockContext);
       expect(result).toContain('Stash');
       expect(result).toContain('git stash');
     });
 
     it('handles list action', async () => {
-      const result = await stashCommand.execute('list', mockContext);
+      const result = await gitCommand.execute('stash list', mockContext);
       expect(result).toContain('git stash list');
     });
 
     it('handles pop action', async () => {
-      const result = await stashCommand.execute('pop', mockContext);
+      const result = await gitCommand.execute('stash pop', mockContext);
       expect(result).toContain('git stash pop');
     });
 
     it('handles apply action', async () => {
-      const result = await stashCommand.execute('apply stash@{0}', mockContext);
+      const result = await gitCommand.execute('stash apply stash@{0}', mockContext);
       expect(result).toContain('git stash apply');
     });
 
     it('handles drop action', async () => {
-      const result = await stashCommand.execute('drop', mockContext);
+      const result = await gitCommand.execute('stash drop', mockContext);
       expect(result).toContain('git stash drop');
     });
 
     it('handles clear action with warning', async () => {
-      const result = await stashCommand.execute('clear', mockContext);
+      const result = await gitCommand.execute('stash clear', mockContext);
       expect(result).toContain('WARNING');
       expect(result).toContain('git stash clear');
     });
 
     it('handles save with message', async () => {
-      const result = await stashCommand.execute('save WIP feature', mockContext);
+      const result = await gitCommand.execute('stash save WIP feature', mockContext);
       expect(result).toContain('WIP feature');
     });
   });
 
-  describe('logCommand', () => {
-    it('has correct metadata', () => {
-      expect(logCommand.name).toBe('log');
-      expect(logCommand.aliases).toContain('history');
-    });
-
+  describe('git log', () => {
     it('shows recent history when no target', async () => {
-      const result = await logCommand.execute('', mockContext);
+      const result = await gitCommand.execute('log', mockContext);
       expect(result).toContain('git log');
     });
 
     it('handles file path target', async () => {
-      const result = await logCommand.execute('src/index.ts', mockContext);
+      const result = await gitCommand.execute('log src/index.ts', mockContext);
       expect(result).toContain('src/index.ts');
       expect(result).toContain('history');
     });
 
     it('handles branch target', async () => {
-      const result = await logCommand.execute('feature-branch', mockContext);
+      const result = await gitCommand.execute('log feature-branch', mockContext);
       expect(result).toContain('feature-branch');
     });
   });
 
-  describe('statusCommand (gitstatus)', () => {
-    it('has correct metadata', () => {
-      expect(statusCommand.name).toBe('gitstatus');
-      expect(statusCommand.aliases).toContain('gs');
-    });
-
+  describe('git status', () => {
     it('generates comprehensive status prompt', async () => {
-      const result = await statusCommand.execute('', mockContext);
+      const result = await gitCommand.execute('status', mockContext);
       expect(result).toContain('git status');
       expect(result).toContain('git branch');
       expect(result).toContain('git stash list');
     });
   });
 
-  describe('undoCommand', () => {
-    it('has correct metadata', () => {
-      expect(undoCommand.name).toBe('undo');
-      expect(undoCommand.aliases).toContain('revert');
-    });
-
+  describe('git undo', () => {
     it('shows options when no target', async () => {
-      const result = await undoCommand.execute('', mockContext);
+      const result = await gitCommand.execute('undo', mockContext);
       expect(result).toContain('last commit');
       expect(result).toContain('staged');
       expect(result).toContain('changes');
     });
 
     it('handles last commit', async () => {
-      const result = await undoCommand.execute('last commit', mockContext);
+      const result = await gitCommand.execute('undo last commit', mockContext);
       expect(result).toContain('git reset');
       expect(result).toContain('HEAD~1');
     });
 
     it('handles staged', async () => {
-      const result = await undoCommand.execute('staged', mockContext);
+      const result = await gitCommand.execute('undo staged', mockContext);
       expect(result).toContain('Unstage');
       expect(result).toContain('git reset');
     });
 
     it('handles changes with warning', async () => {
-      const result = await undoCommand.execute('changes', mockContext);
+      const result = await gitCommand.execute('undo changes', mockContext);
       expect(result).toContain('WARNING');
       expect(result).toContain('DESTRUCTIVE');
     });
 
     it('handles merge', async () => {
-      const result = await undoCommand.execute('merge', mockContext);
+      const result = await gitCommand.execute('undo merge', mockContext);
       expect(result).toContain('git merge --abort');
     });
 
     it('handles file undo', async () => {
-      const result = await undoCommand.execute('file src/index.ts', mockContext);
+      const result = await gitCommand.execute('undo file src/index.ts', mockContext);
       expect(result).toContain('src/index.ts');
       expect(result).toContain('git checkout');
     });
   });
 
-  describe('mergeCommand', () => {
-    it('has correct metadata', () => {
-      expect(mergeCommand.name).toBe('merge');
-    });
-
+  describe('git merge', () => {
     it('asks for branch when not specified', async () => {
-      const result = await mergeCommand.execute('', mockContext);
+      const result = await gitCommand.execute('merge', mockContext);
       expect(result).toContain('git branch');
       expect(result).toContain('which branch');
     });
 
     it('generates merge prompt for specified branch', async () => {
-      const result = await mergeCommand.execute('feature-branch', mockContext);
+      const result = await gitCommand.execute('merge feature-branch', mockContext);
       expect(result).toContain('feature-branch');
       expect(result).toContain('git merge');
       expect(result).toContain('--no-ff');
     });
   });
 
-  describe('rebaseCommand', () => {
-    it('has correct metadata', () => {
-      expect(rebaseCommand.name).toBe('rebase');
-    });
-
+  describe('git rebase', () => {
     it('defaults to main branch', async () => {
-      const result = await rebaseCommand.execute('', mockContext);
+      const result = await gitCommand.execute('rebase', mockContext);
       expect(result).toContain('main');
       expect(result).toContain('rebase');
     });
 
     it('includes warning about history rewriting', async () => {
-      const result = await rebaseCommand.execute('develop', mockContext);
+      const result = await gitCommand.execute('rebase develop', mockContext);
       expect(result).toContain('WARNING');
       expect(result).toContain('rewrites history');
     });
 
     it('mentions force push requirement', async () => {
-      const result = await rebaseCommand.execute('main', mockContext);
+      const result = await gitCommand.execute('rebase main', mockContext);
       expect(result).toContain('force push');
       expect(result).toContain('--force-with-lease');
     });

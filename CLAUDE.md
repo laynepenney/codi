@@ -255,27 +255,29 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 
 **Status**: Complete
 
-**Implemented Commands** (in `src/commands/git-commands.ts`):
+All git commands are consolidated under `/git <subcommand>` with convenient aliases.
+
+**Main Command** (in `src/commands/git-commands.ts`):
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `/commit [type]` | `/ci` | Generate commit message with conventional commits format |
-| `/branch [action] [name]` | `/br` | Create, switch, list, delete, rename branches |
-| `/diff [target]` | - | Show and explain git differences |
-| `/pr [base]` | `/pull-request` | Generate PR description with title, summary, changes |
-| `/stash [action]` | - | Manage stash (save, list, pop, apply, drop, clear) |
-| `/log [target]` | `/history` | Show and explain git history |
-| `/gitstatus` | `/gs` | Detailed git status with explanations |
-| `/undo [what]` | `/revert` | Safely undo commits, staged changes, file changes |
-| `/merge <branch>` | - | Merge branches with conflict guidance |
-| `/rebase <branch>` | - | Rebase with safety warnings |
+| `/git commit [type]` | `/commit`, `/ci` | Generate commit message with conventional commits |
+| `/git branch [action] [name]` | `/branch`, `/br` | Create, switch, list, delete, rename branches |
+| `/git diff [target]` | - | Show and explain git differences |
+| `/git pr [base]` | `/pr` | Generate PR description |
+| `/git stash [action]` | - | Manage stash (save, list, pop, apply, drop, clear) |
+| `/git log [target]` | - | Show and explain git history |
+| `/git status` | - | Detailed git status with explanations |
+| `/git undo [what]` | - | Safely undo commits, staged changes, file changes |
+| `/git merge <branch>` | - | Merge branches with conflict guidance |
+| `/git rebase <branch>` | - | Rebase with safety warnings |
 
 **Key Features**:
-- Conventional commits support for `/commit` (feat, fix, docs, etc.)
+- Consolidated under `/git` prefix with subcommand structure
+- Standalone aliases for common commands: `/commit`, `/branch`, `/pr`
+- Conventional commits support (feat, fix, docs, etc.)
 - Branch actions: list, create, switch, delete, rename
-- Stash management with all common operations
 - Safe undo operations with appropriate warnings
-- PR description generation with structured template
 
 #### 2. Session Persistence - IMPLEMENTED
 
@@ -438,6 +440,31 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 
 **Files**:
 - `src/commands/prompt-commands.ts` - Command implementations
+
+#### 6b. Code Commands - IMPLEMENTED
+
+**Status**: Complete
+
+All code action commands are consolidated under `/code <subcommand>` with convenient aliases.
+
+**Implemented Commands** (in `src/commands/code-commands.ts`):
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/code refactor <file> [focus]` | `/refactor`, `/r` | Refactor code for quality |
+| `/code fix <file> <issue>` | `/fix`, `/f` | Fix a bug or issue |
+| `/code test <file> [function]` | `/test`, `/t` | Generate tests |
+| `/code doc <file>` | - | Generate JSDoc documentation |
+| `/code optimize <file>` | - | Optimize for performance |
+
+**Key Features**:
+- Consolidated under `/code` prefix with subcommand structure
+- Standalone aliases for common commands: `/refactor`, `/fix`, `/test`
+- All commands instruct AI to use edit_file/write_file tools
+- Project-aware (detects test framework, language, etc.)
+
+**Files**:
+- `src/commands/code-commands.ts` - Command implementations
 
 #### 7. Diff Preview Mode - IMPLEMENTED
 

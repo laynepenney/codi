@@ -145,31 +145,31 @@ codi --provider runpod --endpoint-id your-endpoint-id
 <details>
 <summary><strong>🛠️ Code Actions</strong></summary>
 
-| Command | Description |
-|---------|-------------|
-| `/refactor <file> [focus]` | Suggest refactoring improvements |
-| `/fix <file> <issue>` | Fix a specific bug or issue |
-| `/test <file> [function]` | Generate tests for code |
-| `/doc <file>` | Generate documentation |
-| `/optimize <file>` | Optimize code for performance |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/code refactor <file> [focus]` | `/refactor`, `/r` | Refactor code for quality |
+| `/code fix <file> <issue>` | `/fix`, `/f` | Fix a bug or issue |
+| `/code test <file> [function]` | `/test`, `/t` | Generate tests |
+| `/code doc <file>` | - | Generate documentation |
+| `/code optimize <file>` | - | Optimize for performance |
 
 </details>
 
 <details>
 <summary><strong>🔀 Git Integration</strong></summary>
 
-| Command | Description |
-|---------|-------------|
-| `/commit [type]` | Generate a commit message and create a commit |
-| `/branch [action] [name]` | Create, switch, list, or delete branches |
-| `/diff [target]` | Show and explain git differences |
-| `/pr [base]` | Generate a pull request description |
-| `/stash [action]` | Manage git stash (save, list, pop, apply, drop) |
-| `/log [target]` | Show and explain git history |
-| `/gitstatus` | Show detailed git status with explanations |
-| `/undo [what]` | Safely undo git changes |
-| `/merge <branch>` | Help merge branches with conflict guidance |
-| `/rebase <branch>` | Help rebase with safety warnings |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/git commit [type]` | `/commit`, `/ci` | Generate a commit message |
+| `/git branch [action] [name]` | `/branch`, `/br` | Manage branches |
+| `/git diff [target]` | - | Show and explain differences |
+| `/git pr [base]` | `/pr` | Generate a PR description |
+| `/git stash [action]` | - | Manage git stash |
+| `/git log [target]` | - | Show and explain history |
+| `/git status` | - | Show detailed status |
+| `/git undo [what]` | - | Safely undo changes |
+| `/git merge <branch>` | - | Merge with conflict guidance |
+| `/git rebase <branch>` | - | Rebase with safety warnings |
 
 </details>
 
