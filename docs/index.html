@@ -451,7 +451,7 @@ pnpm link --global</code></pre>
 
       <div class="quickstart-step">
         <h3>2. Configure your API key</h3>
-        <pre><code># For Claude (recommended)
+        <pre><code># For Claude
 export ANTHROPIC_API_KEY="your-key-here"
 
 # For OpenAI
@@ -469,8 +469,11 @@ codi
 # With OpenAI
 codi --provider openai
 
-# With Ollama
-codi --provider ollama --model llama3.2</code></pre>
+# With Ollama (local)
+codi --provider ollama --model llama3.2
+
+# With Ollama Cloud (hosted)
+codi --provider ollama-cloud --model llama3.2</code></pre>
       </div>
     </div>
   </section>
@@ -484,11 +487,15 @@ codi --provider ollama --model llama3.2</code></pre>
       </div>
       <div class="provider-card">
         <h3>OpenAI</h3>
-        <p>GPT-4o, GPT-4o Mini, o1, o3-mini</p>
+        <p>GPT-5, GPT-5 Nano, GPT-4o, o1, o3-mini</p>
       </div>
       <div class="provider-card">
         <h3>Ollama</h3>
         <p>Llama 3, DeepSeek, Qwen, CodeLlama</p>
+      </div>
+      <div class="provider-card">
+        <h3>Ollama Cloud</h3>
+        <p>Hosted Ollama with rate limiting</p>
       </div>
       <div class="provider-card">
         <h3>RunPod</h3>
@@ -527,20 +534,24 @@ codi --provider ollama --model llama3.2</code></pre>
         <h3>Code Actions</h3>
         <div class="command-list">
           <div class="command-item">
-            <code>/refactor &lt;file&gt;</code>
+            <code>/code refactor</code>
             <p>Suggest improvements</p>
           </div>
           <div class="command-item">
-            <code>/fix &lt;file&gt; &lt;issue&gt;</code>
+            <code>/code fix</code>
             <p>Fix a bug or issue</p>
           </div>
           <div class="command-item">
-            <code>/test &lt;file&gt;</code>
+            <code>/code test</code>
             <p>Generate tests</p>
           </div>
           <div class="command-item">
-            <code>/doc &lt;file&gt;</code>
+            <code>/code doc</code>
             <p>Generate docs</p>
+          </div>
+          <div class="command-item">
+            <code>/code optimize</code>
+            <p>Optimize performance</p>
           </div>
         </div>
       </div>
@@ -549,28 +560,44 @@ codi --provider ollama --model llama3.2</code></pre>
         <h3>Git Integration</h3>
         <div class="command-list">
           <div class="command-item">
-            <code>/commit</code>
+            <code>/git commit</code>
             <p>Generate commit message</p>
           </div>
           <div class="command-item">
-            <code>/pr</code>
+            <code>/git pr</code>
             <p>Generate PR description</p>
           </div>
           <div class="command-item">
-            <code>/diff</code>
+            <code>/git diff</code>
             <p>Explain git diff</p>
           </div>
           <div class="command-item">
-            <code>/branch</code>
+            <code>/git branch</code>
             <p>Manage branches</p>
           </div>
           <div class="command-item">
-            <code>/stash</code>
+            <code>/git stash</code>
             <p>Manage stash</p>
           </div>
           <div class="command-item">
-            <code>/undo</code>
+            <code>/git log</code>
+            <p>Show and explain history</p>
+          </div>
+          <div class="command-item">
+            <code>/git status</code>
+            <p>Show detailed status</p>
+          </div>
+          <div class="command-item">
+            <code>/git undo</code>
             <p>Undo git changes</p>
+          </div>
+          <div class="command-item">
+            <code>/git merge</code>
+            <p>Merge with guidance</p>
+          </div>
+          <div class="command-item">
+            <code>/git rebase</code>
+            <p>Rebase with warnings</p>
           </div>
         </div>
       </div>

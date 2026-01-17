@@ -23,9 +23,15 @@ import { getAllCommands } from './commands/index.js';
  * Pre-defined subcommands for commands that support them.
  */
 const COMMAND_SUBCOMMANDS: Record<string, string[]> = {
+  // Consolidated commands
+  git: ['commit', 'branch', 'diff', 'pr', 'stash', 'log', 'status', 'undo', 'merge', 'rebase'],
+  code: ['refactor', 'fix', 'test', 'doc', 'optimize'],
+  prompt: ['explain', 'review', 'analyze', 'summarize', 'help'],
+  // Alias commands with subcommands
   branch: ['list', 'create', 'switch', 'delete', 'rename'],
   stash: ['save', 'list', 'pop', 'apply', 'drop', 'clear'],
   undo: ['commits', 'staged', 'file'],
+  // Other commands
   config: ['init', 'show', 'example'],
   modelmap: ['init', 'show', 'example'],
   usage: ['session', 'today', 'week', 'month', 'all', 'recent', 'reset', 'clear'],
@@ -37,7 +43,6 @@ const COMMAND_SUBCOMMANDS: Record<string, string[]> = {
   plugins: ['info', 'dir'],
   profile: ['set'],
   compact: ['status', 'summarize', 'compress'],
-  prompt: ['explain', 'review', 'analyze', 'summarize', 'help'],
 };
 
 /**
@@ -62,7 +67,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
 /**
  * Commands that support git branch completion.
  */
-const GIT_BRANCH_COMMANDS = ['branch', 'merge', 'rebase', 'checkout', 'diff'];
+const GIT_BRANCH_COMMANDS = ['git', 'branch', 'merge', 'rebase', 'checkout', 'diff'];
 
 /**
  * Commands that support session name completion.

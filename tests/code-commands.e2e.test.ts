@@ -78,7 +78,7 @@ class ProcessHarness {
   }
 }
 
-describe('/explain command E2E', () => {
+describe('/prompt explain command E2E', () => {
   let mockSession: MockE2ESession;
   let projectDir: string;
   let proc: ProcessHarness;
@@ -104,7 +104,7 @@ describe('/explain command E2E', () => {
     });
 
     await proc.waitFor(/>|codi/i);
-    proc.writeLine('/explain test.ts');
+    proc.writeLine('/prompt explain test.ts');
 
     // Should send to AI for explanation
     await proc.waitFor(/adds two numbers|function|result/i);
@@ -219,7 +219,7 @@ describe('/test command E2E', () => {
   });
 });
 
-describe('/review command E2E', () => {
+describe('/prompt review command E2E', () => {
   let mockSession: MockE2ESession;
   let projectDir: string;
   let proc: ProcessHarness;
@@ -245,7 +245,7 @@ describe('/review command E2E', () => {
     });
 
     await proc.waitFor(/>|codi/i);
-    proc.writeLine('/review code.ts');
+    proc.writeLine('/prompt review code.ts');
 
     await proc.waitFor(/review|function|descriptive/i);
 
@@ -254,7 +254,7 @@ describe('/review command E2E', () => {
   });
 });
 
-describe('/doc command E2E', () => {
+describe('/code doc command E2E', () => {
   let mockSession: MockE2ESession;
   let projectDir: string;
   let proc: ProcessHarness;
@@ -280,7 +280,7 @@ describe('/doc command E2E', () => {
     });
 
     await proc.waitFor(/>|codi/i);
-    proc.writeLine('/doc api.ts');
+    proc.writeLine('/code doc api.ts');
 
     await proc.waitFor(/doc|JSDoc|documentation/i);
 
@@ -289,7 +289,7 @@ describe('/doc command E2E', () => {
   });
 });
 
-describe('/optimize command E2E', () => {
+describe('/code optimize command E2E', () => {
   let mockSession: MockE2ESession;
   let projectDir: string;
   let proc: ProcessHarness;
@@ -315,7 +315,7 @@ describe('/optimize command E2E', () => {
     });
 
     await proc.waitFor(/>|codi/i);
-    proc.writeLine('/optimize slow.ts');
+    proc.writeLine('/code optimize slow.ts');
 
     await proc.waitFor(/optimize|loop|removing/i);
 

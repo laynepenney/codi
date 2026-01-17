@@ -38,7 +38,7 @@
 <td width="50%">
 
 ### 🔌 Multi-Provider Support
-Switch between Claude, OpenAI, local models via Ollama, or RunPod serverless endpoints with a single flag.
+Switch between Claude, OpenAI, Ollama (local or cloud-hosted), or RunPod serverless endpoints with a single flag.
 
 ### 🛠️ Powerful Tool System
 AI can read/write files, search code, execute commands, apply patches, analyze images, and search the web.
@@ -90,7 +90,7 @@ pnpm link --global
 
 ## Quick Start
 
-### With Claude API (Recommended)
+### With Claude API
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
 codi
@@ -109,6 +109,12 @@ ollama pull llama3.2
 codi --provider ollama --model llama3.2
 ```
 
+### With Ollama Cloud (Hosted)
+```bash
+export OLLAMA_BASE_URL="https://your-ollama-host.com"
+codi --provider ollama-cloud --model llama3.2
+```
+
 ### With RunPod Serverless
 ```bash
 export RUNPOD_API_KEY="your-key-here"
@@ -121,7 +127,7 @@ codi --provider runpod --endpoint-id your-endpoint-id
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `runpod`, or `auto` | `auto` |
+| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `ollama-cloud`, `runpod`, or `auto` | `auto` |
 | `-m, --model <name>` | Model name to use | Provider default |
 | `--base-url <url>` | Custom API base URL | Provider default |
 | `-y, --yes` | Auto-approve all tool operations | Prompt |
@@ -150,31 +156,31 @@ codi --provider runpod --endpoint-id your-endpoint-id
 <details>
 <summary><strong>🛠️ Code Actions</strong></summary>
 
-| Command | Description |
-|---------|-------------|
-| `/refactor <file> [focus]` | Suggest refactoring improvements |
-| `/fix <file> <issue>` | Fix a specific bug or issue |
-| `/test <file> [function]` | Generate tests for code |
-| `/doc <file>` | Generate documentation |
-| `/optimize <file>` | Optimize code for performance |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/code refactor <file> [focus]` | `/refactor`, `/r` | Refactor code for quality |
+| `/code fix <file> <issue>` | `/fix`, `/f` | Fix a bug or issue |
+| `/code test <file> [function]` | `/test`, `/t` | Generate tests |
+| `/code doc <file>` | - | Generate documentation |
+| `/code optimize <file>` | - | Optimize for performance |
 
 </details>
 
 <details>
 <summary><strong>🔀 Git Integration</strong></summary>
 
-| Command | Description |
-|---------|-------------|
-| `/commit [type]` | Generate a commit message and create a commit |
-| `/branch [action] [name]` | Create, switch, list, or delete branches |
-| `/diff [target]` | Show and explain git differences |
-| `/pr [base]` | Generate a pull request description |
-| `/stash [action]` | Manage git stash (save, list, pop, apply, drop) |
-| `/log [target]` | Show and explain git history |
-| `/gitstatus` | Show detailed git status with explanations |
-| `/undo [what]` | Safely undo git changes |
-| `/merge <branch>` | Help merge branches with conflict guidance |
-| `/rebase <branch>` | Help rebase with safety warnings |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/git commit [type]` | `/commit`, `/ci` | Generate a commit message |
+| `/git branch [action] [name]` | `/branch`, `/br` | Manage branches |
+| `/git diff [target]` | - | Show and explain differences |
+| `/git pr [base]` | `/pr` | Generate a PR description |
+| `/git stash [action]` | - | Manage git stash |
+| `/git log [target]` | - | Show and explain history |
+| `/git status` | - | Show detailed status |
+| `/git undo [what]` | - | Safely undo changes |
+| `/git merge <branch>` | - | Merge with conflict guidance |
+| `/git rebase <branch>` | - | Rebase with safety warnings |
 
 </details>
 
@@ -370,12 +376,10 @@ model-roles:
     anthropic: haiku
     openai: gpt-5-nano
     ollama: local
-    ollama-cloud: cloud-fast
   capable:
     anthropic: sonnet
     openai: gpt-5
     ollama: local
-    ollama-cloud: cloud-coder
 
 pipelines:
   code-review:
@@ -499,7 +503,7 @@ codi/
 6. Push (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-See [CLAUDE.md](./CLAUDE.md) for detailed contribution guidelines.
+See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as CLAUDE.md for AI assistant compatibility).
 
 ---
 

@@ -32,13 +32,13 @@ What makes Codi different?
 Built-in slash commands:
 
 /prompt explain - understand any code
-/refactor - improve code quality
-/fix - squash bugs
-/test - generate tests
-/commit - AI-written commit messages
-/pr - generate PR descriptions
+/code refactor - improve code quality
+/code fix - squash bugs
+/code test - generate tests
+/git commit - AI-written commit messages
+/git pr - generate PR descriptions
 
-Plus git integration, sessions, and memory.
+Plus sessions, memory, and undo history.
 ```
 
 **Tweet 4:**
