@@ -10,7 +10,6 @@ import {
   disableBracketedPaste,
   DEFAULT_PASTE_DEBOUNCE_MS,
 } from './paste-debounce.js';
-import { showCommandPicker } from './command-picker.js';
 import { program } from 'commander';
 import chalk from 'chalk';
 import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
@@ -2750,18 +2749,6 @@ async function main() {
       return;
     }
 
-    // Show interactive command picker when user types just "/"
-    if (trimmed === '/') {
-      const selected = await showCommandPicker();
-      if (selected) {
-        // Process the selected command
-        await handleInput(selected.trim());
-      } else {
-        rl.prompt();
-      }
-      return;
-    }
-
     if (trimmed === '/context') {
       if (projectInfo) {
         console.log(chalk.bold('\nProject Context:'));
@@ -2795,7 +2782,17 @@ async function main() {
         const command = getCommand(parsed.name);
         if (command) {
           try {
+            // Show spinner for commands that may take a while
+            const needsSpinner = ['compact', 'summarize'].includes(parsed.name);
+            if (needsSpinner) {
+              spinner.start(chalk.cyan('Compacting context...'));
+            }
+
             const result = await command.execute(parsed.args, commandContext);
+
+            if (needsSpinner) {
+              spinner.stop();
+            }
             if (result) {
               // Handle session command outputs (special format)
               if (result.startsWith('__SESSION_')) {

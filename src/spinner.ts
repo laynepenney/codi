@@ -66,6 +66,7 @@ class SpinnerManager {
         text,
         color: 'cyan',
         spinner: 'dots',
+        discardStdin: false, // Don't interfere with readline's stdin handling
       }).start();
     } catch {
       // Silently ignore spinner errors - they shouldn't break the app
