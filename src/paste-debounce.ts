@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Transform, TransformCallback } from 'stream';
+import chalk from 'chalk';
 
 // Bracketed paste mode escape sequences
 export const PASTE_START = '\x1b[200~';
@@ -14,97 +15,124 @@ export const DISABLE_BRACKETED_PASTE = '\x1b[?2004l';
 // Default debounce - can be overridden via environment
 export const DEFAULT_PASTE_DEBOUNCE_MS = 100;
 
-export type PasteDebounceOptions = {
-  handleInput: (input: string) => void;
-  rlClosed: () => boolean;
-  setTimeoutFn?: typeof setTimeout;
-  clearTimeoutFn?: typeof clearTimeout;
-  debounceMs: number;
-};
-
 /**
- * Global paste state tracker - set by raw stdin interceptor.
- * This allows readline handler to know if we're in a paste operation
- * even though readline strips the escape sequences.
- *
- * We track expected line count because readline fires 'line' events
- * AFTER the interceptor has processed the entire paste (including end marker).
+ * Pending paste content - captured by PasteInterceptor, consumed by line handler.
  */
-let globalInPaste = false;
-let globalPasteEnded = false;
-let globalExpectedLines = 0;
+let pendingPasteContent: string | null = null;
 
-export function isInPaste(): boolean {
-  return globalInPaste || globalExpectedLines > 0;
-}
-
-export function didPasteEnd(): boolean {
-  const ended = globalPasteEnded;
-  globalPasteEnded = false; // Reset after checking
-  return ended;
-}
-
-export function decrementExpectedLines(): void {
-  if (globalExpectedLines > 0) {
-    globalExpectedLines--;
-  }
-}
-
-export function getExpectedLines(): number {
-  return globalExpectedLines;
+/**
+ * Get and clear pending paste content.
+ */
+export function consumePendingPaste(): string | null {
+  const content = pendingPasteContent;
+  pendingPasteContent = null;
+  return content;
 }
 
 /**
- * Transform stream that intercepts stdin to detect paste markers.
- * This runs BEFORE readline processes the input, allowing us to
- * track paste state even though readline strips escape sequences.
+ * Check if there's pending paste content.
+ */
+export function hasPendingPaste(): boolean {
+  return pendingPasteContent !== null;
+}
+
+/**
+ * Transform stream that intercepts stdin to capture paste content.
+ * When a paste is detected, it:
+ * 1. Captures the full paste content
+ * 2. Shows "[pasted N chars]" to the user
+ * 3. Passes a newline to readline to trigger submission
  */
 export class PasteInterceptor extends Transform {
   private buffer = '';
+  private inPaste = false;
+  private pasteBuffer = '';
 
   _transform(chunk: Buffer, encoding: BufferEncoding, callback: TransformCallback): void {
     const data = chunk.toString();
     this.buffer += data;
 
-    // Process the buffer for paste markers
-    let output = this.buffer;
-    let pasteContent = '';
+    let output = '';
 
-    // Check for paste start
-    const startIdx = output.indexOf(PASTE_START);
-    if (startIdx !== -1) {
-      globalInPaste = true;
-      output = output.slice(0, startIdx) + output.slice(startIdx + PASTE_START.length);
+    while (this.buffer.length > 0) {
+      if (!this.inPaste) {
+        // Look for paste start
+        const startIdx = this.buffer.indexOf(PASTE_START);
+        if (startIdx !== -1) {
+          // Pass through anything before the paste start
+          output += this.buffer.slice(0, startIdx);
+          this.buffer = this.buffer.slice(startIdx + PASTE_START.length);
+          this.inPaste = true;
+          this.pasteBuffer = '';
+        } else {
+          // Check if buffer might contain partial paste start sequence
+          // Keep the last few chars in case they're the start of an escape sequence
+          const escIdx = this.buffer.lastIndexOf('\x1b');
+          if (escIdx !== -1 && escIdx >= this.buffer.length - PASTE_START.length) {
+            // Partial escape sequence at end - keep it for next chunk
+            output += this.buffer.slice(0, escIdx);
+            this.buffer = this.buffer.slice(escIdx);
+            break;
+          } else {
+            // No paste markers, pass through
+            output += this.buffer;
+            this.buffer = '';
+          }
+        }
+      } else {
+        // In paste - look for paste end
+        const endIdx = this.buffer.indexOf(PASTE_END);
+        if (endIdx !== -1) {
+          // Capture paste content
+          this.pasteBuffer += this.buffer.slice(0, endIdx);
+          this.buffer = this.buffer.slice(endIdx + PASTE_END.length);
+          this.inPaste = false;
+
+          // Store the paste content for the line handler
+          pendingPasteContent = this.pasteBuffer;
+
+          // Show paste indicator to user
+          const lineCount = (this.pasteBuffer.match(/\n/g) || []).length + 1;
+          const charCount = this.pasteBuffer.length;
+          const indicator =
+            lineCount > 1
+              ? chalk.dim(`[pasted ${lineCount} lines, ${charCount} chars]`)
+              : chalk.dim(`[pasted ${charCount} chars]`);
+
+          // Write indicator directly to stdout (bypassing readline)
+          process.stdout.write(indicator);
+
+          // Send a newline to readline to trigger the line event
+          output += '\n';
+
+          this.pasteBuffer = '';
+        } else {
+          // Still in paste, buffer everything
+          this.pasteBuffer += this.buffer;
+          this.buffer = '';
+        }
+      }
     }
 
-    // Check for paste end
-    const endIdx = output.indexOf(PASTE_END);
-    if (endIdx !== -1) {
-      // Extract the paste content to count lines
-      pasteContent = output.slice(0, endIdx);
-      globalInPaste = false;
-      globalPasteEnded = true;
-      output = output.slice(0, endIdx) + output.slice(endIdx + PASTE_END.length);
-
-      // Count newlines in the paste to know how many line events to expect
-      // Add 1 because the last line may not have a trailing newline
-      const newlineCount = (pasteContent.match(/\n/g) || []).length;
-      globalExpectedLines = newlineCount + 1;
+    if (output) {
+      this.push(output);
     }
-
-    // Clear buffer - we've processed it
-    this.buffer = '';
-
-    // Pass cleaned data to readline
-    this.push(output);
     callback();
   }
 
   _flush(callback: TransformCallback): void {
-    if (this.buffer) {
+    // If we're still in a paste at end of stream, treat remaining as paste content
+    if (this.inPaste && this.pasteBuffer) {
+      pendingPasteContent = this.pasteBuffer;
+      const charCount = this.pasteBuffer.length;
+      process.stdout.write(chalk.dim(`[pasted ${charCount} chars]`));
+      this.push('\n');
+    } else if (this.buffer) {
       this.push(this.buffer);
-      this.buffer = '';
     }
+    this.buffer = '';
+    this.pasteBuffer = '';
+    this.inPaste = false;
     callback();
   }
 }
@@ -147,110 +175,4 @@ export function disableBracketedPaste(): void {
   if (process.stdout.isTTY) {
     process.stdout.write(DISABLE_BRACKETED_PASTE);
   }
-}
-
-/**
- * Strip bracketed paste markers from input and detect paste boundaries.
- * Returns the cleaned input and whether we're in a paste operation.
- */
-export function processBracketedPaste(
-  input: string,
-  wasInPaste: boolean
-): { cleanedInput: string; inPaste: boolean; pasteEnded: boolean } {
-  let cleanedInput = input;
-  let inPaste = wasInPaste;
-  let pasteEnded = false;
-
-  // Check for paste start marker
-  if (cleanedInput.includes(PASTE_START)) {
-    inPaste = true;
-    cleanedInput = cleanedInput.replace(PASTE_START, '');
-  }
-
-  // Check for paste end marker
-  if (cleanedInput.includes(PASTE_END)) {
-    pasteEnded = true;
-    inPaste = false;
-    cleanedInput = cleanedInput.replace(PASTE_END, '');
-  }
-
-  return { cleanedInput, inPaste, pasteEnded };
-}
-
-/**
- * Creates a line handler that supports both:
- * 1. Bracketed paste mode (via global state from PasteInterceptor)
- * 2. Inline paste markers (for terminals that pass them through)
- * 3. Debounce-based detection (fallback for terminals without bracketed paste)
- *
- * Lines are forwarded to `handleInput` as a single multiline string.
- */
-export function createPasteDebounceHandler(opts: PasteDebounceOptions): (input: string) => void {
-  const setTimeoutFn = opts.setTimeoutFn ?? setTimeout;
-  const clearTimeoutFn = opts.clearTimeoutFn ?? clearTimeout;
-
-  let pasteBuffer: string[] = [];
-  let pasteTimeout: ReturnType<typeof setTimeout> | null = null;
-  let inBracketedPaste = false;
-
-  const flushBuffer = () => {
-    if (pasteBuffer.length === 0) return;
-
-    const combinedInput = pasteBuffer.join('\n');
-    pasteBuffer = [];
-    pasteTimeout = null;
-    opts.handleInput(combinedInput);
-  };
-
-  return (input: string) => {
-    if (opts.rlClosed()) return;
-
-    // Check global paste state (set by PasteInterceptor if using it)
-    const globalPasteActive = isInPaste();
-    const globalPasteJustEnded = didPasteEnd();
-    const expectedLines = getExpectedLines();
-
-    // Also process inline markers (for direct testing or terminals that pass them through)
-    const { cleanedInput, inPaste, pasteEnded } = processBracketedPaste(input, inBracketedPaste);
-    inBracketedPaste = inPaste || globalPasteActive;
-
-    // Add cleaned input to buffer
-    pasteBuffer.push(cleanedInput);
-
-    // Clear any existing debounce timeout
-    if (pasteTimeout) {
-      clearTimeoutFn(pasteTimeout);
-      pasteTimeout = null;
-    }
-
-    // If we're tracking expected lines from a bracketed paste, decrement
-    if (expectedLines > 0) {
-      decrementExpectedLines();
-      // If this was the last expected line, flush
-      if (getExpectedLines() === 0) {
-        inBracketedPaste = false;
-        flushBuffer();
-        return;
-      }
-      // More lines expected, keep buffering
-      return;
-    }
-
-    // If bracketed paste ended (either via inline marker or global state), flush immediately
-    if (pasteEnded || globalPasteJustEnded) {
-      inBracketedPaste = false;
-      flushBuffer();
-      return;
-    }
-
-    // If in bracketed paste, don't set timeout - wait for end marker
-    if (inBracketedPaste) {
-      return;
-    }
-
-    // Fall back to debounce-based detection
-    pasteTimeout = setTimeoutFn(() => {
-      flushBuffer();
-    }, opts.debounceMs);
-  };
 }
