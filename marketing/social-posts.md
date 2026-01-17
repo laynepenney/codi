@@ -31,8 +31,8 @@ What makes Codi different?
 ```
 Built-in slash commands:
 
-/explain - understand any code
-/refactor - get improvement suggestions
+/prompt explain - understand any code
+/refactor - improve code quality
 /fix - squash bugs
 /test - generate tests
 /commit - AI-written commit messages
@@ -117,7 +117,7 @@ Every file change shows a diff preview. Dangerous operations require explicit ap
 Auto-detects your project type (Node, Python, Rust, Go), framework, and language to adapt its responses.
 
 🎯 Built-in Commands
-/explain, /refactor, /fix, /test, /review, /doc, /commit, /pr - all the workflows you need, built in.
+/prompt (explain, review, analyze), /refactor, /fix, /test, /doc, /commit, /pr - all the workflows you need, built in.
 
 The best part? You can run it completely locally and free with Ollama. No API costs, full privacy.
 
@@ -175,7 +175,7 @@ I've been working on Codi, an open-source CLI tool that brings AI assistance dir
 **What it does:**
 - Chat with AI that can actually read/write your files, run commands, and search your codebase
 - Works with Claude, OpenAI, Ollama (free/local), or RunPod serverless
-- Built-in slash commands: /explain, /refactor, /fix, /test, /commit, /pr
+- Built-in slash commands: /prompt (explain, review), /refactor, /fix, /test, /commit, /pr
 - Auto-detects project type and adapts (Node, Python, Rust, Go)
 - Session management - save and load conversations
 - Memory system - remembers preferences across sessions
@@ -274,7 +274,7 @@ Key design decisions:
 
 **Local-first option**: Works fully offline with Ollama. No API costs, no data leaving your machine.
 
-**Extensible**: Plugin system for custom tools and commands. Model maps for multi-model orchestration.
+**Extensible**: Model maps for multi-model orchestration. Plugin system coming soon.
 
 Tech: TypeScript, Node.js 22, uses official SDKs for each provider.
 

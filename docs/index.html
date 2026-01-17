@@ -502,12 +502,30 @@ codi --provider ollama --model llama3.2</code></pre>
       <h2>Commands</h2>
 
       <div class="command-category">
-        <h3>Code Assistance</h3>
+        <h3>Information Prompts</h3>
         <div class="command-list">
           <div class="command-item">
-            <code>/explain &lt;file&gt;</code>
+            <code>/prompt explain &lt;file&gt;</code>
             <p>Explain code in a file</p>
           </div>
+          <div class="command-item">
+            <code>/prompt review &lt;file&gt;</code>
+            <p>Code review</p>
+          </div>
+          <div class="command-item">
+            <code>/prompt analyze &lt;file&gt;</code>
+            <p>Analyze structure</p>
+          </div>
+          <div class="command-item">
+            <code>/prompt summarize &lt;file&gt;</code>
+            <p>Summarize code</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="command-category">
+        <h3>Code Actions</h3>
+        <div class="command-list">
           <div class="command-item">
             <code>/refactor &lt;file&gt;</code>
             <p>Suggest improvements</p>
@@ -519,10 +537,6 @@ codi --provider ollama --model llama3.2</code></pre>
           <div class="command-item">
             <code>/test &lt;file&gt;</code>
             <p>Generate tests</p>
-          </div>
-          <div class="command-item">
-            <code>/review &lt;file&gt;</code>
-            <p>Code review</p>
           </div>
           <div class="command-item">
             <code>/doc &lt;file&gt;</code>
@@ -579,6 +593,28 @@ codi --provider ollama --model llama3.2</code></pre>
           <div class="command-item">
             <code>/profile</code>
             <p>User preferences</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="command-category">
+        <h3>Context & History</h3>
+        <div class="command-list">
+          <div class="command-item">
+            <code>/compact</code>
+            <p>Manage context size</p>
+          </div>
+          <div class="command-item">
+            <code>/revert-file</code>
+            <p>Undo last file change</p>
+          </div>
+          <div class="command-item">
+            <code>/filehistory</code>
+            <p>View file changes</p>
+          </div>
+          <div class="command-item">
+            <code>/redo</code>
+            <p>Redo undone change</p>
           </div>
         </div>
       </div>
