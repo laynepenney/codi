@@ -90,20 +90,11 @@ export function getApprovalSuggestions(command: string): ApprovalSuggestions {
 }
 
 /**
- * Find the config file path.
+ * Get the local config file path for storing approvals.
+ * Local config is gitignored and stores user-specific approvals.
  */
-function findConfigPath(cwd: string): string {
-  const candidates = ['.codi.json', '.codi/config.json', 'codi.config.json'];
-
-  for (const candidate of candidates) {
-    const fullPath = path.join(cwd, candidate);
-    if (fs.existsSync(fullPath)) {
-      return fullPath;
-    }
-  }
-
-  // Default to .codi.json
-  return path.join(cwd, '.codi.json');
+function getLocalConfigPath(cwd: string): string {
+  return path.join(cwd, '.codi.local.json');
 }
 
 /**
@@ -135,7 +126,7 @@ export function addApprovedPattern(
   description?: string,
   cwd: string = process.cwd()
 ): { success: boolean; error?: string } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     const config = loadConfig(configPath);
@@ -186,7 +177,7 @@ export function addApprovedCategory(
     };
   }
 
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     const config = loadConfig(configPath);
@@ -223,7 +214,7 @@ export function removeApprovedPattern(
   pattern: string,
   cwd: string = process.cwd()
 ): { success: boolean; removed: boolean; error?: string } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     if (!fs.existsSync(configPath)) {
@@ -256,7 +247,7 @@ export function removeApprovedCategory(
   categoryId: string,
   cwd: string = process.cwd()
 ): { success: boolean; removed: boolean; error?: string } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     if (!fs.existsSync(configPath)) {
@@ -289,7 +280,7 @@ export function listApprovals(cwd: string = process.cwd()): {
   patterns: ApprovedPattern[];
   categories: { id: string; name: string; description: string }[];
 } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     if (!fs.existsSync(configPath)) {
@@ -405,7 +396,7 @@ export function addApprovedPathPattern(
   description?: string,
   cwd: string = process.cwd()
 ): { success: boolean; error?: string } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     const config = loadConfig(configPath);
@@ -457,7 +448,7 @@ export function addApprovedPathCategory(
     };
   }
 
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     const config = loadConfig(configPath);
@@ -495,7 +486,7 @@ export function removeApprovedPathPattern(
   toolName?: string,
   cwd: string = process.cwd()
 ): { success: boolean; removed: boolean; error?: string } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     if (!fs.existsSync(configPath)) {
@@ -533,7 +524,7 @@ export function removeApprovedPathCategory(
   categoryId: string,
   cwd: string = process.cwd()
 ): { success: boolean; removed: boolean; error?: string } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     if (!fs.existsSync(configPath)) {
@@ -566,7 +557,7 @@ export function listPathApprovals(cwd: string = process.cwd()): {
   pathPatterns: ApprovedPathPattern[];
   pathCategories: { id: string; name: string; description: string }[];
 } {
-  const configPath = findConfigPath(cwd);
+  const configPath = getLocalConfigPath(cwd);
 
   try {
     if (!fs.existsSync(configPath)) {

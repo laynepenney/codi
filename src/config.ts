@@ -259,6 +259,9 @@ const CONFIG_FILES = [
   'codi.config.json',
 ];
 
+/** Local config file for user-specific approvals (gitignored) */
+const LOCAL_CONFIG_FILE = '.codi.local.json';
+
 /**
  * Find and load workspace configuration from the current directory.
  * Searches for .codi.json, .codi/config.json, or codi.config.json
@@ -281,6 +284,23 @@ export function loadWorkspaceConfig(cwd: string = process.cwd()): {
     }
   }
   return { config: null, configPath: null };
+}
+
+/**
+ * Load local config file containing user-specific approvals.
+ * This file is gitignored and stores approved patterns/categories.
+ */
+export function loadLocalConfig(cwd: string = process.cwd()): WorkspaceConfig | null {
+  const localPath = path.join(cwd, LOCAL_CONFIG_FILE);
+  if (fs.existsSync(localPath)) {
+    try {
+      const content = fs.readFileSync(localPath, 'utf-8');
+      return JSON.parse(content) as WorkspaceConfig;
+    } catch {
+      // Ignore parse errors for local config
+    }
+  }
+  return null;
 }
 
 /**
@@ -339,8 +359,8 @@ export function validateConfig(config: WorkspaceConfig): string[] {
 }
 
 /**
- * Merge workspace config with CLI options.
- * CLI options take precedence over workspace config.
+ * Merge workspace config with CLI options and local config.
+ * Priority: CLI options > local config (approvals only) > workspace config
  */
 export function mergeConfig(
   workspaceConfig: WorkspaceConfig | null,
@@ -355,7 +375,8 @@ export function mergeConfig(
     summarizeProvider?: string;
     summarizeModel?: string;
     maxContextTokens?: number;
-  }
+  },
+  localConfig: WorkspaceConfig | null = null
 ): ResolvedConfig {
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
 
@@ -366,10 +387,11 @@ export function mergeConfig(
     if (workspaceConfig.baseUrl) config.baseUrl = workspaceConfig.baseUrl;
     if (workspaceConfig.endpointId) config.endpointId = workspaceConfig.endpointId;
     if (workspaceConfig.autoApprove) config.autoApprove = workspaceConfig.autoApprove;
-    if (workspaceConfig.approvedPatterns) config.approvedPatterns = workspaceConfig.approvedPatterns;
-    if (workspaceConfig.approvedCategories) config.approvedCategories = workspaceConfig.approvedCategories;
-    if (workspaceConfig.approvedPathPatterns) config.approvedPathPatterns = workspaceConfig.approvedPathPatterns;
-    if (workspaceConfig.approvedPathCategories) config.approvedPathCategories = workspaceConfig.approvedPathCategories;
+    // Note: approvals from workspace config are applied, but local config overrides below
+    if (workspaceConfig.approvedPatterns) config.approvedPatterns = [...workspaceConfig.approvedPatterns];
+    if (workspaceConfig.approvedCategories) config.approvedCategories = [...workspaceConfig.approvedCategories];
+    if (workspaceConfig.approvedPathPatterns) config.approvedPathPatterns = [...workspaceConfig.approvedPathPatterns];
+    if (workspaceConfig.approvedPathCategories) config.approvedPathCategories = [...workspaceConfig.approvedPathCategories];
     if (workspaceConfig.dangerousPatterns) config.dangerousPatterns = workspaceConfig.dangerousPatterns;
     if (workspaceConfig.systemPromptAdditions) config.systemPromptAdditions = workspaceConfig.systemPromptAdditions;
     if (workspaceConfig.noTools) config.noTools = workspaceConfig.noTools;
@@ -390,6 +412,22 @@ export function mergeConfig(
     // Per-tool configuration
     if (workspaceConfig.tools?.disabled) config.toolsConfig.disabled = workspaceConfig.tools.disabled;
     if (workspaceConfig.tools?.defaults) config.toolsConfig.defaults = workspaceConfig.tools.defaults;
+  }
+
+  // Merge local config approvals (adds to workspace config approvals)
+  if (localConfig) {
+    if (localConfig.approvedPatterns) {
+      config.approvedPatterns = [...config.approvedPatterns, ...localConfig.approvedPatterns];
+    }
+    if (localConfig.approvedCategories) {
+      config.approvedCategories = [...new Set([...config.approvedCategories, ...localConfig.approvedCategories])];
+    }
+    if (localConfig.approvedPathPatterns) {
+      config.approvedPathPatterns = [...config.approvedPathPatterns, ...localConfig.approvedPathPatterns];
+    }
+    if (localConfig.approvedPathCategories) {
+      config.approvedPathCategories = [...new Set([...config.approvedPathCategories, ...localConfig.approvedPathCategories])];
+    }
   }
 
   // CLI options override workspace config

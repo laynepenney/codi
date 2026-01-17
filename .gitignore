@@ -25,3 +25,8 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+
+# Local settings
+.claude/
+*.code-review
+.codi.local.json
