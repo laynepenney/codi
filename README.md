@@ -90,7 +90,7 @@ pnpm link --global
 
 ## Quick Start
 
-### With Claude API (Recommended)
+### With Claude API
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
 codi
@@ -107,6 +107,12 @@ codi --provider openai
 # Install Ollama from https://ollama.ai
 ollama pull llama3.2
 codi --provider ollama --model llama3.2
+```
+
+### With Ollama Cloud (Hosted)
+```bash
+export OLLAMA_BASE_URL="https://your-ollama-host.com"
+codi --provider ollama-cloud --model llama3.2
 ```
 
 ### With RunPod Serverless
@@ -499,7 +505,7 @@ codi/
 6. Push (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-See [CLAUDE.md](./CLAUDE.md) for detailed contribution guidelines.
+See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as CLAUDE.md for AI assistant compatibility).
 
 ---
 

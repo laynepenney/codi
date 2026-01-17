@@ -451,7 +451,7 @@ pnpm link --global</code></pre>
 
       <div class="quickstart-step">
         <h3>2. Configure your API key</h3>
-        <pre><code># For Claude (recommended)
+        <pre><code># For Claude
 export ANTHROPIC_API_KEY="your-key-here"
 
 # For OpenAI
@@ -469,8 +469,11 @@ codi
 # With OpenAI
 codi --provider openai
 
-# With Ollama
-codi --provider ollama --model llama3.2</code></pre>
+# With Ollama (local)
+codi --provider ollama --model llama3.2
+
+# With Ollama Cloud (hosted)
+codi --provider ollama-cloud --model llama3.2</code></pre>
       </div>
     </div>
   </section>
@@ -489,6 +492,10 @@ codi --provider ollama --model llama3.2</code></pre>
       <div class="provider-card">
         <h3>Ollama</h3>
         <p>Llama 3, DeepSeek, Qwen, CodeLlama</p>
+      </div>
+      <div class="provider-card">
+        <h3>Ollama Cloud</h3>
+        <p>Hosted Ollama with rate limiting</p>
       </div>
       <div class="provider-card">
         <h3>RunPod</h3>
@@ -542,6 +549,10 @@ codi --provider ollama --model llama3.2</code></pre>
             <code>/code doc</code>
             <p>Generate docs</p>
           </div>
+          <div class="command-item">
+            <code>/code optimize</code>
+            <p>Optimize performance</p>
+          </div>
         </div>
       </div>
 
@@ -569,8 +580,24 @@ codi --provider ollama --model llama3.2</code></pre>
             <p>Manage stash</p>
           </div>
           <div class="command-item">
+            <code>/git log</code>
+            <p>Show and explain history</p>
+          </div>
+          <div class="command-item">
+            <code>/git status</code>
+            <p>Show detailed status</p>
+          </div>
+          <div class="command-item">
             <code>/git undo</code>
             <p>Undo git changes</p>
+          </div>
+          <div class="command-item">
+            <code>/git merge</code>
+            <p>Merge with guidance</p>
+          </div>
+          <div class="command-item">
+            <code>/git rebase</code>
+            <p>Rebase with warnings</p>
           </div>
         </div>
       </div>
