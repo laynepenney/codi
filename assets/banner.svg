@@ -51,5 +51,5 @@
   </g>
 
   <!-- Tagline -->
-  <text x="400" y="175" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#9CA3AF">AI-Powered Coding Assistant for Your Terminal</text>
+  <text x="400" y="175" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#9CA3AF">Your AI Coding Wingman for the Terminal</text>
 </svg>
