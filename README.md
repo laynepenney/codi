@@ -38,7 +38,7 @@
 <td width="50%">
 
 ### 🔌 Multi-Provider Support
-Switch between Claude, OpenAI, local models via Ollama, or RunPod serverless endpoints with a single flag.
+Switch between Claude, OpenAI, Ollama (local or cloud-hosted), or RunPod serverless endpoints with a single flag.
 
 ### 🛠️ Powerful Tool System
 AI can read/write files, search code, execute commands, apply patches, analyze images, and search the web.
@@ -127,7 +127,7 @@ codi --provider runpod --endpoint-id your-endpoint-id
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `runpod`, or `auto` | `auto` |
+| `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `ollama-cloud`, `runpod`, or `auto` | `auto` |
 | `-m, --model <name>` | Model name to use | Provider default |
 | `--base-url <url>` | Custom API base URL | Provider default |
 | `-y, --yes` | Auto-approve all tool operations | Prompt |
@@ -376,12 +376,10 @@ model-roles:
     anthropic: haiku
     openai: gpt-5-nano
     ollama: local
-    ollama-cloud: cloud-fast
   capable:
     anthropic: sonnet
     openai: gpt-5
     ollama: local
-    ollama-cloud: cloud-coder
 
 pipelines:
   code-review:
