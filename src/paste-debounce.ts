@@ -26,18 +26,32 @@ export type PasteDebounceOptions = {
  * Global paste state tracker - set by raw stdin interceptor.
  * This allows readline handler to know if we're in a paste operation
  * even though readline strips the escape sequences.
+ *
+ * We track expected line count because readline fires 'line' events
+ * AFTER the interceptor has processed the entire paste (including end marker).
  */
 let globalInPaste = false;
 let globalPasteEnded = false;
+let globalExpectedLines = 0;
 
 export function isInPaste(): boolean {
-  return globalInPaste;
+  return globalInPaste || globalExpectedLines > 0;
 }
 
 export function didPasteEnd(): boolean {
   const ended = globalPasteEnded;
   globalPasteEnded = false; // Reset after checking
   return ended;
+}
+
+export function decrementExpectedLines(): void {
+  if (globalExpectedLines > 0) {
+    globalExpectedLines--;
+  }
+}
+
+export function getExpectedLines(): number {
+  return globalExpectedLines;
 }
 
 /**
@@ -54,6 +68,7 @@ export class PasteInterceptor extends Transform {
 
     // Process the buffer for paste markers
     let output = this.buffer;
+    let pasteContent = '';
 
     // Check for paste start
     const startIdx = output.indexOf(PASTE_START);
@@ -65,9 +80,16 @@ export class PasteInterceptor extends Transform {
     // Check for paste end
     const endIdx = output.indexOf(PASTE_END);
     if (endIdx !== -1) {
+      // Extract the paste content to count lines
+      pasteContent = output.slice(0, endIdx);
       globalInPaste = false;
       globalPasteEnded = true;
       output = output.slice(0, endIdx) + output.slice(endIdx + PASTE_END.length);
+
+      // Count newlines in the paste to know how many line events to expect
+      // Add 1 because the last line may not have a trailing newline
+      const newlineCount = (pasteContent.match(/\n/g) || []).length;
+      globalExpectedLines = newlineCount + 1;
     }
 
     // Clear buffer - we've processed it
@@ -186,6 +208,7 @@ export function createPasteDebounceHandler(opts: PasteDebounceOptions): (input: 
     // Check global paste state (set by PasteInterceptor if using it)
     const globalPasteActive = isInPaste();
     const globalPasteJustEnded = didPasteEnd();
+    const expectedLines = getExpectedLines();
 
     // Also process inline markers (for direct testing or terminals that pass them through)
     const { cleanedInput, inPaste, pasteEnded } = processBracketedPaste(input, inBracketedPaste);
@@ -198,6 +221,19 @@ export function createPasteDebounceHandler(opts: PasteDebounceOptions): (input: 
     if (pasteTimeout) {
       clearTimeoutFn(pasteTimeout);
       pasteTimeout = null;
+    }
+
+    // If we're tracking expected lines from a bracketed paste, decrement
+    if (expectedLines > 0) {
+      decrementExpectedLines();
+      // If this was the last expected line, flush
+      if (getExpectedLines() === 0) {
+        inBracketedPaste = false;
+        flushBuffer();
+        return;
+      }
+      // More lines expected, keep buffering
+      return;
     }
 
     // If bracketed paste ended (either via inline marker or global state), flush immediately
