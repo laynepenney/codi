@@ -396,7 +396,7 @@ export const pipelineCommand: Command = {
   name: 'pipeline',
   aliases: ['pipe', 'run-pipeline'],
   description: 'Execute a multi-model pipeline',
-  usage: '/pipeline [--provider <context>] [--all] [--v2] [--v3] [--v4] [--triage] [--concurrency N] [name] [input]',
+  usage: '/pipeline [--provider <context>] [--all] [--triage] [--concurrency N] [name] [input]',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     const trimmed = args.trim();
@@ -408,9 +408,6 @@ export const pipelineCommand: Command = {
       console.log('\nOptions:');
       console.log('  --provider <ctx>   Use models from specified provider context');
       console.log('  --all, --iterative Process all files in iterative mode');
-      console.log('  --v2               Use intelligent grouping + parallel processing');
-      console.log('  --v3               Use triage + adaptive processing + agentic steps');
-      console.log('  --v4               Use symbolication + enhanced triage');
       console.log('  --triage           Enable file triage scoring');
       console.log('  --triage-only      Show triage scores without running pipeline');
       console.log('  --concurrency N    Set parallel processing concurrency (default: 4)');
@@ -440,9 +437,6 @@ export const pipelineCommand: Command = {
     // Parse flags
     let providerContext: string | undefined;
     let iterativeMode = false;
-    let useV2 = false;
-    let useV3 = false;
-    let useV4 = false;
     let useTriage = false;
     let triageOnly = false;
     let concurrency = 4;
@@ -471,37 +465,7 @@ export const pipelineCommand: Command = {
         continue;
       }
 
-      // Parse --v2 flag (use intelligent grouping + parallel processing)
-      const v2Match = remainingArgs.match(/^--v2\s*/);
-      if (v2Match) {
-        useV2 = true;
-        iterativeMode = true; // V2 implies iterative mode
-        remainingArgs = remainingArgs.slice(v2Match[0].length);
-        foundFlag = true;
-        continue;
-      }
-
-      // Parse --v3 flag (triage + adaptive processing + agentic steps)
-      const v3Match = remainingArgs.match(/^--v3\s*/);
-      if (v3Match) {
-        useV3 = true;
-        iterativeMode = true; // V3 implies iterative mode
-        remainingArgs = remainingArgs.slice(v3Match[0].length);
-        foundFlag = true;
-        continue;
-      }
-
-      // Parse --v4 flag (symbolication + enhanced triage + contextual processing)
-      const v4Match = remainingArgs.match(/^--v4\s*/);
-      if (v4Match) {
-        useV4 = true;
-        iterativeMode = true; // V4 implies iterative mode
-        remainingArgs = remainingArgs.slice(v4Match[0].length);
-        foundFlag = true;
-        continue;
-      }
-
-      // Parse --triage flag (enable triage, works with V2 or V3)
+      // Parse --triage flag
       const triageMatch = remainingArgs.match(/^--triage\s*/);
       if (triageMatch) {
         useTriage = true;
@@ -580,13 +544,10 @@ export const pipelineCommand: Command = {
     // Execute the pipeline with optional provider context and iterative mode
     const providerPart = providerContext ? `|provider:${providerContext}` : '';
     const iterativePart = iterativeMode ? '|iterative:true' : '';
-    const v2Part = useV2 ? '|v2:true' : '';
-    const v3Part = useV3 ? '|v3:true' : '';
-    const v4Part = useV4 ? '|v4:true' : '';
     const triagePart = useTriage ? '|triage:true' : '';
     const triageOnlyPart = triageOnly ? '|triageOnly:true' : '';
     const concurrencyPart = concurrency !== 4 ? `|concurrency:${concurrency}` : '';
-    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${v2Part}${v3Part}${v4Part}${triagePart}${triageOnlyPart}${concurrencyPart}|${input}`;
+    return `__PIPELINE_EXECUTE__|${pipelineName}${providerPart}${iterativePart}${triagePart}${triageOnlyPart}${concurrencyPart}|${input}`;
   },
 };
 

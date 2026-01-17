@@ -1,36 +1,12 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * Code commands that take action on files (modify, create, etc).
+ * For information-only prompts, see prompt-commands.ts.
+ */
+
 import { registerCommand, type Command, type CommandContext } from './index.js';
-
-export const explainCommand: Command = {
-  name: 'explain',
-  aliases: ['e'],
-  description: 'Explain code from a file or selection',
-  usage: '/explain <file_path> [function_name]',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path: /explain <file_path> [function_name]';
-    }
-
-    const parts = args.trim().split(/\s+/);
-    const filePath = parts[0];
-    const functionName = parts[1];
-
-    let prompt = `Please read and explain the code in "${filePath}".`;
-    if (functionName) {
-      prompt += ` Focus specifically on the "${functionName}" function/class.`;
-    }
-    prompt += `\n\nProvide:
-1. A brief overview of what the code does
-2. Key components and their purposes
-3. How the code flows / executes
-4. Any notable patterns or techniques used`;
-
-    return prompt;
-  },
-};
 
 export const refactorCommand: Command = {
   name: 'refactor',
@@ -140,33 +116,6 @@ Create the test file and write the tests.`;
   },
 };
 
-export const reviewCommand: Command = {
-  name: 'review',
-  aliases: ['cr'],
-  description: 'Code review for a file',
-  usage: '/review <file_path>',
-  taskType: 'code',
-  execute: async (args: string, context: CommandContext): Promise<string> => {
-    if (!args.trim()) {
-      return 'Please provide a file path: /review <file_path>';
-    }
-
-    const filePath = args.trim();
-
-    return `Please read "${filePath}" and provide a thorough code review.
-
-Evaluate:
-1. **Correctness**: Are there any bugs or logic errors?
-2. **Security**: Any security vulnerabilities (injection, XSS, etc.)?
-3. **Performance**: Any inefficiencies or potential bottlenecks?
-4. **Maintainability**: Is the code easy to understand and modify?
-5. **Best Practices**: Does it follow language/framework conventions?
-6. **Error Handling**: Are errors handled appropriately?
-
-Format your review with specific line references and suggestions for improvement.`;
-  },
-};
-
 export const docCommand: Command = {
   name: 'doc',
   aliases: ['d'],
@@ -255,13 +204,12 @@ IMPORTANT: Use edit_file to apply changes. Do not just output code.`;
   },
 };
 
-// Register all commands
+// Register all code commands (action-taking commands that modify files)
+// For prompt-only commands, see prompt-commands.ts
 export function registerCodeCommands(): void {
-  registerCommand(explainCommand);
   registerCommand(refactorCommand);
   registerCommand(fixCommand);
   registerCommand(testCommand);
-  registerCommand(reviewCommand);
   registerCommand(docCommand);
   registerCommand(optimizeCommand);
 }

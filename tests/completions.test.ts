@@ -21,8 +21,8 @@ import { registerMemoryCommands } from '../src/commands/memory-commands';
 import { registerHistoryCommands } from '../src/commands/history-commands';
 import { registerUsageCommands } from '../src/commands/usage-commands';
 import { registerPluginCommands } from '../src/commands/plugin-commands';
-import { registerImportCommands } from '../src/commands/import-commands';
-import { registerCompressionCommands } from '../src/commands/compression-commands';
+import { registerPromptCommands } from '../src/commands/prompt-commands';
+import { registerCompactCommands } from '../src/commands/compact-commands';
 import { registerApprovalCommands } from '../src/commands/approval-commands';
 import { registerSymbolCommands } from '../src/commands/symbol-commands';
 import { registerRAGCommands } from '../src/commands/rag-commands';
@@ -40,8 +40,8 @@ describe('Command Completions', () => {
     registerHistoryCommands();
     registerUsageCommands();
     registerPluginCommands();
-    registerImportCommands();
-    registerCompressionCommands();
+    registerPromptCommands();
+    registerCompactCommands();
     registerApprovalCommands();
     registerSymbolCommands();
     registerRAGCommands();
@@ -163,11 +163,11 @@ describe('Command Completions', () => {
         expect(completions).toContain('/models --local');
       });
 
-      it('completes flags for /symbols', () => {
+      it('completes help flags for /symbols', () => {
         const completer = createCompleter();
-        const [completions] = completer('/symbols --');
-        expect(completions).toContain('/symbols --deep');
-        expect(completions).toContain('/symbols --jobs');
+        const [completions] = completer('/symbols -');
+        expect(completions).toContain('/symbols -h');
+        expect(completions).toContain('/symbols --help');
       });
 
       it('adds -h and --help for all commands', () => {
@@ -309,10 +309,9 @@ describe('Command Completions', () => {
       expect(flags).toContain('--local');
     });
 
-    it('returns flags for symbols', () => {
+    it('returns empty for symbols (no special flags)', () => {
       const flags = getFlags('symbols');
-      expect(flags).toContain('--deep');
-      expect(flags).toContain('--jobs');
+      expect(flags).toHaveLength(0);
     });
 
     it('returns empty for command without specific flags', () => {

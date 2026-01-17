@@ -36,7 +36,8 @@ const COMMAND_SUBCOMMANDS: Record<string, string[]> = {
   filehistory: ['clear'],
   plugins: ['info', 'dir'],
   profile: ['set'],
-  import: ['list', 'search', 'all'],
+  compact: ['status', 'summarize', 'compress'],
+  prompt: ['explain', 'review', 'analyze', 'summarize', 'help'],
 };
 
 /**
@@ -54,8 +55,8 @@ const COMMAND_STATIC_ARGS: Record<string, string[]> = {
  */
 const COMMAND_FLAGS: Record<string, string[]> = {
   models: ['--local'],
-  symbols: ['--deep', '--jobs'],
-  pipeline: ['--provider', '--all', '--v2', '--v3', '--v4', '--triage', '--triage-only', '--concurrency'],
+  symbols: [],
+  pipeline: ['--provider', '--all'],
 };
 
 /**
