@@ -10,6 +10,7 @@ import {
   disableBracketedPaste,
   DEFAULT_PASTE_DEBOUNCE_MS,
 } from './paste-debounce.js';
+import { showCommandPicker } from './command-picker.js';
 import { program } from 'commander';
 import chalk from 'chalk';
 import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
@@ -456,7 +457,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
-  console.log(chalk.dim('  /exit, /quit       - Exit the assistant'));
+  console.log(chalk.dim('  /exit              - Exit the assistant'));
 
   console.log(chalk.bold('\nCode Assistance:'));
   console.log(chalk.dim('  /explain <file>    - Explain code in a file'));
@@ -2746,6 +2747,18 @@ async function main() {
     if (trimmed === '/help') {
       showHelp(projectInfo);
       rl.prompt();
+      return;
+    }
+
+    // Show interactive command picker when user types just "/"
+    if (trimmed === '/') {
+      const selected = await showCommandPicker();
+      if (selected) {
+        // Process the selected command
+        await handleInput(selected.trim());
+      } else {
+        rl.prompt();
+      }
       return;
     }
 
