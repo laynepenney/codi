@@ -36,18 +36,18 @@ pnpm dev -- --provider ollama --model llama3.2
 **IMPORTANT: Never push directly to main.** Always use feature/bugfix branches and pull requests.
 
 ```bash
-# Start new work
+# Start new work (from main or dev if using worktrees)
 git checkout -b feat/my-feature    # or fix/my-bugfix
 # ... make changes ...
 git add -A && git commit -m "feat: description"
 git push -u origin feat/my-feature
 
-# Create PR
+# Create PR (always targets main)
 gh pr create --title "feat: description" --body "Summary of changes"
 
 # After PR is approved and merged
-git checkout main
-git pull origin main
+git checkout main                  # or dev if using worktrees
+git pull origin main               # or: git fetch origin && git merge origin/main
 ```
 
 ### Branch Naming
@@ -90,6 +90,21 @@ This ensures:
 - All review feedback is tracked in the PR history
 - Future contributors can understand why changes were made
 - Deferred work is captured as issues, not forgotten
+
+### Git Worktrees
+
+If you're working in a directory on the `dev` branch instead of `main`, it's likely because multiple worktrees are in use. Git doesn't allow the same branch to be checked out in multiple worktrees simultaneously.
+
+**When on `dev` branch:**
+- Keep `dev` synced with `main`: `git fetch origin && git merge origin/main`
+- Create feature branches from `dev` (which should mirror `main`)
+- PRs still target `main` as the base branch
+- After PR merges, sync `dev` again: `git fetch origin && git merge origin/main && git push origin dev`
+
+**Check worktree setup:**
+```bash
+git worktree list    # Shows all worktrees and their branches
+```
 
 ## Architecture Overview
 
