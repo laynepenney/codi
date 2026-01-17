@@ -160,7 +160,7 @@ describe('tool-executor', () => {
       expect(batches[2].parallel).toBe(false);
       expect(batches[2].calls[0].input.path).toBe('a.ts');
 
-      // Batch 4: read c.ts (independent but came after dependent read)
+      // Batch 4: read c.ts (came after dependent read, so separate batch)
       expect(batches[3].calls[0].input.path).toBe('c.ts');
     });
 
@@ -188,6 +188,28 @@ describe('tool-executor', () => {
       expect(batches).toHaveLength(1);
       expect(batches[0].parallel).toBe(true);
       expect(batches[0].calls).toHaveLength(3);
+    });
+
+    it('should normalize paths to detect same file', () => {
+      const tools = [
+        createToolCall('write_file', { path: './a.ts', content: 'new' }),
+        createToolCall('read_file', { path: 'a.ts' }), // Same file, different path format
+      ];
+      const batches = batchToolCalls(tools);
+      expect(batches).toHaveLength(2);
+      // Write first, then read (detected as same file)
+      expect(batches[0].calls[0].name).toBe('write_file');
+      expect(batches[1].calls[0].name).toBe('read_file');
+    });
+
+    it('should handle file_path input parameter', () => {
+      const tools = [
+        createToolCall('read_file', { file_path: 'a.ts' }),
+        createToolCall('read_file', { file_path: 'b.ts' }),
+      ];
+      const batches = batchToolCalls(tools);
+      expect(batches).toHaveLength(1);
+      expect(batches[0].parallel).toBe(true);
     });
   });
 

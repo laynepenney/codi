@@ -55,11 +55,7 @@ import {
   type ApprovedPattern,
   type ApprovedPathPattern,
 } from './approvals.js';
-import {
-  batchToolCalls,
-  getBatchStats,
-  type ToolBatch,
-} from './tool-executor.js';
+import { batchToolCalls, getBatchStats } from './tool-executor.js';
 
 /**
  * Information about a tool call for confirmation.

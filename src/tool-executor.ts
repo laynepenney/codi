@@ -8,9 +8,8 @@
  * while maintaining sequential execution for dependent operations.
  */
 
-import type { ToolCall, ToolResult } from './types.js';
-import type { ToolRegistry } from './tools/registry.js';
-import { logger } from './logger.js';
+import type { ToolCall } from './types.js';
+import { normalize } from 'path';
 
 /**
  * Tools that only read state and can safely run in parallel.
@@ -53,14 +52,16 @@ export interface ToolBatch {
 }
 
 /**
- * Extract file path from a tool call's input.
+ * Extract and normalize file path from a tool call's input.
+ * Normalizes paths to handle ./a.ts vs a.ts equivalence.
  */
 function getFilePath(toolCall: ToolCall): string | null {
   const input = toolCall.input;
-  if (typeof input.path === 'string') return input.path;
-  if (typeof input.file_path === 'string') return input.file_path;
-  if (typeof input.file === 'string') return input.file;
-  return null;
+  let path: string | null = null;
+  if (typeof input.path === 'string') path = input.path;
+  else if (typeof input.file_path === 'string') path = input.file_path;
+  else if (typeof input.file === 'string') path = input.file;
+  return path ? normalize(path) : null;
 }
 
 /**
@@ -75,26 +76,6 @@ export function isReadOnly(toolCall: ToolCall): boolean {
  */
 export function isMutating(toolCall: ToolCall): boolean {
   return MUTATING_TOOLS.has(toolCall.name);
-}
-
-/**
- * Check if two tool calls have a dependency (operate on the same file).
- */
-function hasDependency(a: ToolCall, b: ToolCall): boolean {
-  const pathA = getFilePath(a);
-  const pathB = getFilePath(b);
-
-  // If either doesn't have a path, we can't determine dependency
-  // For safety, assume dependency for mutating tools without paths
-  if (!pathA || !pathB) {
-    // If both are read-only, no dependency
-    if (isReadOnly(a) && isReadOnly(b)) return false;
-    // If either is mutating without a clear path (e.g., bash), assume dependency
-    return isMutating(a) || isMutating(b);
-  }
-
-  // Same file = dependency
-  return pathA === pathB;
 }
 
 /**
@@ -166,63 +147,6 @@ export function batchToolCalls(toolCalls: ToolCall[]): ToolBatch[] {
   }
 
   return batches;
-}
-
-/**
- * Result of executing a batch of tools.
- */
-export interface BatchExecutionResult {
-  results: ToolResult[];
-  hasError: boolean;
-}
-
-/**
- * Execute a batch of tool calls.
- * If parallel=true, executes all calls concurrently.
- * Otherwise, executes sequentially.
- */
-export async function executeBatch(
-  batch: ToolBatch,
-  registry: ToolRegistry,
-  onToolCall?: (name: string, input: Record<string, unknown>) => void,
-  onToolResult?: (name: string, result: string, isError: boolean) => void
-): Promise<BatchExecutionResult> {
-  const results: ToolResult[] = [];
-  let hasError = false;
-
-  if (batch.parallel && batch.calls.length > 1) {
-    // Execute in parallel
-    logger.debug(`Executing ${batch.calls.length} tools in parallel: ${batch.calls.map(c => c.name).join(', ')}`);
-
-    // Notify all tool calls are starting
-    for (const toolCall of batch.calls) {
-      onToolCall?.(toolCall.name, toolCall.input);
-    }
-
-    // Execute all in parallel
-    const promises = batch.calls.map(toolCall => registry.execute(toolCall));
-    const parallelResults = await Promise.all(promises);
-
-    // Process results
-    for (let i = 0; i < parallelResults.length; i++) {
-      const result = parallelResults[i];
-      const toolCall = batch.calls[i];
-      results.push(result);
-      if (result.is_error) hasError = true;
-      onToolResult?.(toolCall.name, result.content, !!result.is_error);
-    }
-  } else {
-    // Execute sequentially
-    for (const toolCall of batch.calls) {
-      onToolCall?.(toolCall.name, toolCall.input);
-      const result = await registry.execute(toolCall);
-      results.push(result);
-      if (result.is_error) hasError = true;
-      onToolResult?.(toolCall.name, result.content, !!result.is_error);
-    }
-  }
-
-  return { results, hasError };
 }
 
 /**
