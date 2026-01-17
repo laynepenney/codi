@@ -14,7 +14,7 @@ When changing this area:
 - update tests that assert on session serialization/deserialization
 
 
-**Codi** is an interactive AI coding assistant CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
+**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
 
 ## Quick Reference
 

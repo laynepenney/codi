@@ -100,7 +100,7 @@ github.com/laynepenney/codi
 ### Launch Post
 
 ```
-I'm excited to share Codi - an open-source AI coding assistant for the terminal.
+I'm excited to share Codi - your open-source AI coding wingman for the terminal.
 
 As developers, we spend countless hours in the terminal. What if your AI assistant lived there too - with full access to read files, write code, run tests, and help you ship faster?
 
@@ -164,13 +164,13 @@ github.com/laynepenney/codi
 
 ### r/programming or r/coding
 
-**Title:** `Codi - Open-source AI coding assistant for the terminal (Claude/GPT/Ollama)`
+**Title:** `Codi - Your AI coding wingman for the terminal (Claude/GPT/Ollama)`
 
 **Body:**
 ```
 Hey everyone,
 
-I've been working on Codi, an open-source CLI tool that brings AI assistance directly into your terminal workflow.
+I've been working on Codi, your AI coding wingman - an open-source CLI tool that brings AI assistance directly into your terminal workflow.
 
 **What it does:**
 - Chat with AI that can actually read/write your files, run commands, and search your codebase
@@ -210,7 +210,7 @@ Would love feedback from the community. What features would make this more usefu
 
 ### r/LocalLLaMA
 
-**Title:** `Codi - Terminal AI assistant with Ollama support (free/local LLM coding)`
+**Title:** `Codi - AI coding wingman with Ollama support (free/local LLM coding)`
 
 **Body:**
 ```
@@ -252,13 +252,13 @@ What local models are you using for coding tasks? Always looking to test with mo
 
 ### Show HN Post
 
-**Title:** `Show HN: Codi – Open-source terminal AI assistant (Claude/GPT/Ollama)`
+**Title:** `Show HN: Codi – Your AI coding wingman for the terminal (Claude/GPT/Ollama)`
 
 **Body:**
 ```
 Hi HN,
 
-I built Codi because I wanted an AI coding assistant that:
+I built Codi because I wanted an AI coding wingman that:
 1. Lives in the terminal (where I already work)
 2. Isn't locked to one AI provider
 3. Can actually read and modify my codebase

@@ -88,7 +88,7 @@
   </g>
 
   <!-- Tagline -->
-  <text x="640" y="400" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="28" fill="#9CA3AF">AI-Powered Coding Assistant for Your Terminal</text>
+  <text x="640" y="400" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="28" fill="#9CA3AF">Your AI Coding Wingman for the Terminal</text>
 
   <!-- Feature pills -->
   <g transform="translate(640, 460)" text-anchor="middle">
