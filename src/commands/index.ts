@@ -9,6 +9,7 @@ export interface Command {
   description: string;
   usage: string;
   taskType?: string; // Task type for model map routing
+  subcommands?: string[]; // List of subcommand names for parent commands
   execute: (args: string, context: CommandContext) => Promise<string | null>;
 }
 
