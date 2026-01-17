@@ -1,4 +1,6 @@
 version: '1'
+
+# Model definitions - map friendly names to provider/model pairs
 models:
   haiku:
     provider: anthropic
@@ -12,118 +14,70 @@ models:
     provider: anthropic
     model: claude-opus-4-20250514
     description: Most capable for complex reasoning
+  gpt-4o:
+    provider: openai
+    model: gpt-4o
+    description: Fast, capable GPT-4 model
+  gpt-4o-mini:
+    provider: openai
+    model: gpt-4o-mini
+    description: Budget-friendly GPT-4
   llama3:
     provider: ollama
     model: llama3.2
     description: Free local model
-  coder:
-    provider: ollama-cloud
-    model: qwen3-coder:480b-cloud
-    description: Cloud coder
-  gpt-5-nano:
-    provider: openai
-    model: gpt-5-nano
-    description: Fast, cheap GPT-5 model
-  gpt-5:
-    provider: openai
-    model: gpt-5.2
-    description: Latest GPT-5, best for coding
-  qwen3-lite:
-    provider: ollama
-    model: qwen3:8b
-    description: qwen lite
-  gemini-3-flash-preview:
-    provider: ollama-cloud
-    model: gemini-3-flash-preview:cloud
-    description: gemini cloud fast
-  gpt-oss:
-    provider: ollama-cloud
-    model: gpt-oss:120b-cloud
-    description: cloud gpt oss 120b-cloud
+
+# Task routing - map task types to models
 tasks:
   fast:
-    model: gpt-5-nano
+    model: haiku
     description: Quick tasks (commits, summaries)
   code:
-    model: coder
+    model: sonnet
     description: Standard coding tasks
   complex:
-    model: gpt-5
+    model: opus
     description: Architecture, debugging
   summarize:
     model: llama3
-    description: Context summarization
-  document:
-    model: qwen3-lite
+    description: Context summarization (free)
+
+# Command routing - override task for specific commands
 commands:
   commit:
     task: fast
   fix:
     task: complex
+
+# Fallback chains - try models in order if one fails
 fallbacks:
   primary:
-    - gpt-5
-    - coder
-    - qwen3-lite
     - sonnet
     - haiku
+    - gpt-4o
     - llama3
 
-# Model roles map abstract roles to concrete models per provider context
+# Model roles - abstract roles for provider-agnostic pipelines
 # Use with: /pipeline --provider anthropic <pipeline-name>
 model-roles:
   fast:
     anthropic: haiku
-    openai: gpt-5-nano
-    ollama: qwen3-lite
-    ollama-cloud: gemini-3-flash-preview
+    openai: gpt-4o-mini
+    ollama: llama3
   capable:
     anthropic: sonnet
-    openai: gpt-5
+    openai: gpt-4o
     ollama: llama3
-    ollama-cloud: coder
   reasoning:
     anthropic: opus
-    openai: gpt-5
+    openai: gpt-4o
     ollama: llama3
-    ollama-cloud: gpt-oss
 
+# Example pipeline using roles (provider-agnostic)
 pipelines:
-  # Provider-agnostic refactoring pipeline
-  # Use with: /pipeline --provider anthropic smart-refactor <file>
-  #       or: /pipeline --provider openai smart-refactor <file>
-  smart-refactor:
-    description: Analyze, plan, implement, review
-    provider: openai  # Default provider if --provider not specified
-    steps:
-      - name: analyze
-        role: fast
-        prompt: 'Analyze refactoring opportunities: {input}'
-        output: analysis
-      - name: plan
-        role: reasoning
-        prompt: 'Create refactoring plan based on: {analysis}'
-        output: plan
-      - name: implement
-        role: reasoning
-        prompt: 'Implement the plan: {plan}'
-        output: implementation
-      - name: review
-        role: capable
-        prompt: 'Quick review: {implementation}'
-        output: review
-    result: |-
-      {implementation}
-
-      ## Review
-      {review}
-
-  # Provider-agnostic code review pipeline
-  # Use with: /pipeline --provider anthropic code-review <file>
-  #       or: /pipeline --provider openai code-review <file>
   code-review:
-    description: Multi-step code review using roles
-    provider: openai  # Default provider if --provider not specified
+    description: Multi-step code review
+    provider: anthropic
     steps:
       - name: quick-scan
         role: fast
@@ -131,7 +85,7 @@ pipelines:
         output: quick_issues
       - name: deep-analysis
         role: reasoning
-        prompt: 'Deep analysis of code quality, architecture, and best practices: {input}\n\nQuick scan found: {quick_issues}'
+        prompt: 'Deep analysis of code quality: {input}\n\nQuick scan found: {quick_issues}'
         output: analysis
       - name: suggestions
         role: capable

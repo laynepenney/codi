@@ -299,6 +299,7 @@ import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
 import {
   loadWorkspaceConfig,
+  loadLocalConfig,
   validateConfig,
   mergeConfig,
   getCustomDangerousPatterns,
@@ -2201,18 +2202,25 @@ async function main() {
     console.warn(chalk.yellow('Invalid --context-window value; expected a positive number.'));
   }
 
-  const resolvedConfig = mergeConfig(workspaceConfig, {
-    provider: options.provider,
-    model: options.model,
-    baseUrl: options.baseUrl,
-    endpointId: options.endpointId,
-    yes: options.yes,
-    tools: options.tools,
-    session: options.session,
-    summarizeProvider: options.summarizeProvider,
-    summarizeModel: options.summarizeModel,
-    maxContextTokens: contextWindowTokens,
-  });
+  // Load local config (gitignored, user-specific approvals)
+  const localConfig = loadLocalConfig();
+
+  const resolvedConfig = mergeConfig(
+    workspaceConfig,
+    {
+      provider: options.provider,
+      model: options.model,
+      baseUrl: options.baseUrl,
+      endpointId: options.endpointId,
+      yes: options.yes,
+      tools: options.tools,
+      session: options.session,
+      summarizeProvider: options.summarizeProvider,
+      summarizeModel: options.summarizeModel,
+      maxContextTokens: contextWindowTokens,
+    },
+    localConfig
+  );
 
   // Register tools and commands
   registerDefaultTools();

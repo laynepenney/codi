@@ -1,54 +1,19 @@
 {
-  "provider": "ollama-cloud",
-  "model": "gpt-oss:120b-cloud",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-20250514",
   "autoApprove": [
     "read_file",
     "glob",
     "grep",
     "list_directory"
   ],
-  "approvedPatterns": [
-    {
-      "pattern": "cd *",
-      "approvedAt": "2026-01-14T04:54:02.371Z"
-    },
-    {
-      "pattern": "pnpm -v*",
-      "approvedAt": "2026-01-14T07:42:09.341Z"
-    },
-    {
-      "pattern": "brew *",
-      "approvedAt": "2026-01-14T07:42:34.001Z"
-    },
-    {
-      "pattern": "node *",
-      "approvedAt": "2026-01-14T07:43:25.561Z"
-    },
-    {
-      "pattern": "mkdir *",
-      "approvedAt": "2026-01-14T07:47:14.233Z"
-    },
-    {
-      "pattern": "pnpm rebuild *",
-      "approvedAt": "2026-01-14T09:13:49.781Z"
-    }
-  ],
-  "approvedCategories": [
-    "git-safe",
-    "git-commit",
-    "install-deps",
-    "run-tests",
-    "list-files",
-    "read-files"
-  ],
+  "approvedPatterns": [],
+  "approvedCategories": [],
   "dangerousPatterns": [],
   "systemPromptAdditions": "",
-  "commandAliases": {
-    "t": "/test src/",
-    "b": "/build"
-  },
+  "commandAliases": {},
   "projectContext": "",
-  "enableCompression": true,
+  "enableCompression": false,
   "models": {
     "summarize": {
       "provider": "ollama",
@@ -62,23 +27,14 @@
     "importanceThreshold": 0.4
   },
   "rag": {
-    "enabled": true,
+    "enabled": false,
     "embeddingProvider": "ollama",
     "topK": 5,
     "minScore": 0.7,
-    "autoIndex": true,
-    "watchFiles": true
+    "autoIndex": false,
+    "watchFiles": false
   },
   "mcpServers": {},
-  "approvedPathCategories": [
-    "source-ts",
-    "docs"
-  ],
-  "approvedPathPatterns": [
-    {
-      "pattern": "codi/*.json",
-      "toolName": "edit_file",
-      "approvedAt": "2026-01-14T04:54:45.020Z"
-    }
-  ]
+  "approvedPathCategories": [],
+  "approvedPathPatterns": []
 }
