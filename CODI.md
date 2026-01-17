@@ -14,7 +14,7 @@ When changing this area:
 - update tests that assert on session serialization/deserialization
 
 
-**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
+**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, Ollama Cloud, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
 
 ## Quick Reference
 
@@ -366,7 +366,7 @@ All git commands are consolidated under `/git <subcommand>` with convenient alia
 - Shows model capabilities (vision, tool use)
 - Shows context window sizes
 - Shows pricing per million tokens (input/output)
-- Supports filtering by provider: `/models anthropic`, `/models openai`, `/models ollama`
+- Supports filtering by provider: `/models anthropic`, `/models openai`, `/models ollama`, `/models ollama-cloud`
 - Local-only mode: `/models --local` shows only Ollama models
 - Switch models mid-session without restarting
 - Switch providers mid-session: `/switch openai gpt-4o`
@@ -814,12 +814,10 @@ model-roles:
     anthropic: haiku
     openai: gpt-5-nano
     ollama: local
-    ollama-cloud: cloud-fast
   capable:
     anthropic: sonnet
     openai: gpt-5
     ollama: local
-    ollama-cloud: cloud-coder
 
 pipelines:
   # Direct model references
@@ -861,9 +859,6 @@ pipelines:
 
 # Uses local ollama models
 /pipeline --provider ollama code-review src/file.ts
-
-# Uses cloud ollama models
-/pipeline --provider ollama-cloud code-review src/file.ts
 ```
 
 **Implemented Commands**:
