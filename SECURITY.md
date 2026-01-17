@@ -15,7 +15,7 @@ We take security seriously. If you discover a security vulnerability in Codi, pl
 
 **Please do NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email security concerns to: **codi@laynepenney.com**
+Instead, please email security concerns to: **codi@layne.pro**
 
 Include the following information in your report:
 
