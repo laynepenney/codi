@@ -22,10 +22,10 @@ import * as path from 'path';
  * /undo command - Undo the last file change.
  */
 export const undoCommand: Command = {
-  name: 'fileundo',
-  aliases: ['fu'],
-  description: 'Undo the last file change made by Codi',
-  usage: '/fileundo',
+  name: 'revert-file',
+  aliases: ['rf', 'fileundo', 'fu'],
+  description: 'Revert the last file change made by Codi',
+  usage: '/revert-file',
   taskType: 'fast',
   execute: async (_args: string, _context: CommandContext): Promise<string> => {
     const entry = undoChange();

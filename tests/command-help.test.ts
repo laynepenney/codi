@@ -172,8 +172,8 @@ describe('Command Help System', () => {
       const { registerHistoryCommands } = await import('../src/commands/history-commands');
       const { registerUsageCommands } = await import('../src/commands/usage-commands');
       const { registerPluginCommands } = await import('../src/commands/plugin-commands');
-      const { registerImportCommands } = await import('../src/commands/import-commands');
-      const { registerCompressionCommands } = await import('../src/commands/compression-commands');
+      const { registerPromptCommands } = await import('../src/commands/prompt-commands');
+      const { registerCompactCommands } = await import('../src/commands/compact-commands');
       const { registerApprovalCommands } = await import('../src/commands/approval-commands');
       const { registerSymbolCommands } = await import('../src/commands/symbol-commands');
       const { registerRAGCommands } = await import('../src/commands/rag-commands');
@@ -189,8 +189,8 @@ describe('Command Help System', () => {
       registerHistoryCommands();
       registerUsageCommands();
       registerPluginCommands();
-      registerImportCommands();
-      registerCompressionCommands();
+      registerPromptCommands();
+      registerCompactCommands();
       registerApprovalCommands();
       registerSymbolCommands();
       registerRAGCommands();

@@ -600,8 +600,8 @@ describe('/plugins command E2E', () => {
     await proc.waitFor(/>|codi/i);
     proc.writeLine('/plugins');
 
-    // Should show loaded plugins or "no plugins loaded"
-    await proc.waitFor(/Loaded Plugins|No plugins loaded|Plugin directory/i);
+    // Plugin system is currently disabled
+    await proc.waitFor(/__PLUGINS_DISABLED__|Plugin.*disabled/i);
 
     proc.writeLine('/exit');
     await proc.waitForExit();
