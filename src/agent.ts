@@ -55,6 +55,11 @@ import {
   type ApprovedPattern,
   type ApprovedPathPattern,
 } from './approvals.js';
+import {
+  batchToolCalls,
+  getBatchStats,
+  type ToolBatch,
+} from './tool-executor.js';
 
 /**
  * Information about a tool call for confirmation.
@@ -845,8 +850,12 @@ Always use tools to interact with the filesystem rather than asking the user to 
         break;
       }
 
-      // Execute tool calls
+      // =================================================================
+      // PHASE 1: Pre-process and confirm all tool calls
+      // Confirmations must be sequential (diffs depend on current state)
+      // =================================================================
       const toolResults: ToolResult[] = [];
+      const approvedTools: ToolCall[] = [];
       let hasError = false;
       let aborted = false;
 
@@ -1002,6 +1011,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
                 }
               }
               // Continue with approval (execute the tool)
+              approvedTools.push(toolCall);
             } else if (result.type === 'approve_category') {
               // Determine if this is a bash command or file tool
               if (Agent.FILE_TOOLS.has(toolCall.name)) {
@@ -1018,6 +1028,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
                 }
               }
               // Continue with approval (execute the tool)
+              approvedTools.push(toolCall);
             }
           } else {
             // Handle simple string results
@@ -1040,22 +1051,68 @@ Always use tools to interact with the filesystem rather than asking the user to 
               hasError = true;
               continue;
             }
+
+            // result === 'approve'
+            approvedTools.push(toolCall);
+          }
+        } else {
+          // No confirmation needed, add to approved list
+          approvedTools.push(toolCall);
+        }
+      }
+
+      // =================================================================
+      // PHASE 2: Batch and execute approved tools
+      // Read-only tools on different files can run in parallel
+      // =================================================================
+      if (!aborted && approvedTools.length > 0) {
+        const batches = batchToolCalls(approvedTools);
+        const stats = getBatchStats(batches);
+
+        if (stats.parallelBatches > 0) {
+          logger.debug(
+            `Tool batching: ${stats.totalCalls} calls → ${batches.length} batches ` +
+            `(${stats.parallelBatches} parallel, max ${stats.maxParallelism} concurrent)`
+          );
+        }
+
+        for (const batch of batches) {
+          if (batch.parallel && batch.calls.length > 1) {
+            // Execute batch in parallel
+            logger.debug(`Executing ${batch.calls.length} tools in parallel: ${batch.calls.map(c => c.name).join(', ')}`);
+
+            // Notify all tool calls are starting
+            for (const toolCall of batch.calls) {
+              this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
+              updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
+            }
+
+            // Execute all in parallel
+            const parallelResults = await Promise.all(
+              batch.calls.map(toolCall => this.toolRegistry.execute(toolCall))
+            );
+
+            // Process results
+            for (let i = 0; i < parallelResults.length; i++) {
+              const result = parallelResults[i];
+              const toolCall = batch.calls[i];
+              toolResults.push(result);
+              if (result.is_error) hasError = true;
+              this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
+            }
+          } else {
+            // Execute sequentially
+            for (const toolCall of batch.calls) {
+              this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
+              updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
+
+              const result = await this.toolRegistry.execute(toolCall);
+              toolResults.push(result);
+              if (result.is_error) hasError = true;
+              this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
+            }
           }
         }
-
-        this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
-
-        // Update working set with file operations
-        updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
-
-        const result = await this.toolRegistry.execute(toolCall);
-        toolResults.push(result);
-
-        if (result.is_error) {
-          hasError = true;
-        }
-
-        this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
       }
 
       // If user aborted, stop the loop
