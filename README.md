@@ -7,6 +7,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/laynepenney/codi/actions/workflows/ci.yml"><img src="https://github.com/laynepenney/codi/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="#installation"><img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen?style=flat-square" alt="Node 22+" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Claude-Anthropic-blueviolet?style=flat-square" alt="Claude" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/GPT-OpenAI-74aa9c?style=flat-square" alt="OpenAI" /></a>
