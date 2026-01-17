@@ -121,10 +121,12 @@ src/
 ├── compression.ts    # Entity-based context compression
 ├── commands/         # Slash command system
 │   ├── index.ts      # Command registry
-│   ├── code-commands.ts
+│   ├── prompt-commands.ts   # Information prompts (explain, review, analyze)
+│   ├── code-commands.ts     # Code modification (refactor, fix, test)
 │   ├── workflow-commands.ts
 │   ├── git-commands.ts
 │   ├── session-commands.ts
+│   ├── compact-commands.ts  # Context management
 │   └── config-commands.ts
 ├── providers/        # AI model backends
 ├── tools/            # Filesystem interaction tools
@@ -415,29 +417,27 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/commands/memory-commands.ts` - Command implementations
 - `src/index.ts` - Memory context injection into system prompt
 
-#### 6. ChatGPT Import - IMPLEMENTED
+#### 6. Prompt Commands - IMPLEMENTED
 
 **Status**: Complete
 
-**Implemented Commands** (in `src/commands/import-commands.ts`):
+**Implemented Commands** (in `src/commands/prompt-commands.ts`):
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `/import <file> list` | `/import-chatgpt` | List conversations in export |
-| `/import <file> search <query>` | - | Search conversations by title/content |
-| `/import <file> all [--summary]` | - | Import all conversations |
-| `/import <file> <indices>` | - | Import specific conversations by index |
+| `/prompt explain <file>` | `/prompt e` | Explain code in a file |
+| `/prompt review <file>` | `/prompt cr` | Code review for a file |
+| `/prompt analyze <file>` | `/prompt a` | Analyze code structure |
+| `/prompt summarize <file>` | `/prompt sum` | Summarize code purpose |
 
 **Key Features**:
-- Parses ChatGPT's tree-based message format
-- Converts to Codi session format
-- Generates conversation summaries for context
-- Optional `--summary` flag imports only summaries (saves tokens)
-- Search and filter conversations before importing
+- Information-only prompts that don't modify files
+- Subcommand-based interface under unified `/prompt` command
+- All prompts include file content and project context
+- Suitable for read-only code understanding tasks
 
 **Files**:
-- `src/import-chatgpt.ts` - ChatGPT export parser and converter
-- `src/commands/import-commands.ts` - Command implementations
+- `src/commands/prompt-commands.ts` - Command implementations
 
 #### 7. Diff Preview Mode - IMPLEMENTED
 
@@ -475,9 +475,9 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 
 **Implemented Commands** (in `src/commands/history-commands.ts`):
 
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `/fileundo` | `/fu` | Undo the last file change |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/revert-file` | `/rf`, `/fileundo`, `/fu` | Undo the last file change |
 | `/redo` | - | Redo an undone change |
 | `/filehistory` | `/fh` | Show file change history |
 | `/filehistory clear` | - | Clear all history |
@@ -495,9 +495,9 @@ Below are feature ideas organized by complexity and impact. Each includes implem
 - `src/commands/history-commands.ts` - User-facing commands
 - All file tools modified: `write-file.ts`, `edit-file.ts`, `insert-line.ts`, `patch-file.ts`
 
-#### 9. Plugin System - IMPLEMENTED
+#### 9. Plugin System - DISABLED
 
-**Status**: Complete
+**Status**: Temporarily disabled pending investigation (see GitHub issue #17)
 
 **Key Features** (in `src/plugins.ts`):
 - Plugin interface for third-party extensions
@@ -884,13 +884,12 @@ pipelines:
 - SQLite-based symbol index using better-sqlite3
 - Regex-based symbol extraction for TypeScript/JavaScript and Kotlin
 - TypeScript path alias resolution via tsconfig.json parsing
-- IDE-style usage-based dependency detection (optional deep mode)
-- Parallel processing for deep indexing with configurable jobs
+- Usage-based dependency detection
 
 **Commands**:
 | Command | Description |
 |---------|-------------|
-| `/symbols rebuild [--deep] [--jobs N]` | Rebuild the symbol index |
+| `/symbols rebuild` | Rebuild the symbol index |
 | `/symbols update` | Incremental update |
 | `/symbols stats` | Show index statistics |
 | `/symbols search <name>` | Search for symbols |
@@ -962,8 +961,17 @@ pipelines:
 3. Keeps recent messages intact, summarizes older ones
 4. Preserves system prompt and critical context
 
+**Implemented Commands** (in `src/commands/compact-commands.ts`):
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/compact` | `/summarize`, `/compress`, `/compression` | Show context status (default) |
+| `/compact status` | - | Show current context size and compression status |
+| `/compact summarize [--force]` | - | Summarize older messages to reduce context |
+| `/compact compress [on\|off\|--preview]` | - | Toggle entity-based compression |
+
 **CLI Options**:
-- `-c, --compress` - Enable context compression (entity normalization)
+- `-c, --compress` - Enable context compression (entity normalization) at startup
 - Automatic compaction happens regardless of flag when needed
 
 #### 14. RAG System (Embeddings) - IMPLEMENTED
