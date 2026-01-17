@@ -1,2 +1,4 @@
+packages:
+  - '.'
 onlyBuiltDependencies:
   - better-sqlite3
