@@ -395,6 +395,42 @@
       display: block;
     }
 
+    /* Highlights */
+    .highlights {
+      padding: 6rem 2rem;
+      background: var(--bg-light);
+    }
+
+    .highlights-content {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .highlights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .highlight-card {
+      border-radius: 12px;
+      overflow: hidden;
+      transition: all 0.3s;
+      display: block;
+    }
+
+    .highlight-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--glow);
+      text-decoration: none;
+    }
+
+    .highlight-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
     /* Features */
     .features {
       padding: 6rem 2rem;
@@ -827,6 +863,24 @@
         <span class="demo-title">Terminal - codi</span>
       </div>
       <img src="assets/demo.gif" alt="Codi demo showing AI-assisted coding in the terminal" class="demo-gif" loading="lazy">
+    </div>
+  </section>
+
+  <section class="highlights" id="highlights">
+    <div class="highlights-content">
+      <h2 class="section-title">Why Codi?</h2>
+      <p class="section-subtitle">Powerful features designed for real developer workflows</p>
+      <div class="highlights-grid">
+        <a href="#providers" class="highlight-card">
+          <img src="assets/feature-providers.png" alt="Multi-Provider Support" loading="lazy">
+        </a>
+        <a href="#features" class="highlight-card">
+          <img src="assets/feature-safety.png" alt="Safety First" loading="lazy">
+        </a>
+        <a href="#commands" class="highlight-card">
+          <img src="assets/feature-commands.png" alt="Built-in Commands" loading="lazy">
+        </a>
+      </div>
     </div>
   </section>
 

@@ -31,6 +31,18 @@
 
 ---
 
+## Highlights
+
+<p align="center">
+  <img src="assets/feature-providers.png" alt="Multi-Provider Support" width="380" />
+  <img src="assets/feature-safety.png" alt="Safety First" width="380" />
+</p>
+<p align="center">
+  <img src="assets/feature-commands.png" alt="Built-in Commands" width="380" />
+</p>
+
+---
+
 ## Features
 
 <table>
