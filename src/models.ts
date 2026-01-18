@@ -13,6 +13,7 @@ import type { ModelInfo } from './providers/base.js';
  */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   // Anthropic Claude models
+  'claude-opus-4-5-20251101': { input: 15.0, output: 75.0 },
   'claude-opus-4-20250514': { input: 15.0, output: 75.0 },
   'claude-sonnet-4-20250514': { input: 3.0, output: 15.0 },
   'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
@@ -36,6 +37,16 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
  * Static list of known models with their capabilities.
  */
 export const STATIC_MODELS: ModelInfo[] = [
+  // Anthropic Claude 4.5 models
+  {
+    id: 'claude-opus-4-5-20251101',
+    name: 'Claude Opus 4.5',
+    provider: 'Anthropic',
+    capabilities: { vision: true, toolUse: true },
+    contextWindow: 200000,
+    pricing: MODEL_PRICING['claude-opus-4-5-20251101'],
+  },
+
   // Anthropic Claude 4 models
   {
     id: 'claude-opus-4-20250514',
