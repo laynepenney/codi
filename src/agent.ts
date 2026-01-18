@@ -7,6 +7,7 @@ import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 import { recordUsage } from './usage.js';
 import { AGENT_CONFIG, TOOL_CATEGORIES, CONTEXT_OPTIMIZATION, type DangerousPattern } from './constants.js';
+import { computeContextConfig, FIXED_CONFIG, type ComputedContextConfig } from './context-config.js';
 import type { ModelMap } from './model-map/index.js';
 import {
   compressContext,
@@ -135,6 +136,7 @@ export class Agent {
   private enableCompression: boolean;
   private maxContextTokens: number;
   private maxContextTokensExplicit: boolean; // True if user explicitly set maxContextTokens
+  private contextConfig: ComputedContextConfig; // Tier-based context config
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -185,6 +187,9 @@ export class Agent {
     this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
+
+    // Compute tier-based context config from provider's context window
+    this.contextConfig = computeContextConfig(this.provider.getContextWindow());
 
     // Calculate adaptive context limit based on actual overhead
     this.maxContextTokens = options.maxContextTokens ??
@@ -239,29 +244,31 @@ export class Agent {
   /**
    * Calculate adaptive context limit based on actual overhead.
    * Uses: contextWindow - systemPrompt - tools - maxOutput - buffer
-   * Falls back to MIN_CONTEXT_PERCENT of context window as minimum.
+   * Falls back to minimum viable context as floor.
    */
   private calculateAdaptiveContextLimit(provider: BaseProvider): number {
     const contextWindow = provider.getContextWindow();
+
+    // Use tier-based config values
+    const cfg = this.contextConfig;
 
     // Calculate overhead components
     const systemPromptTokens = estimateSystemPromptTokens(this.systemPrompt);
     const toolDefinitions = this.useTools ? this.toolRegistry.getDefinitions() : [];
     const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
-    const outputReserve = AGENT_CONFIG.MAX_OUTPUT_TOKENS;
-    const safetyBuffer = AGENT_CONFIG.CONTEXT_SAFETY_BUFFER;
+    const outputReserve = cfg.maxOutputTokens;
+    const safetyBuffer = cfg.safetyBuffer;
 
     const totalOverhead = systemPromptTokens + toolDefinitionTokens + outputReserve + safetyBuffer;
 
     // Calculate available context for messages
     const adaptiveLimit = contextWindow - totalOverhead;
-    const minimumLimit = Math.floor(contextWindow * AGENT_CONFIG.MIN_CONTEXT_PERCENT);
 
-    // Use the larger of adaptive calculation or minimum percentage
-    const finalLimit = Math.max(adaptiveLimit, minimumLimit);
+    // Use the larger of adaptive calculation or minimum viable
+    const finalLimit = Math.max(adaptiveLimit, cfg.minViableContext);
 
     // Warn if context budget is very tight
-    if (finalLimit < AGENT_CONFIG.MIN_VIABLE_CONTEXT) {
+    if (finalLimit < cfg.minViableContext) {
       logger.warn(
         `Tight context budget: ${finalLimit} tokens for messages. ` +
         `Model has ${contextWindow} context, overhead is ${totalOverhead} tokens. ` +
@@ -270,7 +277,7 @@ export class Agent {
     }
 
     logger.debug(
-      `Adaptive context: ${finalLimit} tokens ` +
+      `Adaptive context (${cfg.tierName} tier): ${finalLimit} tokens ` +
       `(window: ${contextWindow}, system: ${systemPromptTokens}, tools: ${toolDefinitionTokens}, ` +
       `output: ${outputReserve}, buffer: ${safetyBuffer})`
     );
@@ -543,15 +550,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
   /**
    * Truncate a tool result if it exceeds the maximum size.
-   * Helps smaller models process large outputs.
+   * Uses tier-based config to scale with model's context window.
    */
   private truncateToolResult(content: string): string {
-    if (content.length <= AGENT_CONFIG.MAX_IMMEDIATE_TOOL_RESULT) {
+    const maxSize = this.contextConfig.maxImmediateToolResult;
+    if (content.length <= maxSize) {
       return content;
     }
-    const halfLimit = Math.floor(AGENT_CONFIG.MAX_IMMEDIATE_TOOL_RESULT / 2);
+    const halfLimit = Math.floor(maxSize / 2);
     const truncated = content.slice(0, halfLimit) +
-      `\n\n... [${content.length - AGENT_CONFIG.MAX_IMMEDIATE_TOOL_RESULT} characters truncated] ...\n\n` +
+      `\n\n... [${content.length - maxSize} characters truncated] ...\n\n` +
       content.slice(-halfLimit);
     return truncated;
   }
@@ -583,7 +591,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
     let consecutiveErrors = 0;
     let finalResponse = '';
 
-    while (iterations < AGENT_CONFIG.MAX_ITERATIONS) {
+    while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
       iterations++;
 
       // Get tool definitions if provider supports them and tools are enabled
@@ -1121,7 +1129,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
       // Track consecutive errors
       if (hasError) {
         consecutiveErrors++;
-        if (consecutiveErrors >= AGENT_CONFIG.MAX_CONSECUTIVE_ERRORS) {
+        if (consecutiveErrors >= FIXED_CONFIG.MAX_CONSECUTIVE_ERRORS) {
           finalResponse += '\n\n(Stopping due to repeated errors. Please check the issue and try again.)';
           break;
         }
@@ -1220,17 +1228,20 @@ Always use tools to interact with the filesystem rather than asking the user to 
         });
       }
 
-      // Truncate old tool results to save context
-      truncateOldToolResults(this.messages);
+      // Truncate old tool results to save context (using tier-based config)
+      truncateOldToolResults(this.messages, {
+        recentToolResultsToKeep: this.contextConfig.recentToolResultsToKeep,
+        toolResultTruncateThreshold: this.contextConfig.toolResultTruncateThreshold,
+      });
     }
 
-    if (iterations >= AGENT_CONFIG.MAX_ITERATIONS) {
+    if (iterations >= FIXED_CONFIG.MAX_ITERATIONS) {
       const maxIterMsg = '\n\n(Reached maximum iterations, stopping)';
       finalResponse += maxIterMsg;
       // Also output via callback so user sees the message
       this.callbacks.onText?.(maxIterMsg);
       // Audit log
-      this.auditLogger?.maxIterations(iterations, AGENT_CONFIG.MAX_ITERATIONS);
+      this.auditLogger?.maxIterations(iterations, FIXED_CONFIG.MAX_ITERATIONS);
     }
 
     // Decompress final response if compression was used
@@ -1307,6 +1318,8 @@ Always use tools to interact with the filesystem rather than asking the user to 
     this.provider = provider;
     // Update useTools based on new provider's capabilities
     this.useTools = provider.supportsToolUse();
+    // Recompute tier-based context config for new provider
+    this.contextConfig = computeContextConfig(provider.getContextWindow());
     // Recalculate maxContextTokens if not explicitly set by user
     if (!this.maxContextTokensExplicit) {
       this.maxContextTokens = this.calculateAdaptiveContextLimit(provider);
@@ -1333,12 +1346,23 @@ Always use tools to interact with the filesystem rather than asking the user to 
    * Get current context size information.
    */
   getContextInfo(): {
+    // Token counts
     tokens: number;
     messageTokens: number;
     systemPromptTokens: number;
     toolDefinitionTokens: number;
+    // Limits and budget
     maxTokens: number;
+    contextWindow: number;
+    outputReserve: number;
+    safetyBuffer: number;
+    tierName: string;
+    // Message breakdown
     messages: number;
+    userMessages: number;
+    assistantMessages: number;
+    toolResultMessages: number;
+    // State
     hasSummary: boolean;
     compression: CompressionStats | null;
     compressionEnabled: boolean;
@@ -1353,13 +1377,38 @@ Always use tools to interact with the filesystem rather than asking the user to 
     const systemPromptTokens = estimateSystemPromptTokens(systemPromptWithSummary);
     const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
 
+    // Count messages by role
+    let userMessages = 0;
+    let assistantMessages = 0;
+    let toolResultMessages = 0;
+    for (const msg of this.messages) {
+      if (msg.role === 'user') {
+        // Check if it contains tool results
+        if (typeof msg.content !== 'string' &&
+            msg.content.some(b => b.type === 'tool_result')) {
+          toolResultMessages++;
+        } else {
+          userMessages++;
+        }
+      } else if (msg.role === 'assistant') {
+        assistantMessages++;
+      }
+    }
+
     return {
       tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,
       messageTokens,
       systemPromptTokens,
       toolDefinitionTokens,
       maxTokens: this.maxContextTokens,
+      contextWindow: this.provider.getContextWindow(),
+      outputReserve: this.contextConfig.maxOutputTokens,
+      safetyBuffer: this.contextConfig.safetyBuffer,
+      tierName: this.contextConfig.tierName,
       messages: this.messages.length,
+      userMessages,
+      assistantMessages,
+      toolResultMessages,
       hasSummary: this.conversationSummary !== null,
       compression: this.lastCompressionStats,
       compressionEnabled: this.enableCompression,

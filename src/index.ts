@@ -2760,15 +2760,56 @@ async function main() {
 
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
-      console.log(chalk.bold('\nContext Status:'));
-      console.log(chalk.dim(`  Tokens: ${info.tokens} / ${info.maxTokens}`));
-      console.log(chalk.dim(`  Messages: ${info.messages}`));
-      console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
-      console.log(chalk.dim(`  Compression: ${info.compressionEnabled ? 'enabled' : 'disabled'}`));
+      const usedPercent = Math.min(100, (info.tokens / info.contextWindow) * 100);
+      const budgetPercent = (info.maxTokens / info.contextWindow) * 100;
+
+      console.log(chalk.bold('\n📊 Context Status'));
+      console.log(chalk.dim('─'.repeat(50)));
+
+      // Visual bar for context usage
+      const barWidth = 40;
+      const usedWidth = Math.round((usedPercent / 100) * barWidth);
+      const budgetWidth = Math.round((budgetPercent / 100) * barWidth);
+      const bar = chalk.green('█'.repeat(Math.min(usedWidth, budgetWidth))) +
+                  chalk.yellow('█'.repeat(Math.max(0, usedWidth - budgetWidth))) +
+                  chalk.dim('░'.repeat(Math.max(0, barWidth - usedWidth)));
+
+      console.log(`\n  ${bar} ${usedPercent.toFixed(1)}%`);
+      console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.contextWindow)} tokens`));
+
+      // Token breakdown
+      console.log(chalk.bold('\n  Token Breakdown:'));
+      console.log(chalk.cyan(`    Messages:     ${formatTokens(info.messageTokens).padStart(8)}`));
+      console.log(chalk.blue(`    System:       ${formatTokens(info.systemPromptTokens).padStart(8)}`));
+      console.log(chalk.magenta(`    Tools:        ${formatTokens(info.toolDefinitionTokens).padStart(8)}`));
+      console.log(chalk.dim(`    ─────────────────────`));
+      console.log(chalk.white(`    Total:        ${formatTokens(info.tokens).padStart(8)}`));
+
+      // Budget info
+      console.log(chalk.bold('\n  Context Budget:'));
+      console.log(chalk.dim(`    Window:       ${formatTokens(info.contextWindow).padStart(8)}  (${info.tierName} tier)`));
+      console.log(chalk.dim(`    Output rsv:   ${formatTokens(info.outputReserve).padStart(8)}`));
+      console.log(chalk.dim(`    Safety:       ${formatTokens(info.safetyBuffer).padStart(8)}`));
+      console.log(chalk.green(`    Available:    ${formatTokens(info.maxTokens).padStart(8)}`));
+
+      // Message breakdown
+      console.log(chalk.bold('\n  Messages:'));
+      console.log(chalk.dim(`    User:         ${String(info.userMessages).padStart(8)}`));
+      console.log(chalk.dim(`    Assistant:    ${String(info.assistantMessages).padStart(8)}`));
+      console.log(chalk.dim(`    Tool results: ${String(info.toolResultMessages).padStart(8)}`));
+      console.log(chalk.dim(`    Total:        ${String(info.messages).padStart(8)}`));
+
+      // State
+      console.log(chalk.bold('\n  State:'));
+      console.log(chalk.dim(`    Summary:      ${info.hasSummary ? chalk.green('yes') : 'no'}`));
+      console.log(chalk.dim(`    Compression:  ${info.compressionEnabled ? chalk.green('enabled') : 'disabled'}`));
       if (info.compression) {
-        console.log(chalk.dim(`  Compression savings: ${info.compression.savings} chars (${info.compression.savingsPercent.toFixed(1)}%)`));
-        console.log(chalk.dim(`  Entities tracked: ${info.compression.entityCount}`));
+        console.log(chalk.dim(`    Savings:      ${info.compression.savings} chars (${info.compression.savingsPercent.toFixed(1)}%)`));
+        console.log(chalk.dim(`    Entities:     ${info.compression.entityCount}`));
       }
+      console.log(chalk.dim(`    Working set:  ${info.workingSetFiles} files`));
+
+      console.log('');
       rl.prompt();
       return;
     }

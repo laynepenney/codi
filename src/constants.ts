@@ -15,7 +15,7 @@ export const AGENT_CONFIG = {
   /** Stop after this many consecutive errors */
   MAX_CONSECUTIVE_ERRORS: 3,
   /** Fallback context token limit (used when adaptive calculation unavailable) */
-  MAX_CONTEXT_TOKENS: 80000,
+  MAX_CONTEXT_TOKENS: 120000,
   /** Maximum output tokens to reserve for model response */
   MAX_OUTPUT_TOKENS: 8192,
   /** Safety buffer for context calculations (tokens) */

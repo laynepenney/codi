@@ -15,6 +15,7 @@ import { messageToText } from './message-converter.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
 import { DEFAULT_FALLBACK_CONFIG, findBestToolMatch } from '../tools/tool-fallback.js';
 import { logger, LogLevel } from '../logger.js';
+import { getOllamaModelInfo } from './ollama-model-info.js';
 
 /** Ollama message format */
 interface OllamaMessage {
@@ -94,6 +95,8 @@ export class OllamaCloudProvider extends BaseProvider {
   private readonly retryOptions: RetryOptions;
   private readonly rateLimiter: RateLimiter;
   private retryCallback?: (attempt: number, error: Error, delayMs: number) => void;
+  private cachedContextWindow: number | null = null;
+  private contextWindowPromise: Promise<void> | null = null;
 
   constructor(config: ProviderConfig & { retry?: RetryOptions } = {}) {
     super(config);
@@ -182,6 +185,9 @@ export class OllamaCloudProvider extends BaseProvider {
     tools?: ToolDefinition[],
     systemPrompt?: string
   ): Promise<ProviderResponse> {
+    // Fetch context window on first API call (cached after)
+    await this.ensureContextWindow();
+
     const ollamaMessages = this.convertMessages(messages, systemPrompt);
 
     const requestBody: OllamaChatRequest = {
@@ -270,6 +276,9 @@ export class OllamaCloudProvider extends BaseProvider {
     systemPrompt?: string,
     onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
+    // Fetch context window on first API call (cached after)
+    await this.ensureContextWindow();
+
     const ollamaMessages = this.convertMessages(messages, systemPrompt);
 
     const requestBody: OllamaChatRequest = {
@@ -864,5 +873,49 @@ export class OllamaCloudProvider extends BaseProvider {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Fetch and cache the context window from Ollama's /api/show endpoint.
+   * Called lazily on first API request.
+   */
+  private async fetchContextWindow(): Promise<void> {
+    if (this.cachedContextWindow !== null) return;
+
+    const info = await getOllamaModelInfo(this.model, this.baseUrl);
+    if (info?.contextWindow) {
+      this.cachedContextWindow = info.contextWindow;
+      logger.debug(`Ollama ${this.model}: context window = ${this.cachedContextWindow}`);
+    }
+  }
+
+  /**
+   * Ensure context window is fetched (for use before API calls).
+   */
+  async ensureContextWindow(): Promise<void> {
+    if (this.cachedContextWindow !== null) return;
+
+    // Avoid multiple concurrent fetches
+    if (!this.contextWindowPromise) {
+      this.contextWindowPromise = this.fetchContextWindow();
+    }
+    await this.contextWindowPromise;
+  }
+
+  /**
+   * Get the context window for the current model.
+   * Returns cached value from /api/show, or default if not yet fetched.
+   */
+  override getContextWindow(): number {
+    // Return cached value if available
+    if (this.cachedContextWindow !== null) {
+      return this.cachedContextWindow;
+    }
+
+    // Trigger async fetch for next time (fire and forget)
+    this.ensureContextWindow().catch(() => {});
+
+    // Return default for now - will be accurate on subsequent calls
+    return 128000; // Conservative default
   }
 }
