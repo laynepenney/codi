@@ -2765,7 +2765,7 @@ async function main() {
       const topic = trimmed.slice(1).trim();
       if (topic) {
         // Search for commands matching the topic
-        const allCommands = getRegisteredCommands();
+        const allCommands = getAllCommands();
         const matches = allCommands.filter(
           (cmd) =>
             cmd.name.includes(topic.toLowerCase()) ||
