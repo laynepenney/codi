@@ -1,9 +1,7 @@
 # Reddit Launch Post
 
-## Title Options
-1. `I built an open-source Claude Code / Codex alternative that works with any AI provider (including local models)`
-2. `Codi: Open-source AI coding assistant for the terminal - works with Claude, GPT, Ollama, or local models`
-3. `[Show HN style] I built my own Claude Code to learn how agentic AI works`
+## Title
+`I built my own Claude Code to learn how agentic AI works`
 
 ## Post Body (for r/programming, r/opensource, r/commandline)
 
