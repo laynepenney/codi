@@ -262,7 +262,7 @@ export class BackgroundIndexer {
         // Step 2: Write to vector store sequentially (avoids concurrent write conflicts)
         for (const { file, result, error } of batchResults) {
           if (error) {
-            this.onError?.(`Failed to index ${file}: ${error}`);
+            this.onError?.(new Error(`Failed to index ${file}: ${error}`));
           } else if (result && result.chunks.length > 0) {
             try {
               // Delete existing chunks for this file
@@ -272,7 +272,7 @@ export class BackgroundIndexer {
               this.totalChunks += result.chunks.length;
               this.updateFileCache(file);
             } catch (err) {
-              this.onError?.(`Failed to write index for ${file}: ${err}`);
+              this.onError?.(new Error(`Failed to write index for ${file}: ${err}`));
             }
           } else {
             // File was processed but had no chunks (empty/binary/excluded)
@@ -463,7 +463,7 @@ export class BackgroundIndexer {
       );
 
       this.watcher.on('error', (err) => {
-        this.onError?.(`File watcher error: ${err}`);
+        this.onError?.(new Error(`File watcher error: ${err}`));
       });
     } catch {
       // fs.watch might not be available on all platforms - silently ignore
