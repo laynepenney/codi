@@ -254,7 +254,8 @@ describe('Embedding Providers', () => {
       expect(provider.getName()).toBe('Ollama');
     });
 
-    it('auto-detects OpenAI when API key is available', () => {
+    it('defaults to Ollama for auto mode (free/local)', () => {
+      // Even with OpenAI key available, auto mode prefers Ollama
       process.env.OPENAI_API_KEY = 'test-key';
 
       const provider = createEmbeddingProvider({
@@ -262,10 +263,10 @@ describe('Embedding Providers', () => {
         embeddingProvider: 'auto',
       });
 
-      expect(provider.getName()).toBe('OpenAI');
+      expect(provider.getName()).toBe('Ollama');
     });
 
-    it('falls back to Ollama when OpenAI unavailable', () => {
+    it('defaults to Ollama without any API key', () => {
       delete process.env.OPENAI_API_KEY;
 
       const provider = createEmbeddingProvider({

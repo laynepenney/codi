@@ -2324,14 +2324,17 @@ async function main() {
         console.error(chalk.red(`RAG indexer error: ${err.message}`));
       });
 
-      // Set up progress callback
+      // Set up progress callback using spinner for clean single-line output
       ragIndexer.onProgress = (current, total, file) => {
         if (current === 1 || current === total || current % 10 === 0) {
-          process.stdout.write(chalk.dim(`\rIndexing: ${current}/${total} - ${file.slice(0, 40)}...`.padEnd(60)));
+          spinner.indexing(current, total, file.slice(0, 40));
         }
       };
       ragIndexer.onComplete = (stats) => {
-        console.log(chalk.dim(`\nRAG index: ${stats.totalChunks} chunks from ${stats.totalFiles} files`));
+        spinner.indexingDone(stats.totalFiles, stats.totalChunks);
+      };
+      ragIndexer.onError = (error) => {
+        spinner.fail(chalk.red(`RAG indexer: ${error}`));
       };
 
       // Register with commands and tool
