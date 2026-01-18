@@ -7,6 +7,8 @@ import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCal
 import { createProviderResponse, safeParseJson, StreamingToolCallAccumulator } from './response-parser.js';
 import { mapContentBlock, type BlockConverters } from './message-converter.js';
 import { getStaticModels, getModelPricing } from '../models.js';
+import { getOllamaModelInfo } from './ollama-model-info.js';
+import { logger } from '../logger.js';
 
 const DEFAULT_MODEL = 'gpt-4o';
 const MAX_TOKENS = 4096;
@@ -54,6 +56,9 @@ export class OpenAICompatibleProvider extends BaseProvider {
   private client: OpenAI;
   private model: string;
   private providerName: string;
+  private cachedContextWindow: number | null = null;
+  private contextWindowPromise: Promise<void> | null = null;
+  private ollamaBaseUrl: string | null = null;
 
   constructor(config: ProviderConfig & { providerName?: string } = {}) {
     super(config);
@@ -63,6 +68,12 @@ export class OpenAICompatibleProvider extends BaseProvider {
     });
     this.model = config.model || DEFAULT_MODEL;
     this.providerName = config.providerName || 'OpenAI';
+
+    // For Ollama, extract base URL for /api/show calls
+    // The OpenAI-compatible endpoint is /v1, but /api/show is at the root
+    if (this.providerName === 'Ollama' && config.baseUrl) {
+      this.ollamaBaseUrl = config.baseUrl.replace(/\/v1\/?$/, '');
+    }
   }
 
   private getTokenParams(): { max_tokens?: number; max_completion_tokens?: number } {
@@ -73,6 +84,11 @@ export class OpenAICompatibleProvider extends BaseProvider {
   }
 
   async chat(messages: Message[], tools?: ToolDefinition[], systemPrompt?: string): Promise<ProviderResponse> {
+    // Fetch context window on first API call for Ollama
+    if (this.ollamaBaseUrl) {
+      await this.ensureContextWindow();
+    }
+
     const convertedMessages = this.convertMessages(messages);
     const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
       ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
@@ -98,6 +114,11 @@ export class OpenAICompatibleProvider extends BaseProvider {
     systemPrompt?: string,
     onReasoningChunk?: (chunk: string) => void
   ): Promise<ProviderResponse> {
+    // Fetch context window on first API call for Ollama
+    if (this.ollamaBaseUrl) {
+      await this.ensureContextWindow();
+    }
+
     const convertedMessages = this.convertMessages(messages);
     const messagesWithSystem: OpenAI.ChatCompletionMessageParam[] = systemPrompt
       ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
@@ -192,6 +213,55 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
   getModel(): string {
     return this.model;
+  }
+
+  /**
+   * Fetch and cache the context window from Ollama's /api/show endpoint.
+   * Only applicable for Ollama provider.
+   */
+  private async fetchContextWindow(): Promise<void> {
+    if (this.cachedContextWindow !== null) return;
+    if (!this.ollamaBaseUrl) return;
+
+    const info = await getOllamaModelInfo(this.model, this.ollamaBaseUrl);
+    if (info?.contextWindow) {
+      this.cachedContextWindow = info.contextWindow;
+      logger.debug(`Ollama ${this.model}: context window = ${this.cachedContextWindow}`);
+    }
+  }
+
+  /**
+   * Ensure context window is fetched (for use before API calls).
+   */
+  async ensureContextWindow(): Promise<void> {
+    if (this.cachedContextWindow !== null) return;
+    if (!this.ollamaBaseUrl) return;
+
+    // Avoid multiple concurrent fetches
+    if (!this.contextWindowPromise) {
+      this.contextWindowPromise = this.fetchContextWindow();
+    }
+    await this.contextWindowPromise;
+  }
+
+  /**
+   * Get the context window for the current model.
+   * For Ollama, returns cached value from /api/show, or triggers async fetch.
+   */
+  override getContextWindow(): number {
+    // Return cached value if available
+    if (this.cachedContextWindow !== null) {
+      return this.cachedContextWindow;
+    }
+
+    // For Ollama, trigger async fetch for next time
+    if (this.ollamaBaseUrl) {
+      this.ensureContextWindow().catch(() => {});
+      return 128000; // Conservative default for Ollama
+    }
+
+    // For OpenAI and other providers, use parent implementation
+    return super.getContextWindow();
   }
 
   async listModels(): Promise<ModelInfo[]> {
