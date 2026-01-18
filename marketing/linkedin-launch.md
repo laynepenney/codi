@@ -3,38 +3,34 @@
 ## Post Copy
 
 ```
-I'm excited to share Codi — an open-source AI coding assistant that lives in your terminal.
+Meet Codi — an open-source AI coding assistant inspired by Claude Code and Codex.
 
-After months of building, I wanted an AI tool that:
-✅ Works with ANY provider (Claude, GPT, Ollama, local models)
-✅ Actually reads and writes my code (not just chat)
-✅ Shows me diffs before changes (safety first)
-✅ Runs locally and free with Ollama
+I've been using Claude Code and OpenAI Codex for weeks, and they've completely changed how I write software.
 
-So I built it.
+But I wanted to understand how these tools actually work. So I built my own.
 
-🔧 What Codi can do:
-• Read/write files, search code, run commands
-• Generate commits, PRs, tests, docs
-• Remember context across sessions
-• Auto-detect your project type
+Building it taught me:
+• How agentic AI loops work (tool calls, context management, streaming)
+• The importance of safety features (diff previews, approval prompts)
+• Why multi-provider support matters (not everyone wants to pay for API calls)
 
-🔒 Safety features:
-• Diff preview before every file change
-• Approval prompts for dangerous operations
-• Full undo history
+What makes Codi different:
+🔌 Works with ANY provider — Claude, GPT, Ollama, or local models
+🔒 Safety first — see diffs before changes, approve dangerous operations
+💰 Run it FREE with Ollama (no API key needed)
+🛠️ Full toolkit — read/write files, search code, run tests, generate commits
 
-The best part? Run it completely free with Ollama:
+The best part? You can run it completely locally:
 ollama pull llama3.2
 codi --provider ollama
 
-Open source under Apache 2.0.
+Open source under Apache 2.0. Built with Claude's help, of course.
 
 GitHub: https://github.com/laynepenney/codi
 
-What features would you want in an AI coding assistant?
+If you're curious about AI tooling or want to learn by building, I'd love to hear what you're working on.
 
-#OpenSource #AI #DeveloperTools #CLI #Coding
+#OpenSource #AI #DeveloperTools #Claude #Codex #LearningInPublic
 ```
 
 ## Image Strategy
