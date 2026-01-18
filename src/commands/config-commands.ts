@@ -81,7 +81,6 @@ export const configCommand: Command = {
  */
 export const initCommand: Command = {
   name: 'init',
-  aliases: ['setup'],
   description: 'Initialize Codi in the current project',
   usage: '/init [--config] [--modelmap] [--context] [--all]',
   taskType: 'fast',

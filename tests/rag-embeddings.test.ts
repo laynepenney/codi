@@ -255,7 +255,8 @@ describe('Embedding Providers', () => {
     });
 
     it('defaults to Ollama for auto mode (free/local)', () => {
-      // Even with OpenAI key available, auto mode prefers Ollama
+      // Auto mode always defaults to Ollama because it's free and local
+      // Users can explicitly set embeddingProvider: 'openai' if they prefer OpenAI
       process.env.OPENAI_API_KEY = 'test-key';
 
       const provider = createEmbeddingProvider({
@@ -267,6 +268,7 @@ describe('Embedding Providers', () => {
     });
 
     it('defaults to Ollama without any API key', () => {
+      // Ollama is preferred for auto mode because it's free
       delete process.env.OPENAI_API_KEY;
 
       const provider = createEmbeddingProvider({

@@ -14,6 +14,7 @@ import chalk from 'chalk';
 import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
 import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
+import { spawn } from 'child_process';
 import { join } from 'path';
 
 // History configuration - allow override for testing
@@ -448,6 +449,10 @@ When suggesting changes, format them clearly so the user can apply them manually
  * @param projectInfo - Detected information about the current project, if any.
  */
 function showHelp(projectInfo: ProjectInfo | null): void {
+  console.log(chalk.bold('\nShortcuts:'));
+  console.log(chalk.dim('  !<command>         - Run shell command directly (e.g., !ls, !git status)'));
+  console.log(chalk.dim('  ?[topic]           - Show help, optionally filtered by topic'));
+
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
   console.log(chalk.dim('  /clear             - Clear conversation history'));
@@ -2723,6 +2728,70 @@ async function main() {
 
     // Audit log user input
     auditLogger.userInput(trimmed);
+
+    // Handle ! prefix for direct shell commands
+    if (trimmed.startsWith('!')) {
+      const shellCommand = trimmed.slice(1).trim();
+      if (!shellCommand) {
+        console.log(chalk.dim('Usage: !<command> - run a shell command directly'));
+        rl.prompt();
+        return;
+      }
+
+      // Execute command with inherited stdio for real-time output
+      const child = spawn(shellCommand, [], {
+        shell: true,
+        stdio: 'inherit',
+        cwd: process.cwd(),
+      });
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          console.log(chalk.dim(`Exit code: ${code}`));
+        }
+        rl.prompt();
+      });
+
+      child.on('error', (err) => {
+        console.log(chalk.red(`Error: ${err.message}`));
+        rl.prompt();
+      });
+
+      return;
+    }
+
+    // Handle ? prefix for help
+    if (trimmed === '?' || trimmed.startsWith('?')) {
+      const topic = trimmed.slice(1).trim();
+      if (topic) {
+        // Search for commands matching the topic
+        const allCommands = getRegisteredCommands();
+        const matches = allCommands.filter(
+          (cmd) =>
+            cmd.name.includes(topic.toLowerCase()) ||
+            cmd.description.toLowerCase().includes(topic.toLowerCase()) ||
+            cmd.aliases?.some((a) => a.includes(topic.toLowerCase()))
+        );
+
+        if (matches.length > 0) {
+          console.log(chalk.bold(`\nCommands matching "${topic}":\n`));
+          for (const cmd of matches) {
+            const aliases = cmd.aliases?.length ? chalk.dim(` (${cmd.aliases.join(', ')})`) : '';
+            console.log(`  ${chalk.cyan('/' + cmd.name)}${aliases}`);
+            console.log(chalk.dim(`    ${cmd.description}`));
+            if (cmd.usage) {
+              console.log(chalk.dim(`    Usage: ${cmd.usage}`));
+            }
+          }
+        } else {
+          console.log(chalk.dim(`No commands found matching "${topic}"`));
+        }
+      } else {
+        showHelp(projectInfo);
+      }
+      rl.prompt();
+      return;
+    }
 
     // Handle built-in commands
     if (trimmed === '/exit' || trimmed === '/quit') {

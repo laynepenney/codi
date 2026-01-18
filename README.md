@@ -136,9 +136,17 @@ codi --provider runpod --endpoint-id your-endpoint-id
 | `-p, --provider <type>` | Provider: `anthropic`, `openai`, `ollama`, `ollama-cloud`, `runpod`, or `auto` | `auto` |
 | `-m, --model <name>` | Model name to use | Provider default |
 | `--base-url <url>` | Custom API base URL | Provider default |
+| `--endpoint-id <id>` | Endpoint ID for RunPod serverless | - |
 | `-y, --yes` | Auto-approve all tool operations | Prompt |
+| `--no-tools` | Disable tool use (for models that don't support it) | Tools enabled |
 | `-s, --session <name>` | Load a saved session on startup | - |
 | `-c, --compress` | Enable context compression | Disabled |
+| `--context-window <tokens>` | Context window size before compaction | Model default |
+| `--summarize-model <name>` | Model for context summarization | Primary model |
+| `--summarize-provider <type>` | Provider for summarization model | Primary provider |
+| `--mcp-server` | Run as MCP server (stdio transport) | - |
+| `--no-mcp` | Disable MCP server connections | MCP enabled |
+| `--audit` | Enable audit logging to ~/.codi/audit/ | Disabled |
 | `--verbose` | Show tool inputs/outputs with timing | - |
 | `--debug` | Show API details and context info | - |
 | `--trace` | Show full request/response payloads | - |
@@ -232,13 +240,14 @@ codi --provider runpod --endpoint-id your-endpoint-id
 <details>
 <summary><strong>⚙️ Model & Config</strong></summary>
 
-| Command | Description |
-|---------|-------------|
-| `/models [provider]` | List available models with pricing |
-| `/switch <provider> [model]` | Switch provider/model mid-session |
-| `/config` | Show workspace configuration |
-| `/modelmap` | Show model map configuration |
-| `/pipeline <name> <input>` | Execute multi-model pipeline |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/init [--config\|--modelmap\|--context]` | - | Initialize Codi config files in project |
+| `/models [provider]` | - | List available models with pricing |
+| `/switch <provider> [model]` | `/use` | Switch provider/model mid-session |
+| `/config [show\|init\|example]` | `/cfg` | View or create workspace configuration |
+| `/modelmap` | `/mm` | Show model map configuration |
+| `/pipeline [name] [input]` | `/pipe` | Execute or list multi-model pipelines |
 
 </details>
 
@@ -271,6 +280,59 @@ The symbol index enables IDE-like code navigation for the AI.
 
 </details>
 
+<details>
+<summary><strong>📊 Usage & Cost Tracking</strong></summary>
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/usage` | `/cost`, `/tokens` | Show current session usage |
+| `/usage today` | - | Show today's usage |
+| `/usage week` | - | Show last 7 days usage |
+| `/usage month` | - | Show last 30 days usage |
+| `/usage all` | - | Show all-time usage |
+| `/usage reset` | - | Reset session usage |
+
+</details>
+
+<details>
+<summary><strong>📝 Planning</strong></summary>
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/plan <task>` | `/p` | Create a step-by-step plan for a task |
+| `/plans` | - | List saved plans |
+| `/plans show <id>` | - | Show a specific plan |
+| `/plans delete <id>` | - | Delete a plan |
+
+</details>
+
+<details>
+<summary><strong>🔍 RAG (Semantic Search)</strong></summary>
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/index` | `/reindex` | Build or rebuild the RAG code index |
+| `/index --clear` | - | Clear and rebuild index from scratch |
+| `/index --status` | - | Show indexing status |
+| `/rag search <query>` | - | Search indexed code semantically |
+| `/rag stats` | - | Show RAG index statistics |
+| `/rag config` | - | Show RAG configuration |
+
+</details>
+
+<details>
+<summary><strong>✅ Approvals</strong></summary>
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/approvals` | `/approved` | List approved command patterns |
+| `/approvals add pattern <regex>` | - | Add an approved pattern |
+| `/approvals add category <name>` | - | Add an approved category |
+| `/approvals remove pattern <regex>` | - | Remove a pattern |
+| `/approvals categories` | - | List available categories |
+
+</details>
+
 ---
 
 ## Tools
@@ -282,9 +344,12 @@ The AI has access to these tools for interacting with your codebase:
 | `read_file` | Read file contents with optional line range |
 | `write_file` | Create or overwrite files |
 | `edit_file` | Make targeted search/replace edits |
+| `insert_line` | Insert text at a specific line number |
 | `patch_file` | Apply unified diff patches |
 | `glob` | Find files by pattern (e.g., `src/**/*.ts`) |
 | `grep` | Search file contents with regex |
+| `list_directory` | List files and directories with sizes |
+| `print_tree` | Print tree-like directory structure |
 | `bash` | Execute shell commands (with safety checks) |
 | `analyze_image` | Analyze images using vision models |
 | `run_tests` | Auto-detect and run project tests |
@@ -336,21 +401,67 @@ Codi automatically detects your project type and adapts its responses:
 
 ## Workspace Configuration
 
-Create a `.codi.json` in your project root:
+Create a `.codi.json` in your project root (or use `/init --config`):
 
 ```json
 {
   "provider": "anthropic",
   "model": "claude-sonnet-4-20250514",
-  "autoApprove": ["read_file", "glob", "grep"],
+  "baseUrl": "https://api.example.com",
+  "autoApprove": ["read_file", "glob", "grep", "list_directory"],
+  "approvedCategories": ["read-only", "navigation"],
+  "dangerousPatterns": ["custom-pattern-.*"],
   "systemPromptAdditions": "Always use TypeScript strict mode.",
   "projectContext": "This is a React app using Next.js 14.",
   "commandAliases": {
     "t": "/test src/",
     "b": "/build"
+  },
+  "defaultSession": "my-project",
+  "enableCompression": false,
+  "maxContextTokens": 100000,
+  "models": {
+    "summarize": {
+      "provider": "ollama",
+      "model": "llama3.2"
+    }
+  },
+  "rag": {
+    "enabled": true,
+    "excludePatterns": ["**/node_modules/**", "**/.git/**"],
+    "maxChunkSize": 1000,
+    "maxResults": 5
+  },
+  "tools": {
+    "disabled": ["web_search"],
+    "defaults": {
+      "bash": { "timeout": 30000 }
+    }
   }
 }
 ```
+
+### Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| `provider` | Default provider: `anthropic`, `openai`, `ollama`, `ollama-cloud`, `runpod` |
+| `model` | Default model name |
+| `baseUrl` | Custom API base URL |
+| `autoApprove` | Array of tools to auto-approve (skip confirmation) |
+| `approvedCategories` | Bash command categories to auto-approve |
+| `dangerousPatterns` | Custom regex patterns to flag as dangerous |
+| `systemPromptAdditions` | Text appended to system prompt |
+| `projectContext` | Project description for AI context |
+| `commandAliases` | Custom command shortcuts |
+| `defaultSession` | Session to load on startup |
+| `enableCompression` | Enable entity-based context compression |
+| `maxContextTokens` | Context window override |
+| `models.summarize` | Secondary model for summarization |
+| `rag.enabled` | Enable/disable RAG semantic search |
+| `rag.excludePatterns` | Glob patterns to exclude from indexing |
+| `tools.disabled` | Array of tools to disable |
+| `tools.defaults` | Default parameters for tools |
 
 ---
 
