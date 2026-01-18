@@ -3,11 +3,11 @@
 ## Post Copy
 
 ```
-I've been using Claude Code and OpenAI Codex for months, and they've completely changed how I write software.
+Meet Codi — an open-source AI coding assistant inspired by Claude Code and Codex.
+
+I've been using Claude Code and OpenAI Codex for weeks, and they've completely changed how I write software.
 
 But I wanted to understand how these tools actually work. So I built my own.
-
-Meet Codi — an open-source AI coding assistant inspired by Claude Code and Codex.
 
 Building it taught me:
 • How agentic AI loops work (tool calls, context management, streaming)
