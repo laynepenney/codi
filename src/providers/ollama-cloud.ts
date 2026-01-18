@@ -105,7 +105,7 @@ export class OllamaCloudProvider extends BaseProvider {
     this.baseUrl = config.baseUrl || process.env.OLLAMA_HOST || 'https://ollama.com';
     // API key for authentication (required for ollama.com)
     this.apiKey = process.env.OLLAMA_API_KEY;
-    this.model = config.model || 'llama3.2';
+    this.model = config.model || 'glm-4.7:cloud';
     this.temperature = config.temperature ?? 0.7;
     this.maxTokens = config.maxTokens;
     // Default retry options: 5 retries with exponential backoff starting at 5s

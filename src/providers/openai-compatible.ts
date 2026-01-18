@@ -563,7 +563,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
 /**
  * Create a provider for Ollama (running locally)
  */
-export function createOllamaProvider(model: string = 'llama3.2'): OpenAICompatibleProvider {
+export function createOllamaProvider(model: string = 'glm-4.7:cloud'): OpenAICompatibleProvider {
   return new OpenAICompatibleProvider({
     baseUrl: 'http://localhost:11434/v1',
     model,

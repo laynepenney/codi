@@ -234,7 +234,7 @@ describe('createOllamaProvider', () => {
   it('creates provider with default model', () => {
     const provider = createOllamaProvider();
     expect(provider.getName()).toBe('Ollama');
-    expect(provider.getModel()).toBe('llama3.2');
+    expect(provider.getModel()).toBe('glm-4.7:cloud');
   });
 
   it('creates provider with custom model', () => {
