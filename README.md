@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Codi - Your AI Coding Wingman" width="600" />
+  <img src="assets/banner.png" alt="Codi - Your AI Coding Wingman" width="600" />
 </p>
 
 <p align="center">
