@@ -2,6 +2,63 @@
 
 All notable changes to Codi are documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- **GitHub Pages Enhancement**: Complete redesign of documentation site
+  - Added demo GIF with terminal window styling and animated gradient border
+  - Added badges for version, license, Node requirement, and default model
+  - Added Tools section showing all 12 built-in tools
+  - Added Usage & Models command section
+  - Visual improvements: animations, glow effects, smooth scrolling
+  - Open Graph meta tags for better social sharing
+  - Improved mobile responsiveness
+
+- **Default Ollama Model**: Changed default from `llama3.2` to `glm-4.7:cloud`
+  - Applies to both local Ollama and Ollama Cloud providers
+
+### Configuration
+
+- **Updated codi-models.yaml** with current defaults:
+  - Opus updated to `claude-opus-4-5-20251101`
+  - Added `gpt-5` and `gpt-5-nano` for OpenAI
+  - Renamed `llama3` to `glm` using `glm-4.7:cloud`
+  - Fallback chain now prioritizes opus → sonnet → haiku → gpt-5 → glm
+
+## [0.12.0] - 2026-01-18
+
+### Features
+
+- **Claude Opus 4.5 as Default**: Changed default Anthropic model from Claude Sonnet 4 to Claude Opus 4.5 (`claude-opus-4-5-20251101`)
+  - Added Opus 4.5 pricing to usage tracking ($15/$75 per 1M tokens)
+  - Added Opus 4.5 to static model registry
+
+## [0.11.0] - 2026-01-18
+
+### Documentation
+
+- **Development Process**: Updated CODI.md to require tests before merging PRs
+  - AI agents must run `pnpm build && pnpm test` before merging
+  - Added self-review template with build/test status
+  - Ensures code quality and prevents regressions
+
+### Bug Fixes
+
+- Fixed `getAllCommands()` function call in index.ts
+- Fixed `IndexErrorCallback` to expect Error objects instead of strings
+
+## [0.10.0] - 2026-01-18
+
+### Features
+
+- **Dynamic Context Configuration**: Tier-based context settings
+- **README Accuracy Update**: Comprehensive documentation review
+  - Added 8 missing CLI options
+  - Documented /init command
+  - Added missing command sections (Usage, Planning, RAG, Approvals)
+  - Expanded .codi.json example with all config options
+
 ## [0.9.1] - 2026-01-18
 
 ### Bug Fixes
