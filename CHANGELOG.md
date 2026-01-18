@@ -2,7 +2,7 @@
 
 All notable changes to Codi are documented in this file.
 
-## [Unreleased]
+## [0.13.0] - 2026-01-18
 
 ### Features
 
