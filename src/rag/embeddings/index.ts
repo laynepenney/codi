@@ -32,12 +32,13 @@ export function createEmbeddingProvider(config: RAGConfig): BaseEmbeddingProvide
     return new OllamaEmbeddingProvider(config.ollamaModel, config.ollamaBaseUrl);
   }
 
-  // Auto-detect: prefer OpenAI if API key is available, else Ollama
-  if (process.env.OPENAI_API_KEY) {
-    return new OpenAIEmbeddingProvider(config.openaiModel);
-  }
+  // Auto-detect: prefer Ollama (free/local), fall back to OpenAI if key is available
+  // Check if Ollama is likely available (default localhost or custom URL set)
+  const ollamaUrl = config.ollamaBaseUrl || 'http://localhost:11434';
 
-  return new OllamaEmbeddingProvider(config.ollamaModel, config.ollamaBaseUrl);
+  // Default to Ollama - it's free and local
+  // Users can explicitly set embeddingProvider: 'openai' if they prefer OpenAI
+  return new OllamaEmbeddingProvider(config.ollamaModel, ollamaUrl);
 }
 
 /**
