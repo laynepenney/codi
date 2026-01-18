@@ -12,20 +12,24 @@ models:
     description: Balanced model for coding tasks
   opus:
     provider: anthropic
-    model: claude-opus-4-20250514
-    description: Most capable for complex reasoning
+    model: claude-opus-4-5-20251101
+    description: Most capable for complex reasoning (default)
+  gpt-5:
+    provider: openai
+    model: gpt-5
+    description: Latest GPT-5 model
+  gpt-5-nano:
+    provider: openai
+    model: gpt-5-nano
+    description: Fast, budget-friendly GPT-5
   gpt-4o:
     provider: openai
     model: gpt-4o
     description: Fast, capable GPT-4 model
-  gpt-4o-mini:
-    provider: openai
-    model: gpt-4o-mini
-    description: Budget-friendly GPT-4
-  llama3:
+  glm:
     provider: ollama
-    model: llama3.2
-    description: Free local model
+    model: glm-4.7:cloud
+    description: Default Ollama model
 
 # Task routing - map task types to models
 tasks:
@@ -39,8 +43,8 @@ tasks:
     model: opus
     description: Architecture, debugging
   summarize:
-    model: llama3
-    description: Context summarization (free)
+    model: glm
+    description: Context summarization (local)
 
 # Command routing - override task for specific commands
 commands:
@@ -52,26 +56,27 @@ commands:
 # Fallback chains - try models in order if one fails
 fallbacks:
   primary:
+    - opus
     - sonnet
     - haiku
-    - gpt-4o
-    - llama3
+    - gpt-5
+    - glm
 
 # Model roles - abstract roles for provider-agnostic pipelines
 # Use with: /pipeline --provider anthropic <pipeline-name>
 model-roles:
   fast:
     anthropic: haiku
-    openai: gpt-4o-mini
-    ollama: llama3
+    openai: gpt-5-nano
+    ollama: glm
   capable:
     anthropic: sonnet
-    openai: gpt-4o
-    ollama: llama3
+    openai: gpt-5
+    ollama: glm
   reasoning:
     anthropic: opus
-    openai: gpt-4o
-    ollama: llama3
+    openai: gpt-5
+    ollama: glm
 
 # Example pipeline using roles (provider-agnostic)
 pipelines:
