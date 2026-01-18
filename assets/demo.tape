@@ -1,37 +1,43 @@
 # Codi Demo GIF
-# Run with: vhs assets/demo.tape
+# Run with: cd /path/to/codi && vhs assets/demo.tape
 
 Output assets/demo.gif
 
 Set Shell "bash"
-Set FontSize 13
+Set FontSize 14
 Set Width 1000
 Set Height 600
 Set Theme "Catppuccin Mocha"
-Set Padding 15
-Set TypingSpeed 50ms
+Set Padding 20
+Set TypingSpeed 60ms
+Set CursorBlink false
 
-# Start codi
-Type "codi --provider ollama --model llama3.2"
+# Start codi (assumes already in codi directory)
+Type "codi"
 Enter
 Sleep 4s
 
-# Show help command
+# Show help
 Type "/help"
 Enter
-Sleep 3s
+Sleep 6s
 
-# Ask about the project
-Type "What kind of project is this?"
+# Show context/status
+Type "/status"
 Enter
-Sleep 10s
+Sleep 5s
 
-# Use explain command
-Type "/explain src/spinner.ts"
+# Ask about the codebase
+Type "What providers does this project support?"
 Enter
-Sleep 12s
+Sleep 15s
+
+# Search for commands with ? shortcut
+Type "?git"
+Enter
+Sleep 5s
 
 # Exit
 Type "/exit"
 Enter
-Sleep 1s
+Sleep 2s
