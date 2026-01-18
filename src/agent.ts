@@ -1346,12 +1346,23 @@ Always use tools to interact with the filesystem rather than asking the user to 
    * Get current context size information.
    */
   getContextInfo(): {
+    // Token counts
     tokens: number;
     messageTokens: number;
     systemPromptTokens: number;
     toolDefinitionTokens: number;
+    // Limits and budget
     maxTokens: number;
+    contextWindow: number;
+    outputReserve: number;
+    safetyBuffer: number;
+    tierName: string;
+    // Message breakdown
     messages: number;
+    userMessages: number;
+    assistantMessages: number;
+    toolResultMessages: number;
+    // State
     hasSummary: boolean;
     compression: CompressionStats | null;
     compressionEnabled: boolean;
@@ -1366,13 +1377,38 @@ Always use tools to interact with the filesystem rather than asking the user to 
     const systemPromptTokens = estimateSystemPromptTokens(systemPromptWithSummary);
     const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
 
+    // Count messages by role
+    let userMessages = 0;
+    let assistantMessages = 0;
+    let toolResultMessages = 0;
+    for (const msg of this.messages) {
+      if (msg.role === 'user') {
+        // Check if it contains tool results
+        if (typeof msg.content !== 'string' &&
+            msg.content.some(b => b.type === 'tool_result')) {
+          toolResultMessages++;
+        } else {
+          userMessages++;
+        }
+      } else if (msg.role === 'assistant') {
+        assistantMessages++;
+      }
+    }
+
     return {
       tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,
       messageTokens,
       systemPromptTokens,
       toolDefinitionTokens,
       maxTokens: this.maxContextTokens,
+      contextWindow: this.provider.getContextWindow(),
+      outputReserve: this.contextConfig.maxOutputTokens,
+      safetyBuffer: this.contextConfig.safetyBuffer,
+      tierName: this.contextConfig.tierName,
       messages: this.messages.length,
+      userMessages,
+      assistantMessages,
+      toolResultMessages,
       hasSummary: this.conversationSummary !== null,
       compression: this.lastCompressionStats,
       compressionEnabled: this.enableCompression,
