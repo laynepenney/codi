@@ -1,0 +1,44 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1b26"/>
+      <stop offset="100%" style="stop-color:#24283b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="600" y="100" text-anchor="middle" fill="#c0caf5" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold">Safety First</text>
+  <text x="600" y="150" text-anchor="middle" fill="#7aa2f7" font-family="system-ui, sans-serif" font-size="24">See exactly what changes before they happen</text>
+
+  <!-- Diff preview box -->
+  <rect x="150" y="190" width="900" height="320" rx="12" fill="#1a1b26" stroke="#414868" stroke-width="2"/>
+
+  <!-- Diff header -->
+  <rect x="150" y="190" width="900" height="40" rx="12" fill="#292e42"/>
+  <text x="180" y="218" fill="#7aa2f7" font-family="monospace" font-size="16">📎 edit_file: src/config.ts</text>
+
+  <!-- Diff content -->
+  <text x="180" y="270" fill="#565f89" font-family="monospace" font-size="16">@@ -24,7 +24,7 @@</text>
+
+  <text x="180" y="310" fill="#f7768e" font-family="monospace" font-size="18">- enableCompression: false,</text>
+  <text x="180" y="350" fill="#9ece6a" font-family="monospace" font-size="18">+ enableCompression: true,</text>
+
+  <text x="180" y="400" fill="#565f89" font-family="monospace" font-size="16">───────────────────────────────────</text>
+  <text x="180" y="440" fill="#9ece6a" font-family="monospace" font-size="16">+1 line</text>
+  <text x="280" y="440" fill="#f7768e" font-family="monospace" font-size="16">-1 line</text>
+
+  <!-- Approval prompt -->
+  <text x="180" y="490" fill="#e0af68" font-family="monospace" font-size="18">Apply this change? [y/n/e/d/?]</text>
+
+  <!-- Feature bullets -->
+  <text x="180" y="560" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="18">✓ Diff preview</text>
+  <text x="400" y="560" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="18">✓ Approval prompts</text>
+  <text x="650" y="560" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="18">✓ Full undo history</text>
+  <text x="900" y="560" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="18">✓ Danger warnings</text>
+
+  <!-- Codi branding -->
+  <text x="600" y="610" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="16">Codi — github.com/laynepenney/codi</text>
+</svg>
