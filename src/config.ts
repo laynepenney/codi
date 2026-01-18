@@ -243,7 +243,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   noTools: false,
   extractToolsFromText: true,
   commandAliases: {},
-  enableCompression: false, // Disabled by default - can confuse models
+  enableCompression: true, // Enabled by default - reduces token usage
   maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
   cleanHallucinatedTraces: false,
   toolsConfig: {
@@ -526,7 +526,7 @@ export function getExampleConfig(): string {
       b: '/build',
     },
     projectContext: '',
-    enableCompression: false,
+    enableCompression: true,
     maxContextTokens: AGENT_CONFIG.MAX_CONTEXT_TOKENS,
     cleanHallucinatedTraces: false,
     models: {
