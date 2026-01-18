@@ -435,10 +435,11 @@ describe('Agent', () => {
     agent.setProvider(smallContextProvider as any);
 
     // maxTokens should be recalculated for new provider
-    // For 8k context, minimum is 30% = 2457 tokens (since overhead exceeds available)
+    // For 8k context (small tier), minimum viable is 15% = 1229 tokens
+    // Since output reserve (8192) exceeds context, we hit the floor value
     const newTokens = agent.getContextInfo().maxTokens;
     expect(newTokens).toBeLessThan(initialTokens); // Should be smaller
-    expect(newTokens).toBeGreaterThanOrEqual(Math.floor(8192 * 0.3)); // At least minimum 30%
+    expect(newTokens).toBeGreaterThanOrEqual(Math.floor(8192 * 0.15)); // At least minimum 15% (small tier)
   });
 
   it('setProvider preserves maxContextTokens when explicitly set', () => {

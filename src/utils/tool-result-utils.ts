@@ -10,6 +10,16 @@ import type { Message } from '../types.js';
 import { AGENT_CONFIG } from '../constants.js';
 
 /**
+ * Configuration for tool result truncation.
+ */
+export interface ToolResultConfig {
+  /** Number of recent tool results to keep untruncated */
+  recentToolResultsToKeep: number;
+  /** Truncate tool results longer than this (characters) */
+  toolResultTruncateThreshold: number;
+}
+
+/**
  * Create a short summary of a tool result for truncation.
  */
 export function summarizeToolResult(toolName: string, content: string, isError: boolean): string {
@@ -49,8 +59,17 @@ export function summarizeToolResult(toolName: string, content: string, isError: 
 /**
  * Truncate old tool results in message history to save context.
  * Keeps recent tool results intact, truncates older ones to summaries.
+ *
+ * @param messages - Message history to process
+ * @param config - Optional config (defaults to AGENT_CONFIG for backwards compatibility)
  */
-export function truncateOldToolResults(messages: Message[]): void {
+export function truncateOldToolResults(messages: Message[], config?: ToolResultConfig): void {
+  // Use provided config or fall back to static AGENT_CONFIG
+  const cfg = config ?? {
+    recentToolResultsToKeep: AGENT_CONFIG.RECENT_TOOL_RESULTS_TO_KEEP,
+    toolResultTruncateThreshold: AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD,
+  };
+
   // Find indices of messages containing tool_result blocks
   const toolResultIndices: number[] = [];
   for (let i = 0; i < messages.length; i++) {
@@ -64,7 +83,7 @@ export function truncateOldToolResults(messages: Message[]): void {
   }
 
   // Keep recent tool results, truncate older ones
-  const indicesToTruncate = toolResultIndices.slice(0, -AGENT_CONFIG.RECENT_TOOL_RESULTS_TO_KEEP);
+  const indicesToTruncate = toolResultIndices.slice(0, -cfg.recentToolResultsToKeep);
 
   for (const idx of indicesToTruncate) {
     const msg = messages[idx];
@@ -72,7 +91,7 @@ export function truncateOldToolResults(messages: Message[]): void {
 
     msg.content = msg.content.map(block => {
       if (block.type !== 'tool_result') return block;
-      if (!block.content || block.content.length <= AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD) return block;
+      if (!block.content || block.content.length <= cfg.toolResultTruncateThreshold) return block;
 
       // Truncate to summary
       const summary = summarizeToolResult(
