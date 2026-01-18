@@ -48,7 +48,7 @@ Run locally with Ollama for free:
 ollama pull llama3.2
 codi --provider ollama --model llama3.2
 
-Or use Ollama Cloud for hosted instances:
+Or use Ollama Cloud (just run "ollama signin"):
 codi --provider ollama-cloud --model llama3.2
 
 Full privacy. Same powerful features.

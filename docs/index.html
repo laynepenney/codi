@@ -458,7 +458,11 @@ export ANTHROPIC_API_KEY="your-key-here"
 export OPENAI_API_KEY="your-key-here"
 
 # For Ollama (free, local)
-ollama pull llama3.2</code></pre>
+ollama pull llama3.2
+
+# For Ollama Cloud (sign in or use API key)
+ollama signin
+# Or: export OLLAMA_API_KEY="your-api-key"</code></pre>
       </div>
 
       <div class="quickstart-step">
@@ -472,7 +476,7 @@ codi --provider openai
 # With Ollama (local)
 codi --provider ollama --model llama3.2
 
-# With Ollama Cloud (hosted)
+# With Ollama Cloud (after signin or with API key)
 codi --provider ollama-cloud --model llama3.2</code></pre>
       </div>
     </div>

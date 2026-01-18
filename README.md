@@ -111,7 +111,13 @@ codi --provider ollama --model llama3.2
 
 ### With Ollama Cloud (Hosted)
 ```bash
-export OLLAMA_BASE_URL="https://your-ollama-host.com"
+# Sign in to Ollama Cloud (one-time setup)
+ollama signin
+
+# Or use an API key from https://ollama.com/settings/keys
+export OLLAMA_API_KEY="your-api-key"
+
+# Run with cloud models
 codi --provider ollama-cloud --model llama3.2
 ```
 
