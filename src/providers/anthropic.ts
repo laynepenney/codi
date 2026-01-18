@@ -8,7 +8,7 @@ import { createProviderResponse } from './response-parser.js';
 import { mapContentBlocks } from './message-converter.js';
 import { getStaticModels } from '../models.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+const DEFAULT_MODEL = 'claude-opus-4-5-20251101';
 const MAX_TOKENS = 4096;
 
 export class AnthropicProvider extends BaseProvider {
