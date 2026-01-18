@@ -1,0 +1,67 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1b26"/>
+      <stop offset="100%" style="stop-color:#24283b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="600" y="100" text-anchor="middle" fill="#c0caf5" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold">Built-in Commands</text>
+  <text x="600" y="150" text-anchor="middle" fill="#7aa2f7" font-family="system-ui, sans-serif" font-size="24">Slash commands for common workflows</text>
+
+  <!-- Command cards - Row 1 -->
+  <!-- /commit -->
+  <rect x="80" y="190" width="250" height="100" rx="10" fill="#292e42" stroke="#9ece6a" stroke-width="2"/>
+  <text x="205" y="235" text-anchor="middle" fill="#9ece6a" font-family="monospace" font-size="22" font-weight="bold">/commit</text>
+  <text x="205" y="265" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Generate commit messages</text>
+
+  <!-- /test -->
+  <rect x="350" y="190" width="250" height="100" rx="10" fill="#292e42" stroke="#7aa2f7" stroke-width="2"/>
+  <text x="475" y="235" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="22" font-weight="bold">/test</text>
+  <text x="475" y="265" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Generate test cases</text>
+
+  <!-- /refactor -->
+  <rect x="620" y="190" width="250" height="100" rx="10" fill="#292e42" stroke="#bb9af7" stroke-width="2"/>
+  <text x="745" y="235" text-anchor="middle" fill="#bb9af7" font-family="monospace" font-size="22" font-weight="bold">/refactor</text>
+  <text x="745" y="265" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Improve code quality</text>
+
+  <!-- /pr -->
+  <rect x="890" y="190" width="250" height="100" rx="10" fill="#292e42" stroke="#f7768e" stroke-width="2"/>
+  <text x="1015" y="235" text-anchor="middle" fill="#f7768e" font-family="monospace" font-size="22" font-weight="bold">/pr</text>
+  <text x="1015" y="265" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Generate PR descriptions</text>
+
+  <!-- Command cards - Row 2 -->
+  <!-- /fix -->
+  <rect x="80" y="310" width="250" height="100" rx="10" fill="#292e42" stroke="#e0af68" stroke-width="2"/>
+  <text x="205" y="355" text-anchor="middle" fill="#e0af68" font-family="monospace" font-size="22" font-weight="bold">/fix</text>
+  <text x="205" y="385" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Fix bugs and issues</text>
+
+  <!-- /explain -->
+  <rect x="350" y="310" width="250" height="100" rx="10" fill="#292e42" stroke="#73daca" stroke-width="2"/>
+  <text x="475" y="355" text-anchor="middle" fill="#73daca" font-family="monospace" font-size="22" font-weight="bold">/explain</text>
+  <text x="475" y="385" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Understand any code</text>
+
+  <!-- /save & /load -->
+  <rect x="620" y="310" width="250" height="100" rx="10" fill="#292e42" stroke="#7dcfff" stroke-width="2"/>
+  <text x="745" y="355" text-anchor="middle" fill="#7dcfff" font-family="monospace" font-size="22" font-weight="bold">/save /load</text>
+  <text x="745" y="385" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Session persistence</text>
+
+  <!-- /status -->
+  <rect x="890" y="310" width="250" height="100" rx="10" fill="#292e42" stroke="#ff9e64" stroke-width="2"/>
+  <text x="1015" y="355" text-anchor="middle" fill="#ff9e64" font-family="monospace" font-size="22" font-weight="bold">/status</text>
+  <text x="1015" y="385" text-anchor="middle" fill="#a9b1d6" font-family="system-ui, sans-serif" font-size="14">Context usage stats</text>
+
+  <!-- Example terminal -->
+  <rect x="300" y="440" width="600" height="100" rx="8" fill="#1a1b26" stroke="#414868" stroke-width="1"/>
+  <text x="330" y="485" fill="#7aa2f7" font-family="monospace" font-size="20">&gt;</text>
+  <text x="360" y="485" fill="#9ece6a" font-family="monospace" font-size="20">/commit</text>
+  <text x="330" y="520" fill="#565f89" font-family="monospace" font-size="16">✓ Generated commit: "feat: add user authentication"</text>
+
+  <!-- Codi branding -->
+  <text x="600" y="590" text-anchor="middle" fill="#7aa2f7" font-family="system-ui, sans-serif" font-size="24" font-weight="bold">Codi</text>
+  <text x="600" y="615" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="14">github.com/laynepenney/codi</text>
+</svg>
