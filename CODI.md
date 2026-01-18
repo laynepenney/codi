@@ -71,38 +71,47 @@ gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
 
 **For AI agents (Claude, Codi, etc.):** Do NOT immediately merge after creating a PR. Always:
 1. Create the PR
-2. Review the diff with `gh pr diff <number>`
-3. Add a review comment documenting what was checked
-4. Only then merge (if no issues found)
+2. Run `pnpm build && pnpm test` to verify nothing is broken
+3. Review the diff with `gh pr diff <number>`
+4. Add a review comment documenting what was checked
+5. Only then merge (if all tests pass and no issues found)
 
 **Full Process:**
 
 1. **Create the PR** with clear title and description
-2. **Review the diff** thoroughly using `gh pr diff <number>`
-3. **Document the review** - add a comment listing what was verified:
+2. **Run build and tests** to verify nothing is broken:
+   ```bash
+   pnpm build && pnpm test
+   ```
+   If tests fail, fix the issues before proceeding.
+3. **Review the diff** thoroughly using `gh pr diff <number>`
+4. **Document the review** - add a comment listing what was verified:
    ```bash
    gh pr comment <number> --body "## Self-Review
+   - ✅ Build passes
+   - ✅ All tests pass (N tests)
    - ✅ Verified change X
    - ✅ Verified change Y
    - No issues found. Ready to merge."
    ```
-4. **If issues found**, add comments and fix:
+5. **If issues found**, add comments and fix:
    ```bash
    # Add a review comment on specific issues
    gh pr review <number> --comment --body "Found issue: description of problem"
    ```
-5. **Fix the issues** in a new commit (don't amend if already pushed)
-6. **For issues to address later**, create a GitHub issue:
+6. **Fix the issues** in a new commit (don't amend if already pushed)
+7. **For issues to address later**, create a GitHub issue:
    ```bash
    gh issue create --title "Title" --body "Description of future work"
    ```
-7. **Merge only after review is complete**
+8. **Merge only after review is complete and all tests pass**
 
 This ensures:
 - All review feedback is tracked in the PR history
 - Future contributors can understand why changes were made
 - Deferred work is captured as issues, not forgotten
 - AI agents don't blindly merge without verification
+- **No broken code reaches main** - tests must pass before merge
 
 ### Git Worktrees
 
