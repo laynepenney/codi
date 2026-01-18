@@ -67,29 +67,42 @@ gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
 
 ### PR Review Process
 
-**Always review your own PRs before requesting merge.** This creates a traceable review history.
+**IMPORTANT: Never merge a PR without reviewing it first.** Always review your own PRs before merging. This creates a traceable review history and catches mistakes before they reach main.
+
+**For AI agents (Claude, Codi, etc.):** Do NOT immediately merge after creating a PR. Always:
+1. Create the PR
+2. Review the diff with `gh pr diff <number>`
+3. Add a review comment documenting what was checked
+4. Only then merge (if no issues found)
+
+**Full Process:**
 
 1. **Create the PR** with clear title and description
 2. **Review the diff** thoroughly using `gh pr diff <number>`
-3. **Add comments on issues found** - use `gh` CLI to comment:
+3. **Document the review** - add a comment listing what was verified:
+   ```bash
+   gh pr comment <number> --body "## Self-Review
+   - ✅ Verified change X
+   - ✅ Verified change Y
+   - No issues found. Ready to merge."
+   ```
+4. **If issues found**, add comments and fix:
    ```bash
    # Add a review comment on specific issues
    gh pr review <number> --comment --body "Found issue: description of problem"
-
-   # Or add a general comment
-   gh pr comment <number> --body "Review notes: ..."
    ```
-4. **Fix the issues** in a new commit (don't amend if already pushed)
-5. **Resolve comments** after fixing by pushing the fix commit
+5. **Fix the issues** in a new commit (don't amend if already pushed)
 6. **For issues to address later**, create a GitHub issue:
    ```bash
    gh issue create --title "Title" --body "Description of future work"
    ```
+7. **Merge only after review is complete**
 
 This ensures:
 - All review feedback is tracked in the PR history
 - Future contributors can understand why changes were made
 - Deferred work is captured as issues, not forgotten
+- AI agents don't blindly merge without verification
 
 ### Git Worktrees
 

@@ -181,51 +181,6 @@ Show potential callers of a function based on import analysis.
 
 ---
 
-## Key Code Locations
-
-### Readline Interface
-**File:** `src/index.ts:2237`
-```typescript
-const rl = createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  history,
-  historySize: MAX_HISTORY_SIZE,
-  terminal: true,
-  prompt: chalk.bold.cyan('\nYou: '),
-  completer,
-});
-```
-
-### Paste Detection (Already Implemented!)
-**File:** `src/index.ts:3211-3238`
-```typescript
-// Paste detection via debouncing
-const PASTE_DEBOUNCE_MS = 50;
-let pasteBuffer: string[] = [];
-let pasteTimeout: NodeJS.Timeout | null = null;
-
-rl.on('line', (input) => {
-  if (rlClosed) return;
-  pasteBuffer.push(input);
-  if (pasteTimeout) clearTimeout(pasteTimeout);
-  pasteTimeout = setTimeout(() => {
-    const combinedInput = pasteBuffer.join('\n');
-    pasteBuffer = [];
-    pasteTimeout = null;
-    handleInput(combinedInput);
-  }, PASTE_DEBOUNCE_MS);
-});
-```
-
-### Input Handler
-**File:** `src/index.ts:2474` - The `handleInput` function processes user input
-
-### Agent Creation
-**File:** `src/index.ts:2322` - Where the Agent is instantiated
-
----
-
 ## Tips for Navigating Large Files
 
 1. **Use grep to find keywords:**

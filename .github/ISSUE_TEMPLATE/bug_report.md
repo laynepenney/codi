@@ -35,7 +35,7 @@ If applicable, add screenshots or terminal output to help explain your problem.
 - **OS**: [e.g., macOS 14.0, Ubuntu 22.04, Windows 11]
 - **Node.js version**: [e.g., 22.0.0]
 - **Codi version**: [e.g., 0.8.5]
-- **Provider**: [e.g., Anthropic, OpenAI, Ollama]
+- **Provider**: [e.g., Anthropic, OpenAI, Ollama, Ollama Cloud, RunPod]
 - **Model**: [e.g., claude-sonnet-4, gpt-4o]
 
 ## Additional Context

@@ -10,7 +10,7 @@ Introducing Codi - your AI coding wingman for the terminal 🚀
 
 One CLI. Multiple AI providers. Full codebase access.
 
-Works with Claude, GPT, Ollama (local/free), or RunPod serverless.
+Works with Claude, GPT, Ollama, Ollama Cloud, or RunPod.
 
 Open source (Apache 2.0) 👇
 
@@ -48,7 +48,10 @@ Run locally with Ollama for free:
 ollama pull llama3.2
 codi --provider ollama --model llama3.2
 
-No API costs. Full privacy. Same powerful features.
+Or use Ollama Cloud (just run "ollama signin"):
+codi --provider ollama-cloud --model llama3.2
+
+Full privacy. Same powerful features.
 ```
 
 ---
@@ -70,11 +73,12 @@ github.com/laynepenney/codi
 ```
 Why lock yourself into one AI provider?
 
-Codi lets you switch between Claude, GPT, Ollama, and RunPod with a single flag.
+Codi lets you switch between Claude, GPT, Ollama, Ollama Cloud, and RunPod with a single flag.
 
 Use Claude for complex reasoning.
 GPT for broad knowledge.
 Ollama for privacy + free.
+Ollama Cloud for hosted LLMs.
 
 Same interface. Same tools.
 
@@ -105,7 +109,7 @@ I'm excited to share Codi - your open-source AI coding wingman for the terminal.
 As developers, we spend countless hours in the terminal. What if your AI assistant lived there too - with full access to read files, write code, run tests, and help you ship faster?
 
 🔌 Multi-Provider Support
-Switch between Claude, OpenAI, local Ollama models, or RunPod serverless endpoints. Not locked into any single vendor.
+Switch between Claude, OpenAI, Ollama (local), Ollama Cloud (hosted), or RunPod serverless. Not locked into any single vendor.
 
 🛠️ Powerful Tool System
 The AI can read and write files, search your codebase, execute shell commands, apply patches, analyze images, and even search the web.
@@ -174,7 +178,7 @@ I've been working on Codi, your AI coding wingman - an open-source CLI tool that
 
 **What it does:**
 - Chat with AI that can actually read/write your files, run commands, and search your codebase
-- Works with Claude, OpenAI, Ollama (free/local), or RunPod serverless
+- Works with Claude, OpenAI, Ollama (local), Ollama Cloud (hosted), or RunPod serverless
 - Built-in slash commands: /prompt (explain, review), /refactor, /fix, /test, /commit, /pr
 - Auto-detects project type and adapts (Node, Python, Rust, Go)
 - Session management - save and load conversations
@@ -266,7 +270,7 @@ I built Codi because I wanted an AI coding wingman that:
 
 Key design decisions:
 
-**Multi-provider**: Switch between Claude, GPT, Ollama, or RunPod with `--provider`. Same tools, same commands, different models.
+**Multi-provider**: Switch between Claude, GPT, Ollama, Ollama Cloud, or RunPod with `--provider`. Same tools, same commands, different models.
 
 **Real codebase access**: The AI can read files, write files, search code, and execute commands. Not just chat about code - actually work with it.
 

@@ -87,6 +87,7 @@ interface OllamaModelInfo {
 
 export class OllamaCloudProvider extends BaseProvider {
   private readonly baseUrl: string;
+  private readonly apiKey: string | undefined;
   private readonly model: string;
   private readonly temperature: number;
   private readonly maxTokens: number | undefined;
@@ -97,8 +98,10 @@ export class OllamaCloudProvider extends BaseProvider {
   constructor(config: ProviderConfig & { retry?: RetryOptions } = {}) {
     super(config);
 
-    // Default to localhost:11434 which is Ollama's default
-    this.baseUrl = config.baseUrl || 'http://localhost:11434';
+    // Default to ollama.com for cloud usage
+    this.baseUrl = config.baseUrl || process.env.OLLAMA_HOST || 'https://ollama.com';
+    // API key for authentication (required for ollama.com)
+    this.apiKey = process.env.OLLAMA_API_KEY;
     this.model = config.model || 'llama3.2';
     this.temperature = config.temperature ?? 0.7;
     this.maxTokens = config.maxTokens;
@@ -199,6 +202,7 @@ export class OllamaCloudProvider extends BaseProvider {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` }),
             },
             body: JSON.stringify(requestBody),
           });
@@ -286,6 +290,7 @@ export class OllamaCloudProvider extends BaseProvider {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` }),
             },
             body: JSON.stringify(requestBody),
           });
@@ -406,7 +411,9 @@ export class OllamaCloudProvider extends BaseProvider {
 
   async listModels(): Promise<OllamaModelInfo[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        headers: this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : undefined,
+      });
       if (!response.ok) {
         return [];
       }
@@ -830,6 +837,7 @@ export class OllamaCloudProvider extends BaseProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` }),
       },
       body: JSON.stringify({
         name: modelName,
@@ -849,7 +857,9 @@ export class OllamaCloudProvider extends BaseProvider {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        headers: this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : undefined,
+      });
       return response.ok;
     } catch {
       return false;

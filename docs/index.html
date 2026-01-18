@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Codi - Your AI Coding Wingman</title>
-  <meta name="description" content="Your AI coding wingman for the terminal. Multi-provider support for Claude, OpenAI, and Ollama.">
+  <meta name="description" content="Your AI coding wingman for the terminal. Multi-provider support for Claude, OpenAI, Ollama, Ollama Cloud, and RunPod.">
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <style>
     :root {
@@ -406,7 +406,7 @@
       <div class="feature-card">
         <div class="feature-icon">🔌</div>
         <h3>Multi-Provider Support</h3>
-        <p>Switch between Claude, OpenAI, local Ollama models, or RunPod serverless with a single flag.</p>
+        <p>Switch between Claude, OpenAI, Ollama (local), Ollama Cloud (hosted), or RunPod serverless with a single flag.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🛠️</div>
@@ -458,7 +458,11 @@ export ANTHROPIC_API_KEY="your-key-here"
 export OPENAI_API_KEY="your-key-here"
 
 # For Ollama (free, local)
-ollama pull llama3.2</code></pre>
+ollama pull llama3.2
+
+# For Ollama Cloud (sign in or use API key)
+ollama signin
+# Or: export OLLAMA_API_KEY="your-api-key"</code></pre>
       </div>
 
       <div class="quickstart-step">
@@ -472,7 +476,7 @@ codi --provider openai
 # With Ollama (local)
 codi --provider ollama --model llama3.2
 
-# With Ollama Cloud (hosted)
+# With Ollama Cloud (after signin or with API key)
 codi --provider ollama-cloud --model llama3.2</code></pre>
       </div>
     </div>
