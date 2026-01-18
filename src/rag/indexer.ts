@@ -463,7 +463,7 @@ export class BackgroundIndexer {
       );
 
       this.watcher.on('error', (err) => {
-        this.onError?.(new Error(`File watcher error: ${err}`));
+        this.onError?.(err instanceof Error ? err : new Error(`File watcher error: ${err}`));
       });
     } catch {
       // fs.watch might not be available on all platforms - silently ignore

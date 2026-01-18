@@ -77,6 +77,37 @@ describe('json-parser', () => {
       // Already escaped should remain escaped (not double-escaped)
       expect(fixed).toBe('{"text": "line1\\nline2"}');
     });
+
+    it('removes trailing quote after number before closing brace', () => {
+      const input = '{"max_lines":15"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"max_lines":15}');
+    });
+
+    it('removes trailing quote after number before comma', () => {
+      const input = '{"count":42", "name":"test"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"count":42, "name":"test"}');
+    });
+
+    it('removes trailing quote after decimal number', () => {
+      const input = '{"value":3.14"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"value":3.14}');
+    });
+
+    it('removes trailing quote after negative number', () => {
+      const input = '{"offset":-10"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"offset":-10}');
+    });
+
+    it('preserves valid quoted string after number', () => {
+      // This should NOT be affected - number followed by proper string
+      const input = '{"a":1,"b":"test"}';
+      const fixed = tryFixJson(input);
+      expect(fixed).toBe('{"a":1,"b":"test"}');
+    });
   });
 
   describe('tryParseJson', () => {
@@ -311,6 +342,20 @@ just some text
 
         expect(calls).toHaveLength(1);
         expect(calls[0].name).toBe('read_file');
+      });
+
+      it('handles trailing quote after number in JSON (LLM hallucination)', () => {
+        // This is a real case where the LLM outputs invalid JSON with trailing quote
+        const text = '[Calling read_file]: {"offset":145,"path":"./test.kt","max_lines":15"}';
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('read_file');
+        expect(calls[0].input).toEqual({
+          offset: 145,
+          path: './test.kt',
+          max_lines: 15,
+        });
       });
 
       it('returns empty array for text without tool calls', () => {

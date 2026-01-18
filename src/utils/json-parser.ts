@@ -17,6 +17,7 @@ import {
  * Attempt to fix common JSON issues from LLM output:
  * - Single quotes instead of double quotes
  * - Raw newlines inside strings (should be escaped as \n)
+ * - Trailing quotes after numbers (e.g., "count":15"} -> "count":15})
  */
 export function tryFixJson(jsonStr: string): string {
   let fixed = jsonStr;
@@ -24,6 +25,10 @@ export function tryFixJson(jsonStr: string): string {
   // Replace single-quoted strings after colons (handles multi-line)
   // Match: : 'content' and replace with : "content"
   fixed = fixed.replace(/:(\s*)'((?:[^'\\]|\\.)*)'/gs, ':$1"$2"');
+
+  // Fix trailing quotes after numbers (LLM sometimes adds extra quote)
+  // Match: :number"} or :number", and remove the errant quote
+  fixed = fixed.replace(/:(\s*-?\d+(?:\.\d+)?)"(\s*[},\]])/g, ':$1$2');
 
   // Escape raw newlines inside double-quoted strings
   // This handles LLM output that includes literal newlines in JSON strings
@@ -106,6 +111,24 @@ function extractJsonObjectFromIndex(
   const start = text.indexOf('{', startIndex);
   if (start === -1) return null;
 
+  // Try strict extraction first (respecting string boundaries)
+  const strictResult = extractJsonObjectStrict(text, start);
+  if (strictResult) {
+    return strictResult;
+  }
+
+  // Fallback: try greedy extraction for each potential closing brace
+  // This handles malformed JSON like {"max_lines":15"} where the extra " breaks string tracking
+  return extractJsonObjectGreedy(text, start);
+}
+
+/**
+ * Extract JSON object respecting string boundaries.
+ */
+function extractJsonObjectStrict(
+  text: string,
+  start: number
+): { json: string; endIndex: number } | null {
   let depth = 0;
   let inString = false;
   let isEscaped = false;
@@ -136,6 +159,38 @@ function extractJsonObjectFromIndex(
       depth -= 1;
       if (depth === 0) {
         return { json: text.slice(start, i + 1), endIndex: i + 1 };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Greedy extraction that tries each closing brace and validates with tryParseJson.
+ * Handles malformed JSON where extra quotes break string state tracking.
+ */
+function extractJsonObjectGreedy(
+  text: string,
+  start: number
+): { json: string; endIndex: number } | null {
+  let depth = 0;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const candidate = text.slice(start, i + 1);
+        // Try to parse (tryParseJson applies fixes like removing trailing quotes after numbers)
+        if (tryParseJson(candidate) !== null) {
+          return { json: candidate, endIndex: i + 1 };
+        }
+        // Keep looking for next potential closing brace
+        depth = 1; // Reset to continue searching
       }
     }
   }

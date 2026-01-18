@@ -2339,7 +2339,7 @@ async function main() {
         spinner.indexingDone(stats.totalFiles, stats.totalChunks);
       };
       ragIndexer.onError = (error) => {
-        spinner.fail(chalk.red(`RAG indexer: ${error}`));
+        spinner.fail(chalk.red(`RAG indexer: ${error.message}`));
       };
 
       // Register with commands and tool
@@ -2766,11 +2766,12 @@ async function main() {
       if (topic) {
         // Search for commands matching the topic
         const allCommands = getAllCommands();
+        const topicLower = topic.toLowerCase();
         const matches = allCommands.filter(
           (cmd) =>
-            cmd.name.includes(topic.toLowerCase()) ||
-            cmd.description.toLowerCase().includes(topic.toLowerCase()) ||
-            cmd.aliases?.some((a) => a.includes(topic.toLowerCase()))
+            cmd.name.includes(topicLower) ||
+            cmd.description.toLowerCase().includes(topicLower) ||
+            cmd.aliases?.some((a: string) => a.includes(topicLower))
         );
 
         if (matches.length > 0) {
