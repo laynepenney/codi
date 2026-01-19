@@ -3422,22 +3422,31 @@ async function main() {
   // Paste detection via debouncing
   // When lines arrive rapidly (within debounce window), they're buffered
   // Line handler that checks for pasted content
+  const debugPaste = process.env.DEBUG_PASTE === '1';
   const onLine = (line: string) => {
     if (rlClosed) return;
 
     // Check if there's pending paste data (captured by PasteInterceptor)
     const pasteData = consumePendingPaste();
 
-    // Debug logging
+    // Debug logging (always show with DEBUG_PASTE=1)
+    if (debugPaste) {
+      // eslint-disable-next-line no-console
+      console.error(`[PASTE_DEBUG onLine] line=${JSON.stringify(line)}, pasteData=${JSON.stringify(pasteData)}`);
+    }
     if (logLevel >= LogLevel.DEBUG) {
       logger.debug(`[onLine] line=${JSON.stringify(line)}, pasteData=${JSON.stringify(pasteData)}`);
     }
 
     if (pasteData !== null) {
-      // Use prefix (what was typed before paste) + paste content
+      // Use readline's line (typed content) + paste content
       // e.g., user types "/command " then pastes "args" -> "/command args"
-      // The prefix is captured by paste interceptor since readline may not preserve it
-      const combined = pasteData.prefix + pasteData.content;
+      // Note: readline's line buffer has the typed content; pasteData.prefix is unreliable
+      const combined = line + pasteData.content;
+      if (debugPaste) {
+        // eslint-disable-next-line no-console
+        console.error(`[PASTE_DEBUG onLine] combined=${JSON.stringify(combined)}`);
+      }
       if (logLevel >= LogLevel.DEBUG) {
         logger.debug(`[onLine] combined=${JSON.stringify(combined)}`);
       }
