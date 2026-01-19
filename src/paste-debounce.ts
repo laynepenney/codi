@@ -16,24 +16,25 @@ export const DISABLE_BRACKETED_PASTE = '\x1b[?2004l';
 export const DEFAULT_PASTE_DEBOUNCE_MS = 100;
 
 /**
- * Pending paste content - captured by PasteInterceptor, consumed by line handler.
+ * Pending paste data - captured by PasteInterceptor, consumed by line handler.
+ * Includes both the prefix (what was typed before paste) and the paste content.
  */
-let pendingPasteContent: string | null = null;
+let pendingPasteData: { prefix: string; content: string } | null = null;
 
 /**
- * Get and clear pending paste content.
+ * Get and clear pending paste data (prefix + content).
  */
-export function consumePendingPaste(): string | null {
-  const content = pendingPasteContent;
-  pendingPasteContent = null;
-  return content;
+export function consumePendingPaste(): { prefix: string; content: string } | null {
+  const data = pendingPasteData;
+  pendingPasteData = null;
+  return data;
 }
 
 /**
- * Check if there's pending paste content.
+ * Check if there's pending paste data.
  */
 export function hasPendingPaste(): boolean {
-  return pendingPasteContent !== null;
+  return pendingPasteData !== null;
 }
 
 /**
@@ -47,6 +48,7 @@ export class PasteInterceptor extends Transform {
   private buffer = '';
   private inPaste = false;
   private pasteBuffer = '';
+  private prefixBuffer = ''; // Track what was typed before paste
 
   _transform(chunk: Buffer, encoding: BufferEncoding, callback: TransformCallback): void {
     const data = chunk.toString();
@@ -59,8 +61,18 @@ export class PasteInterceptor extends Transform {
         // Look for paste start
         const startIdx = this.buffer.indexOf(PASTE_START);
         if (startIdx !== -1) {
-          // Pass through anything before the paste start
-          output += this.buffer.slice(0, startIdx);
+          // Capture anything before the paste start as the prefix
+          const prefix = this.buffer.slice(0, startIdx);
+          // Pass through to readline for display
+          output += prefix;
+          // Only track the part after the last newline for the prefix
+          // (newlines reset the current line in readline)
+          const lastNewline = prefix.lastIndexOf('\n');
+          if (lastNewline !== -1) {
+            this.prefixBuffer = prefix.slice(lastNewline + 1);
+          } else {
+            this.prefixBuffer += prefix;
+          }
           this.buffer = this.buffer.slice(startIdx + PASTE_START.length);
           this.inPaste = true;
           this.pasteBuffer = '';
@@ -70,11 +82,21 @@ export class PasteInterceptor extends Transform {
           const escIdx = this.buffer.lastIndexOf('\x1b');
           if (escIdx !== -1 && escIdx >= this.buffer.length - PASTE_START.length) {
             // Partial escape sequence at end - keep it for next chunk
-            output += this.buffer.slice(0, escIdx);
+            const toPass = this.buffer.slice(0, escIdx);
+            this.prefixBuffer += toPass; // Track for potential paste
+            output += toPass;
             this.buffer = this.buffer.slice(escIdx);
             break;
           } else {
-            // No paste markers, pass through
+            // No paste markers, pass through and track
+            // Check for newline - reset prefix tracking on new line
+            const newlineIdx = this.buffer.lastIndexOf('\n');
+            if (newlineIdx !== -1) {
+              // Reset prefix after newline (user pressed Enter without paste)
+              this.prefixBuffer = this.buffer.slice(newlineIdx + 1);
+            } else {
+              this.prefixBuffer += this.buffer;
+            }
             output += this.buffer;
             this.buffer = '';
           }
@@ -88,8 +110,11 @@ export class PasteInterceptor extends Transform {
           this.buffer = this.buffer.slice(endIdx + PASTE_END.length);
           this.inPaste = false;
 
-          // Store the paste content for the line handler
-          pendingPasteContent = this.pasteBuffer;
+          // Store both prefix and paste content for the line handler
+          pendingPasteData = {
+            prefix: this.prefixBuffer,
+            content: this.pasteBuffer,
+          };
 
           // Show paste indicator to user
           const lineCount = (this.pasteBuffer.match(/\n/g) || []).length + 1;
@@ -106,6 +131,7 @@ export class PasteInterceptor extends Transform {
           output += '\n';
 
           this.pasteBuffer = '';
+          this.prefixBuffer = ''; // Reset prefix for next line
         } else {
           // Still in paste, buffer everything
           this.pasteBuffer += this.buffer;
@@ -123,7 +149,10 @@ export class PasteInterceptor extends Transform {
   _flush(callback: TransformCallback): void {
     // If we're still in a paste at end of stream, treat remaining as paste content
     if (this.inPaste && this.pasteBuffer) {
-      pendingPasteContent = this.pasteBuffer;
+      pendingPasteData = {
+        prefix: this.prefixBuffer,
+        content: this.pasteBuffer,
+      };
       const charCount = this.pasteBuffer.length;
       process.stdout.write(chalk.dim(`[pasted ${charCount} chars]`));
       this.push('\n');
@@ -132,6 +161,7 @@ export class PasteInterceptor extends Transform {
     }
     this.buffer = '';
     this.pasteBuffer = '';
+    this.prefixBuffer = '';
     this.inPaste = false;
     callback();
   }

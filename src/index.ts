@@ -3425,11 +3425,23 @@ async function main() {
   const onLine = (line: string) => {
     if (rlClosed) return;
 
-    // Check if there's pending paste content (captured by PasteInterceptor)
-    const pastedContent = consumePendingPaste();
-    if (pastedContent !== null) {
-      // Use the full paste content instead of the empty line
-      handleInput(pastedContent);
+    // Check if there's pending paste data (captured by PasteInterceptor)
+    const pasteData = consumePendingPaste();
+
+    // Debug logging
+    if (logLevel >= LogLevel.DEBUG) {
+      logger.debug(`[onLine] line=${JSON.stringify(line)}, pasteData=${JSON.stringify(pasteData)}`);
+    }
+
+    if (pasteData !== null) {
+      // Use prefix (what was typed before paste) + paste content
+      // e.g., user types "/command " then pastes "args" -> "/command args"
+      // The prefix is captured by paste interceptor since readline may not preserve it
+      const combined = pasteData.prefix + pasteData.content;
+      if (logLevel >= LogLevel.DEBUG) {
+        logger.debug(`[onLine] combined=${JSON.stringify(combined)}`);
+      }
+      handleInput(combined);
     } else {
       // Normal typed input
       handleInput(line);

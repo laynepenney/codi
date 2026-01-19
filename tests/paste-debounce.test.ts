@@ -114,7 +114,7 @@ describe('createPasteInterceptor', () => {
 
     // Paste content should be stored for consumption
     expect(hasPendingPaste()).toBe(true);
-    expect(consumePendingPaste()).toBe('pasted content');
+    expect(consumePendingPaste()).toEqual({ prefix: '', content: 'pasted content' });
     expect(hasPendingPaste()).toBe(false);
 
     // Restore stdout.write
@@ -141,7 +141,7 @@ describe('createPasteInterceptor', () => {
     await new Promise<void>(resolve => interceptor.on('finish', resolve));
 
     // Paste content should be stored
-    expect(consumePendingPaste()).toBe('line1\nline2\nline3');
+    expect(consumePendingPaste()).toEqual({ prefix: '', content: 'line1\nline2\nline3' });
 
     // Restore stdout.write
     process.stdout.write = originalWrite;
@@ -168,7 +168,7 @@ describe('createPasteInterceptor', () => {
     // Wait for stream to finish
     await new Promise<void>(resolve => interceptor.on('finish', resolve));
 
-    expect(consumePendingPaste()).toBe('content');
+    expect(consumePendingPaste()).toEqual({ prefix: '', content: 'content' });
 
     // Restore stdout.write
     process.stdout.write = originalWrite;
@@ -195,7 +195,62 @@ describe('createPasteInterceptor', () => {
 
     // "before" should pass through, then newline for paste, then "after"
     expect(chunks.join('')).toBe('before\nafter');
-    expect(consumePendingPaste()).toBe('pasted');
+    // "before" is captured as prefix since it was typed before the paste
+    expect(consumePendingPaste()).toEqual({ prefix: 'before', content: 'pasted' });
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
+  });
+});
+
+describe('prefix capture', () => {
+  it('captures command prefix typed before paste', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    // Mock stdout.write
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // User types "/mcp " then pastes "tool-name"
+    interceptor.write(`/mcp ${PASTE_START}tool-name${PASTE_END}`);
+    interceptor.end();
+
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    // The prefix "/mcp " should be captured along with paste content
+    const pasteData = consumePendingPaste();
+    expect(pasteData).toEqual({ prefix: '/mcp ', content: 'tool-name' });
+
+    // Restore stdout.write
+    process.stdout.write = originalWrite;
+  });
+
+  it('resets prefix after newline without paste', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    // Mock stdout.write
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // User types something, presses Enter, then types more and pastes
+    interceptor.write(`ignored\n/cmd ${PASTE_START}arg${PASTE_END}`);
+    interceptor.end();
+
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    // Only "/cmd " should be captured as prefix (after the newline reset)
+    const pasteData = consumePendingPaste();
+    expect(pasteData).toEqual({ prefix: '/cmd ', content: 'arg' });
 
     // Restore stdout.write
     process.stdout.write = originalWrite;
@@ -219,7 +274,7 @@ describe('consumePendingPaste', () => {
     await new Promise<void>(resolve => interceptor.on('finish', resolve));
 
     expect(hasPendingPaste()).toBe(true);
-    expect(consumePendingPaste()).toBe('content');
+    expect(consumePendingPaste()).toEqual({ prefix: '', content: 'content' });
     expect(hasPendingPaste()).toBe(false);
     expect(consumePendingPaste()).toBe(null);
 
