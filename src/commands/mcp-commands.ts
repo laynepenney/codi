@@ -38,7 +38,7 @@ const AUTH_URLS: Record<string, { url: string; envVar: string; description: stri
   supabase: {
     url: 'https://supabase.com/dashboard/account/tokens',
     envVar: 'SUPABASE_ACCESS_TOKEN',
-    description: 'Create a personal access token (or use OAuth with /mcp add supabase)',
+    description: 'Create a personal access token with read/write scopes',
   },
 };
 
@@ -51,6 +51,8 @@ const KNOWN_SERVERS: Record<string, {
   description: string;
   envVars?: string[];
   requiresArg?: string;
+  /** Prefix to add before the extra arg (e.g., '--project-ref=' for supabase) */
+  argPrefix?: string;
   /** Args that take value from env var: ['--flag', 'ENV_VAR'] pairs */
   envArgs?: [string, string][];
 }> = {
@@ -94,11 +96,14 @@ const KNOWN_SERVERS: Record<string, {
     description: 'Time and timezone utilities',
   },
 
-  // === OAuth login ===
+  // === Requires project ID + token ===
   supabase: {
     command: 'npx',
-    args: ['-y', '@supabase/mcp-server-supabase'],
-    description: 'Supabase DB and API (OAuth login)',
+    args: ['-y', '@supabase/mcp-server-supabase@latest'],
+    description: 'Supabase DB and API',
+    requiresArg: 'project ID (find in Project Settings)',
+    argPrefix: '--project-ref=',
+    envVars: ['SUPABASE_ACCESS_TOKEN'],
   },
 
   // === Requires API key/token ===
@@ -152,8 +157,9 @@ export const mcpCommand: Command = {
 
 Examples:
   /mcp add filesystem .
-  /mcp add supabase        (uses OAuth)
-  /mcp auth github         (opens GitHub token page)
+  /mcp auth supabase       (get access token)
+  /mcp add supabase <project-id>
+  /mcp auth github         (get GitHub token)
   /mcp add github          (after setting GITHUB_TOKEN)`,
   subcommands: ['add', 'remove', 'list', 'servers', 'auth'],
 
@@ -255,7 +261,10 @@ async function addServer(serverName: string | undefined, extraArg: string): Prom
 
   if (template.requiresArg && !extraArg) {
     console.log(chalk.yellow(`${serverName} requires: ${template.requiresArg}`));
-    console.log(chalk.dim(`Example: /mcp add ${serverName} .`));
+    // Show appropriate example based on server type
+    const example = serverName === 'supabase' ? 'abcdefghijklmnop' :
+                    serverName === 'sqlite' ? './data.db' : '.';
+    console.log(chalk.dim(`Example: /mcp add ${serverName} ${example}`));
     return null;
   }
 
@@ -290,9 +299,10 @@ async function addServer(serverName: string | undefined, extraArg: string): Prom
     enabled: true,
   };
 
-  // Add extra arg if provided
+  // Add extra arg if provided (with optional prefix like --project-ref=)
   if (extraArg) {
-    serverConfig.args.push(extraArg);
+    const formattedArg = template.argPrefix ? `${template.argPrefix}${extraArg}` : extraArg;
+    serverConfig.args.push(formattedArg);
   }
 
   // Add args that reference env vars (e.g., --access-token ${SUPABASE_ACCESS_TOKEN})
