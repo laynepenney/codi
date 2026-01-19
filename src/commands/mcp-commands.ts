@@ -17,55 +17,89 @@ const KNOWN_SERVERS: Record<string, {
   /** Args that take value from env var: ['--flag', 'ENV_VAR'] pairs */
   envArgs?: [string, string][];
 }> = {
+  // === No auth required ===
   filesystem: {
     command: 'npx',
-    args: ['@modelcontextprotocol/server-filesystem'],
-    description: 'File system operations (read, write, search)',
-    requiresArg: 'path to allow (e.g., . or /home/user)',
+    args: ['-y', '@modelcontextprotocol/server-filesystem'],
+    description: 'File operations (read, write, search)',
+    requiresArg: 'path to allow (e.g., . or ~)',
   },
+  sqlite: {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-sqlite'],
+    description: 'SQLite database queries',
+    requiresArg: 'path to .db file',
+  },
+  memory: {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-memory'],
+    description: 'Persistent knowledge graph',
+  },
+  fetch: {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-fetch'],
+    description: 'Fetch URLs and convert to markdown',
+  },
+  puppeteer: {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-puppeteer'],
+    description: 'Browser automation and screenshots',
+  },
+  git: {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-git'],
+    description: 'Git repository operations',
+    requiresArg: 'path to repo',
+  },
+  time: {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-time'],
+    description: 'Time and timezone utilities',
+  },
+
+  // === OAuth login ===
+  supabase: {
+    command: 'npx',
+    args: ['-y', '@supabase/mcp-server-supabase'],
+    description: 'Supabase DB and API (OAuth login)',
+  },
+
+  // === Requires API key/token ===
   github: {
     command: 'npx',
-    args: ['@modelcontextprotocol/server-github'],
-    description: 'GitHub API (repos, issues, PRs)',
+    args: ['-y', '@modelcontextprotocol/server-github'],
+    description: 'GitHub repos, issues, PRs',
     envVars: ['GITHUB_TOKEN'],
   },
   postgres: {
     command: 'npx',
-    args: ['@modelcontextprotocol/server-postgres'],
+    args: ['-y', '@modelcontextprotocol/server-postgres'],
     description: 'PostgreSQL database queries',
     envVars: ['DATABASE_URL'],
   },
-  sqlite: {
-    command: 'npx',
-    args: ['@modelcontextprotocol/server-sqlite'],
-    description: 'SQLite database operations',
-    requiresArg: 'path to database file',
-  },
-  puppeteer: {
-    command: 'npx',
-    args: ['@modelcontextprotocol/server-puppeteer'],
-    description: 'Browser automation and screenshots',
-  },
   brave: {
     command: 'npx',
-    args: ['@anthropics/server-brave-search'],
+    args: ['-y', '@modelcontextprotocol/server-brave-search'],
     description: 'Brave web search',
     envVars: ['BRAVE_API_KEY'],
   },
-  memory: {
+  slack: {
     command: 'npx',
-    args: ['@modelcontextprotocol/server-memory'],
-    description: 'Persistent memory/knowledge graph',
+    args: ['-y', '@modelcontextprotocol/server-slack'],
+    description: 'Slack channels and messages',
+    envVars: ['SLACK_BOT_TOKEN'],
   },
-  fetch: {
+  linear: {
     command: 'npx',
-    args: ['@anthropics/server-fetch'],
-    description: 'HTTP fetch and web scraping',
+    args: ['-y', '@modelcontextprotocol/server-linear'],
+    description: 'Linear issues and projects',
+    envVars: ['LINEAR_API_KEY'],
   },
-  supabase: {
+  sentry: {
     command: 'npx',
-    args: ['-y', '@supabase/mcp-server-supabase'],
-    description: 'Supabase database and API (uses OAuth login)',
+    args: ['-y', '@modelcontextprotocol/server-sentry'],
+    description: 'Sentry error tracking',
+    envVars: ['SENTRY_AUTH_TOKEN'],
   },
 };
 
