@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Transform, TransformCallback } from 'stream';
-import chalk from 'chalk';
+import chalk, {chalkStderr} from 'chalk';
+
+// Debug flag - set via environment for troubleshooting
+// Note: evaluated at runtime to ensure env var is read after shell exports it
+const isDebugPaste = () => process.env.DEBUG_PASTE === '1';
 
 // Bracketed paste mode escape sequences
 export const PASTE_START = '\x1b[200~';
@@ -54,6 +58,11 @@ export class PasteInterceptor extends Transform {
     const data = chunk.toString();
     this.buffer += data;
 
+    if (isDebugPaste()) {
+      // eslint-disable-next-line no-console
+      chalkStderr.red(`[PASTE_DEBUG] _transform chunk=${JSON.stringify(data)}, prefixBuffer=${JSON.stringify(this.prefixBuffer)}`);
+    }
+
     let output = '';
 
     while (this.buffer.length > 0) {
@@ -72,6 +81,10 @@ export class PasteInterceptor extends Transform {
             this.prefixBuffer = prefix.slice(lastNewline + 1);
           } else {
             this.prefixBuffer += prefix;
+          }
+          if (isDebugPaste()) {
+            // eslint-disable-next-line no-console
+            chalkStderr.red(`[PASTE_DEBUG] Found PASTE_START at ${startIdx}, prefix=${JSON.stringify(prefix)}, prefixBuffer=${JSON.stringify(this.prefixBuffer)}`);
           }
           this.buffer = this.buffer.slice(startIdx + PASTE_START.length);
           this.inPaste = true;
@@ -93,7 +106,12 @@ export class PasteInterceptor extends Transform {
             const newlineIdx = this.buffer.lastIndexOf('\n');
             if (newlineIdx !== -1) {
               // Reset prefix after newline (user pressed Enter without paste)
+              const oldPrefix = this.prefixBuffer;
               this.prefixBuffer = this.buffer.slice(newlineIdx + 1);
+              if (isDebugPaste()) {
+                // eslint-disable-next-line no-console
+                chalkStderr.red(`[PASTE_DEBUG] Newline detected, reset prefix: ${JSON.stringify(oldPrefix)} -> ${JSON.stringify(this.prefixBuffer)}`);
+              }
             } else {
               this.prefixBuffer += this.buffer;
             }
@@ -115,6 +133,10 @@ export class PasteInterceptor extends Transform {
             prefix: this.prefixBuffer,
             content: this.pasteBuffer,
           };
+          if (isDebugPaste()) {
+            // eslint-disable-next-line no-console
+            chalkStderr.red(`[PASTE_DEBUG] Storing pendingPasteData: ${JSON.stringify(pendingPasteData)}`);
+          }
 
           // Show paste indicator to user
           const lineCount = (this.pasteBuffer.match(/\n/g) || []).length + 1;
