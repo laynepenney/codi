@@ -65,8 +65,7 @@ const KNOWN_SERVERS: Record<string, {
   supabase: {
     command: 'npx',
     args: ['-y', '@supabase/mcp-server-supabase'],
-    description: 'Supabase database and API management',
-    envArgs: [['--access-token', 'SUPABASE_ACCESS_TOKEN']],
+    description: 'Supabase database and API (uses OAuth login)',
   },
 };
 
