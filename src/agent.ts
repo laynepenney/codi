@@ -747,7 +747,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
           reasoningText &&
           contentText === reasoningText
         );
-        const toolTracePattern = /\[(?:Calling|Running)\s+[a-z_][a-z0-9_]*\]|\{\s*"name"\s*:\s*"[a-z_][a-z0-9_]*"/i;
+        const toolTracePattern = /\[(?:Calling|Running)\s+[a-z_][a-z0-9_]*\]|\{\s*"name"\s*:\s*"[a-z_][a-z0-9_]*"|```(?:bash|sh|shell|zsh)\s*\n/i;
         const hasToolTrace = (text: string): boolean => toolTracePattern.test(text);
 
         let extractedCalls: ToolCall[] = [];
