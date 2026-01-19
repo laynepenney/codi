@@ -410,7 +410,20 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 - Use symbol navigation tools to understand code structure before making changes
 - Use read_file with offset to read specific sections of large files
 - WAIT for tool results before continuing - never make up file contents
-- Use edit_file for targeted changes, write_file only for new files or complete rewrites`;
+- Use edit_file for targeted changes, write_file only for new files or complete rewrites
+
+## Tool Call Format (for models without native tool support)
+If you cannot make native tool calls, output tool requests in this JSON format:
+\`\`\`json
+{"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
+\`\`\`
+
+Examples:
+- Read a file: \`{"name": "read_file", "arguments": {"path": "src/index.ts"}}\`
+- Run a command: \`{"name": "bash", "arguments": {"command": "ls -la"}}\`
+- Search code: \`{"name": "grep", "arguments": {"pattern": "function.*export", "path": "src"}}\`
+
+Output ONE tool call at a time, wait for the result, then continue.`;
   } else {
     // Fallback mode for models without tool support
     prompt = `You are an expert AI coding assistant with deep knowledge of software development.

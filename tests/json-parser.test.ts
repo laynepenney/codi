@@ -335,6 +335,133 @@ just some text
       });
     });
 
+    describe('pattern 4: bash code blocks as implicit tool calls', () => {
+      it('extracts bash tool call from bash code block', () => {
+        const text = `Let me run this command:
+\`\`\`bash
+find src -name "*.ts" -type f
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('bash');
+        expect(calls[0].input).toEqual({ command: 'find src -name "*.ts" -type f' });
+      });
+
+      it('extracts bash tool call from sh code block', () => {
+        const text = `\`\`\`sh
+ls -la /tmp
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('bash');
+        expect(calls[0].input).toEqual({ command: 'ls -la /tmp' });
+      });
+
+      it('extracts bash tool call from shell code block', () => {
+        const text = `\`\`\`shell
+git status
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('bash');
+      });
+
+      it('extracts multiple bash commands from separate code blocks', () => {
+        const text = `First command:
+\`\`\`bash
+ls -la
+\`\`\`
+Second command:
+\`\`\`bash
+pwd
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(2);
+        expect(calls[0].input).toEqual({ command: 'ls -la' });
+        expect(calls[1].input).toEqual({ command: 'pwd' });
+      });
+
+      it('ignores bash blocks that look like examples or documentation', () => {
+        const text = `Here's an example:
+\`\`\`bash
+# This is just a comment
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(0);
+      });
+
+      it('ignores bash blocks with placeholder text', () => {
+        const text = `\`\`\`bash
+your-command-here
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(0);
+      });
+
+      it('does not extract bash blocks if bash tool is not available', () => {
+        const limitedTools = [{ name: 'read_file', description: 'Read files', input_schema: { type: 'object', properties: {} } }];
+        const text = `\`\`\`bash
+ls -la
+\`\`\``;
+        const calls = extractToolCallsFromText(text, limitedTools);
+
+        expect(calls).toHaveLength(0);
+      });
+
+      it('prefers earlier patterns over bash code blocks', () => {
+        // If pattern 1 matches, bash code blocks should not be used
+        const text = `{"name": "bash", "arguments": {"command": "echo hello"}}
+\`\`\`bash
+ls -la
+\`\`\``;
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].input).toEqual({ command: 'echo hello' });
+      });
+    });
+
+    describe('pattern 5: read_file from natural language', () => {
+      it('extracts read_file from "let me read" phrase', () => {
+        const text = 'Let me read src/index.ts to understand the code.';
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('read_file');
+        expect(calls[0].input).toEqual({ path: 'src/index.ts' });
+      });
+
+      it('extracts read_file from "I\'ll look at" phrase', () => {
+        const text = "I'll look at package.json to check dependencies.";
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe('read_file');
+        expect(calls[0].input).toEqual({ path: 'package.json' });
+      });
+
+      it('extracts read_file from backtick-wrapped path', () => {
+        const text = 'Let me check `src/utils/helper.ts` for the implementation.';
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].input).toEqual({ path: 'src/utils/helper.ts' });
+      });
+
+      it('does not extract non-file-like paths', () => {
+        const text = 'Let me read about TypeScript.';
+        const calls = extractToolCallsFromText(text, toolDefinitions);
+
+        expect(calls).toHaveLength(0);
+      });
+    });
+
     describe('edge cases', () => {
       it('auto-corrects close tool name matches', () => {
         const text = '{"name": "readfile", "arguments": {"path": "test.txt"}}';
