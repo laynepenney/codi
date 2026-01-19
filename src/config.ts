@@ -287,6 +287,19 @@ export function loadWorkspaceConfig(cwd: string = process.cwd()): {
 }
 
 /**
+ * Save workspace configuration to .codi.json.
+ * Creates the file if it doesn't exist.
+ */
+export async function saveWorkspaceConfig(
+  config: WorkspaceConfig,
+  cwd: string = process.cwd()
+): Promise<void> {
+  const configPath = path.join(cwd, '.codi.json');
+  const content = JSON.stringify(config, null, 2) + '\n';
+  fs.writeFileSync(configPath, content, 'utf-8');
+}
+
+/**
  * Load local config file containing user-specific approvals.
  * This file is gitignored and stores approved patterns/categories.
  */

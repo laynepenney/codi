@@ -282,6 +282,7 @@ import { registerCompactCommands } from './commands/compact-commands.js';
 import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
 import { registerApprovalCommands } from './commands/approval-commands.js';
 import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
+import { registerMCPCommands } from './commands/mcp-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import {
   BackgroundIndexer,
@@ -2244,6 +2245,7 @@ async function main() {
   registerRAGCommands();
   registerApprovalCommands();
   registerSymbolCommands();
+  registerMCPCommands();
 
   // Plugin system disabled pending further investigation
   // See: https://github.com/laynepenney/codi/issues/17
