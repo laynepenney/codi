@@ -3428,8 +3428,9 @@ async function main() {
     // Check if there's pending paste content (captured by PasteInterceptor)
     const pastedContent = consumePendingPaste();
     if (pastedContent !== null) {
-      // Use the full paste content instead of the empty line
-      handleInput(pastedContent);
+      // Combine typed content (before paste) with pasted content
+      // e.g., user types "/command " then pastes "args" -> "/command args"
+      handleInput(line + pastedContent);
     } else {
       // Normal typed input
       handleInput(line);
