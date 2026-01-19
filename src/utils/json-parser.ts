@@ -297,5 +297,42 @@ export function extractToolCallsFromText(
     }
   }
 
+  // Pattern 4: Bash/shell code blocks as implicit bash tool calls
+  // Matches ```bash, ```sh, ```shell, or ```zsh code blocks
+  if (toolCalls.length === 0 && resolveToolName('bash')) {
+    const bashBlockPattern = /```(?:bash|sh|shell|zsh)\s*\n([\s\S]*?)\s*```/g;
+    while ((match = bashBlockPattern.exec(text)) !== null) {
+      const command = match[1].trim();
+      if (!command) continue;
+
+      // Skip if it looks like example output or documentation
+      if (command.startsWith('#') && !command.includes('\n')) continue;
+      if (command.includes('your-') || command.includes('<your') || command.includes('example')) continue;
+
+      toolCalls.push({
+        id: `extracted_${Date.now()}_${toolCalls.length}`,
+        name: 'bash',
+        input: { command },
+      });
+    }
+  }
+
+  // Pattern 5: read_file implied from file paths mentioned with "read" or "look at"
+  // e.g., "Let me read src/index.ts" or "I'll look at package.json"
+  if (toolCalls.length === 0 && resolveToolName('read_file')) {
+    const readFilePattern = /(?:let me |I'll |I will |going to )(?:read|look at|check|examine|view)\s+[`"]?([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)[`"]?/gi;
+    while ((match = readFilePattern.exec(text)) !== null) {
+      const path = match[1];
+      // Validate it looks like a real file path
+      if (path.includes('/') || path.match(/\.[a-z]{1,4}$/i)) {
+        toolCalls.push({
+          id: `extracted_${Date.now()}_${toolCalls.length}`,
+          name: 'read_file',
+          input: { path },
+        });
+      }
+    }
+  }
+
   return toolCalls;
 }

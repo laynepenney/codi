@@ -237,7 +237,7 @@ codi --provider ollama --model llama3.2
 - llama3.2 (general purpose)
 - deepseek-coder (code-focused)
 - codellama (code-focused)
-- qwen2.5-coder (code-focused)
+- qwen3-coder (code-focused)
 
 **Also supports:**
 - Ollama Cloud for remote Ollama instances
