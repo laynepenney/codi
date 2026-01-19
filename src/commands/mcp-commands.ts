@@ -14,6 +14,8 @@ const KNOWN_SERVERS: Record<string, {
   description: string;
   envVars?: string[];
   requiresArg?: string;
+  /** Args that take value from env var: ['--flag', 'ENV_VAR'] pairs */
+  envArgs?: [string, string][];
 }> = {
   filesystem: {
     command: 'npx',
@@ -59,6 +61,12 @@ const KNOWN_SERVERS: Record<string, {
     command: 'npx',
     args: ['@anthropics/server-fetch'],
     description: 'HTTP fetch and web scraping',
+  },
+  supabase: {
+    command: 'npx',
+    args: ['-y', '@supabase/mcp-server-supabase'],
+    description: 'Supabase database and API management',
+    envArgs: [['--access-token', 'SUPABASE_ACCESS_TOKEN']],
   },
 };
 
@@ -138,8 +146,12 @@ function showAvailableServers(): string | null {
     if (info.requiresArg) {
       console.log(`    ${chalk.yellow('Requires:')} ${info.requiresArg}`);
     }
-    if (info.envVars?.length) {
-      console.log(`    ${chalk.yellow('Env vars:')} ${info.envVars.join(', ')}`);
+    const envVars = [
+      ...(info.envVars || []),
+      ...(info.envArgs?.map(([_, v]) => v) || []),
+    ];
+    if (envVars.length > 0) {
+      console.log(`    ${chalk.yellow('Env vars:')} ${envVars.join(', ')}`);
     }
   }
 
@@ -172,11 +184,15 @@ async function addServer(serverName: string | undefined, extraArg: string): Prom
   }
 
   // Check for required env vars
-  if (template.envVars?.length) {
-    const missing = template.envVars.filter(v => !process.env[v]);
+  const requiredEnvVars = [
+    ...(template.envVars || []),
+    ...(template.envArgs?.map(([_, envVar]) => envVar) || []),
+  ];
+  if (requiredEnvVars.length > 0) {
+    const missing = requiredEnvVars.filter(v => !process.env[v]);
     if (missing.length > 0) {
       console.log(chalk.yellow(`Missing environment variable(s): ${missing.join(', ')}`));
-      console.log(chalk.dim('Set them before starting Codi, or add to .codi.json env section.'));
+      console.log(chalk.dim('Set them before starting Codi.'));
     }
   }
 
@@ -203,6 +219,13 @@ async function addServer(serverName: string | undefined, extraArg: string): Prom
     serverConfig.args.push(extraArg);
   }
 
+  // Add args that reference env vars (e.g., --access-token ${SUPABASE_ACCESS_TOKEN})
+  if (template.envArgs?.length) {
+    for (const [flag, envVar] of template.envArgs) {
+      serverConfig.args.push(flag, `\${${envVar}}`);
+    }
+  }
+
   // Add env var references if needed
   if (template.envVars?.length) {
     serverConfig.env = {};
@@ -218,8 +241,8 @@ async function addServer(serverName: string | undefined, extraArg: string): Prom
     await saveWorkspaceConfig(config);
     console.log(chalk.green(`✓ Added MCP server: ${serverName}`));
     console.log(chalk.dim('  Restart Codi to connect to the new server.'));
-    if (template.envVars?.length) {
-      console.log(chalk.dim(`  Make sure these env vars are set: ${template.envVars.join(', ')}`));
+    if (requiredEnvVars.length > 0) {
+      console.log(chalk.dim(`  Make sure these env vars are set: ${requiredEnvVars.join(', ')}`));
     }
   } catch (error) {
     console.log(chalk.red(`Failed to save config: ${error}`));
