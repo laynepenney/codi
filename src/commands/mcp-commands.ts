@@ -3,7 +3,44 @@
 
 import { registerCommand, type Command } from './index.js';
 import { loadWorkspaceConfig, saveWorkspaceConfig } from '../config.js';
+import { exec } from 'child_process';
 import chalk from 'chalk';
+
+/**
+ * URLs to get API tokens/keys for services that require them.
+ */
+const AUTH_URLS: Record<string, { url: string; envVar: string; description: string }> = {
+  github: {
+    url: 'https://github.com/settings/tokens/new?description=Codi%20MCP&scopes=repo,read:org,read:user',
+    envVar: 'GITHUB_TOKEN',
+    description: 'Create a personal access token with repo, read:org, read:user scopes',
+  },
+  brave: {
+    url: 'https://brave.com/search/api/',
+    envVar: 'BRAVE_API_KEY',
+    description: 'Sign up for Brave Search API and get your API key',
+  },
+  slack: {
+    url: 'https://api.slack.com/apps',
+    envVar: 'SLACK_BOT_TOKEN',
+    description: 'Create a Slack app, add Bot Token Scopes, then install to workspace',
+  },
+  linear: {
+    url: 'https://linear.app/settings/api',
+    envVar: 'LINEAR_API_KEY',
+    description: 'Create a personal API key',
+  },
+  sentry: {
+    url: 'https://sentry.io/settings/account/api/auth-tokens/',
+    envVar: 'SENTRY_AUTH_TOKEN',
+    description: 'Create an auth token with project:read and org:read scopes',
+  },
+  supabase: {
+    url: 'https://supabase.com/dashboard/account/tokens',
+    envVar: 'SUPABASE_ACCESS_TOKEN',
+    description: 'Create a personal access token (or use OAuth with /mcp add supabase)',
+  },
+};
 
 /**
  * Well-known MCP servers with their configurations.
@@ -111,13 +148,14 @@ export const mcpCommand: Command = {
 /mcp remove <name>        Remove an MCP server
 /mcp list                 List configured servers
 /mcp servers              Show available server templates
+/mcp auth <service>       Open browser to get API token
 
 Examples:
   /mcp add filesystem .
-  /mcp add github
-  /mcp add sqlite ./data.db
-  /mcp remove filesystem`,
-  subcommands: ['add', 'remove', 'list', 'servers'],
+  /mcp add supabase        (uses OAuth)
+  /mcp auth github         (opens GitHub token page)
+  /mcp add github          (after setting GITHUB_TOKEN)`,
+  subcommands: ['add', 'remove', 'list', 'servers', 'auth'],
 
   execute: async (args: string): Promise<string | null> => {
     const parts = args.trim().split(/\s+/);
@@ -140,6 +178,11 @@ Examples:
     if (subcommand === 'remove' || subcommand === 'rm') {
       const serverName = parts[1];
       return removeServer(serverName);
+    }
+
+    if (subcommand === 'auth') {
+      const serviceName = parts[1]?.toLowerCase();
+      return openAuthPage(serviceName);
     }
 
     console.log(chalk.yellow(`Unknown subcommand: ${subcommand}`));
@@ -304,6 +347,48 @@ async function removeServer(serverName: string | undefined): Promise<string | nu
   } catch (error) {
     console.log(chalk.red(`Failed to save config: ${error}`));
   }
+
+  return null;
+}
+
+async function openAuthPage(serviceName: string | undefined): Promise<string | null> {
+  if (!serviceName) {
+    console.log(chalk.bold('\nServices with auth helpers:\n'));
+    for (const [name, info] of Object.entries(AUTH_URLS)) {
+      console.log(`  ${chalk.cyan(name)}`);
+      console.log(`    ${info.description}`);
+      console.log(`    ${chalk.yellow('Env var:')} ${info.envVar}`);
+    }
+    console.log(chalk.dim('\nUsage: /mcp auth <service>'));
+    return null;
+  }
+
+  const authInfo = AUTH_URLS[serviceName];
+  if (!authInfo) {
+    console.log(chalk.yellow(`No auth helper for: ${serviceName}`));
+    console.log('Available services: ' + Object.keys(AUTH_URLS).join(', '));
+    return null;
+  }
+
+  console.log(chalk.bold(`\n${serviceName} Authentication\n`));
+  console.log(`${authInfo.description}\n`);
+  console.log(chalk.cyan('Opening browser...'));
+
+  // Cross-platform browser open
+  const platform = process.platform;
+  const openCmd = platform === 'darwin' ? 'open' :
+                  platform === 'win32' ? 'start' : 'xdg-open';
+
+  exec(`${openCmd} "${authInfo.url}"`, (error) => {
+    if (error) {
+      console.log(chalk.yellow(`Could not open browser. Visit manually:`));
+      console.log(chalk.dim(authInfo.url));
+    }
+  });
+
+  console.log(`\n${chalk.yellow('After getting your token, set:')} ${chalk.bold(authInfo.envVar)}`);
+  console.log(chalk.dim(`  export ${authInfo.envVar}=your-token-here`));
+  console.log(chalk.dim(`  # Or add to your shell profile (~/.zshrc, ~/.bashrc)`));
 
   return null;
 }
