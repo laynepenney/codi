@@ -925,6 +925,11 @@
         <h3>Session Memory</h3>
         <p>Save and restore sessions. Persistent memories across sessions. User profiles for personalized responses.</p>
       </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#129302;</div>
+        <h3>Multi-Agent Orchestration</h3>
+        <p>Run parallel AI agents in isolated git worktrees. Permission requests bubble up to you for human-in-the-loop approval.</p>
+      </div>
     </div>
   </section>
 
@@ -1267,6 +1272,28 @@ codi --provider ollama-cloud --model llama3.2</code></pre>
           <div class="command-item">
             <code>/redo</code>
             <p>Redo undone change</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="command-category">
+        <h3>&#129302; Multi-Agent Orchestration</h3>
+        <div class="command-list">
+          <div class="command-item">
+            <code>/delegate &lt;branch&gt; &lt;task&gt;</code>
+            <p>Spawn worker in worktree</p>
+          </div>
+          <div class="command-item">
+            <code>/workers</code>
+            <p>List active workers</p>
+          </div>
+          <div class="command-item">
+            <code>/workers cancel &lt;id&gt;</code>
+            <p>Cancel a worker</p>
+          </div>
+          <div class="command-item">
+            <code>/worktrees</code>
+            <p>List managed worktrees</p>
           </div>
         </div>
       </div>

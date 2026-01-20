@@ -157,9 +157,18 @@ src/
 │   ├── git-commands.ts
 │   ├── session-commands.ts
 │   ├── compact-commands.ts  # Context management
-│   └── config-commands.ts
+│   ├── config-commands.ts
+│   └── orchestrate-commands.ts  # Multi-agent orchestration
 ├── providers/        # AI model backends
 ├── tools/            # Filesystem interaction tools
+├── orchestrate/      # Multi-agent orchestration
+│   ├── commander.ts  # Parent orchestrator managing workers
+│   ├── child-agent.ts # Agent wrapper with IPC-based permissions
+│   ├── worktree.ts   # Git worktree management
+│   └── ipc/          # Unix socket communication
+│       ├── protocol.ts # Message types and serialization
+│       ├── server.ts   # Socket server (commander side)
+│       └── client.ts   # Socket client (worker side)
 └── rag/              # RAG system for semantic code search
     ├── indexer.ts    # File indexing and chunking
     ├── search.ts     # Semantic search
@@ -992,7 +1001,93 @@ pipelines:
 - [ ] Config hot-reload support (watch file changes)
 - [ ] Cost tracking per model/pipeline
 
-#### 19. Symbol Index - IMPLEMENTED
+#### 19. Multi-Agent Orchestration - IMPLEMENTED
+
+**Status**: Complete
+
+**Key Features** (in `src/orchestrate/`):
+- Run multiple AI agents in parallel using git worktrees
+- Each worker operates in an isolated branch
+- Permission requests bubble up to the commander via Unix domain sockets
+- Human-in-the-loop approval for all tool operations
+
+**Architecture**:
+```
+┌─────────────────────────────────────────────┐
+│           Commander (has readline)          │
+│  ┌─────────────────────────────────────┐   │
+│  │  Unix Socket Server                  │   │
+│  │  ~/.codi/orchestrator.sock          │   │
+│  └──────────┬──────────────┬───────────┘   │
+└─────────────┼──────────────┼───────────────┘
+              │              │
+       ┌──────┴───┐    ┌─────┴────┐
+       │ Worker 1 │    │ Worker 2 │
+       │ (IPC     │    │ (IPC     │
+       │  Client) │    │  Client) │
+       └──────────┘    └──────────┘
+        Worktree A      Worktree B
+```
+
+**Implemented Commands** (in `src/commands/orchestrate-commands.ts`):
+
+| Command | Description |
+|---------|-------------|
+| `/delegate <branch> <task>` | Spawn a worker agent in a new worktree |
+| `/workers` | List active workers and their status |
+| `/workers cancel <id>` | Cancel a running worker |
+| `/worktrees` | List all managed worktrees |
+| `/worktrees cleanup` | Remove completed worktrees |
+
+**CLI Flags for Child Mode**:
+- `--child-mode` - Run as child agent (connects to commander via IPC)
+- `--socket-path <path>` - IPC socket path for permission routing
+- `--child-id <id>` - Unique worker identifier
+- `--child-task <task>` - Task description for the worker
+
+**IPC Protocol**:
+- Newline-delimited JSON over Unix domain sockets
+- Message types: `handshake`, `permission_request`, `permission_response`, `status_update`, `task_complete`, `task_error`, `ping/pong`
+- Workers request permissions, commander prompts user, sends response back
+
+**Workflow Example**:
+```bash
+# Start Codi (commander)
+codi
+
+# Spawn parallel workers
+/delegate feat/auth "implement OAuth2 login flow"
+/delegate feat/api "add REST endpoints for user management"
+
+# Workers run in isolated worktrees
+# When a worker needs to write a file:
+# [feat/auth] Permission: write_file (src/auth/oauth.ts)
+# Approve? [y/n]
+
+# Monitor progress
+/workers
+# Shows: feat/auth (thinking), feat/api (waiting_permission)
+
+# Results are merged when workers complete
+```
+
+**Files**:
+- `src/orchestrate/commander.ts` - Parent orchestrator, spawns/manages workers
+- `src/orchestrate/child-agent.ts` - Agent wrapper with IPC-based onConfirm
+- `src/orchestrate/worktree.ts` - Git worktree creation/cleanup
+- `src/orchestrate/ipc/protocol.ts` - Message types and serialization
+- `src/orchestrate/ipc/server.ts` - Unix socket server (commander)
+- `src/orchestrate/ipc/client.ts` - Unix socket client (worker)
+- `src/orchestrate/types.ts` - WorkerConfig, WorkerState, WorkerResult types
+- `src/commands/orchestrate-commands.ts` - User-facing commands
+- `tests/orchestrate.test.ts` - 14 unit tests
+
+**Tested Providers**:
+- ✅ Anthropic (Claude)
+- ✅ Ollama (glm-4.7:cloud, qwen3-coder:480b-cloud)
+- ✅ OpenAI
+
+#### 20. Symbol Index - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1176,7 +1271,8 @@ For maximum impact with reasonable effort:
 10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
 11. ~~**Web Search** - Search web via DuckDuckGo~~ DONE
 12. ~~**Multi-Model Orchestration** - Use cheaper models for summarization~~ DONE
-13. **Model Map** - Docker-compose style multi-model config (Phase 1 DONE, Phase 2-4 pending)
+13. ~~**Model Map** - Docker-compose style multi-model config~~ DONE (Phases 1-3 complete)
+14. ~~**Multi-Agent Orchestration** - Parallel agents with IPC permission bubbling~~ DONE
 
 ## Notes for Contributors
 
