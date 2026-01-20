@@ -15,7 +15,7 @@ import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
 import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -297,7 +297,15 @@ import { createCompleter } from './completions.js';
 import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
-import { loadSession } from './session.js';
+import {
+  loadSession,
+  saveSession,
+  listSessions,
+  findSessions,
+  generateSessionName,
+  formatSessionInfo,
+  type SessionInfo,
+} from './session.js';
 import { runChildAgent } from './orchestrate/child-agent.js';
 import { Orchestrator } from './orchestrate/commander.js';
 import {
@@ -331,6 +339,7 @@ program
   .option('--debug', 'Show API and context details')
   .option('--trace', 'Show full request/response payloads')
   .option('-s, --session <name>', 'Load a saved session on startup')
+  .option('--resume [name]', 'Resume the most recent session for this directory (or a specific session name)')
   .option('--no-compress', 'Disable context compression (enabled by default)')
   .option('--context-window <tokens>', 'Context window size (tokens) before compaction')
   .option('--summarize-model <name>', 'Model to use for summarization (default: primary model)')
@@ -749,6 +758,111 @@ function promptConfirmationWithSuggestions(
       }
     });
   });
+}
+
+function normalizeSessionProjectPath(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return resolve(value);
+  } catch {
+    return null;
+  }
+}
+
+function filterSessionsByProjectPath(sessions: SessionInfo[], projectPath: string): SessionInfo[] {
+  const normalized = normalizeSessionProjectPath(projectPath);
+  if (!normalized) return [];
+  return sessions.filter((session) => normalizeSessionProjectPath(session.projectPath) === normalized);
+}
+
+function promptSessionSelection(rl: Interface, sessions: SessionInfo[]): Promise<SessionInfo | null> {
+  console.log(chalk.bold('\nSelect a session to resume:'));
+  sessions.forEach((session, index) => {
+    console.log(chalk.dim(`  ${index + 1}) ${formatSessionInfo(session)}`));
+  });
+
+  const promptText = chalk.cyan(`Pick 1-${sessions.length} (Enter for 1): `);
+  return new Promise((resolve) => {
+    rl.question(promptText, (answer) => {
+      const trimmed = (answer || '').trim();
+      if (!trimmed) {
+        resolve(sessions[0] ?? null);
+        return;
+      }
+      const choice = Number.parseInt(trimmed, 10);
+      if (Number.isNaN(choice) || choice < 1 || choice > sessions.length) {
+        console.log(chalk.yellow('Invalid selection, using most recent session.'));
+        resolve(sessions[0] ?? null);
+        return;
+      }
+      resolve(sessions[choice - 1] ?? null);
+    });
+  });
+}
+
+async function resolveResumeSessionName(
+  resumeOption: string | boolean,
+  cwd: string,
+  rl: Interface | null,
+  interactive: boolean
+): Promise<string | null> {
+  const trimmed = typeof resumeOption === 'string' ? resumeOption.trim() : '';
+  const canPrompt = Boolean(interactive && rl && process.stdin.isTTY && process.stdout.isTTY);
+
+  if (trimmed) {
+    const exact = listSessions().find((session) => session.name === trimmed);
+    if (exact) {
+      return exact.name;
+    }
+
+    const matches = findSessions(trimmed);
+    if (matches.length === 1) {
+      return matches[0].name;
+    }
+    if (matches.length > 1) {
+      if (canPrompt && rl) {
+        const selection = await promptSessionSelection(rl, matches);
+        return selection?.name ?? matches[0].name;
+      }
+      return matches[0].name;
+    }
+    return trimmed;
+  }
+
+  const candidates = filterSessionsByProjectPath(listSessions(), cwd);
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (candidates.length === 1 || !canPrompt || !rl) {
+    return candidates[0].name;
+  }
+
+  const selection = await promptSessionSelection(rl, candidates);
+  return selection?.name ?? candidates[0].name;
+}
+
+function autoSaveSession(context: CommandContext, agent: Agent): void {
+  const messages = agent.getHistory();
+  if (messages.length === 0) return;
+
+  let sessionName = context.sessionState?.currentName || getCurrentSessionName();
+  if (!sessionName) {
+    sessionName = generateSessionName();
+    context.setSessionName?.(sessionName);
+  }
+
+  const provider = agent.getProvider();
+  try {
+    saveSession(sessionName, messages, agent.getSummary(), {
+      projectPath: process.cwd(),
+      projectName: context.projectInfo?.name || '',
+      provider: provider.getName(),
+      model: provider.getModel(),
+      openFilesState: undefined,
+    });
+  } catch (error) {
+    logger.debug(`Auto-save failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**
@@ -2174,6 +2288,7 @@ interface NonInteractiveOptions {
   auditLogger: AuditLogger;
   ragIndexer: BackgroundIndexer | null;
   mcpManager: MCPClientManager | null;
+  autoSave?: () => void;
 }
 
 /**
@@ -2185,7 +2300,7 @@ async function runNonInteractive(
   prompt: string,
   options: NonInteractiveOptions
 ): Promise<void> {
-  const { outputFormat, quiet, auditLogger, ragIndexer, mcpManager } = options;
+  const { outputFormat, quiet, auditLogger, ragIndexer, mcpManager, autoSave } = options;
 
   // Disable spinner in quiet mode
   if (quiet) {
@@ -2219,6 +2334,8 @@ async function runNonInteractive(
 
     // Stop spinner
     spinner.stop();
+
+    autoSave?.();
 
     // Get usage info from agent's context
     const contextInfo = agent.getContextInfo();
@@ -2965,8 +3082,26 @@ Begin by analyzing the task and planning your approach.`;
   // Deprecated: setSessionAgent is now a no-op
   // Agent reference is passed via commandContext
 
-  // Load session from command line or config default
-  const sessionToLoad = options.session || resolvedConfig.defaultSession;
+  // Load session from command line, resume flag, or config default
+  const resumeArg = typeof options.resume === 'string' ? options.resume.trim() : '';
+  let sessionToLoad: string | null = null;
+
+  if (options.session) {
+    sessionToLoad = options.session;
+  } else if (options.resume) {
+    sessionToLoad = await resolveResumeSessionName(
+      options.resume,
+      process.cwd(),
+      rl,
+      !options.prompt
+    );
+    if (!sessionToLoad && !resumeArg && !options.prompt && process.stdout.isTTY) {
+      console.log(chalk.dim('\nNo saved sessions found for this working directory.'));
+    }
+  } else if (resolvedConfig.defaultSession) {
+    sessionToLoad = resolvedConfig.defaultSession;
+  }
+
   if (sessionToLoad) {
     const session = loadSession(sessionToLoad);
     if (session) {
@@ -2995,6 +3130,7 @@ Begin by analyzing the task and planning your approach.`;
       auditLogger,
       ragIndexer,
       mcpManager,
+      autoSave: () => autoSaveSession(commandContext, agent),
     });
     return;
   }
@@ -3654,6 +3790,7 @@ Begin by analyzing the task and planning your approach.`;
               }
               const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
               console.log(chalk.dim(`\n(${elapsed}s)`));
+              autoSaveSession(commandContext, agent);
             }
           } catch (error) {
             spinner.stop();
@@ -3683,6 +3820,7 @@ Begin by analyzing the task and planning your approach.`;
       }
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(chalk.dim(`\n(${elapsed}s)`));
+      autoSaveSession(commandContext, agent);
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
