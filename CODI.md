@@ -81,8 +81,9 @@ gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
 1. Create the PR
 2. Run `pnpm build && pnpm test` to verify nothing is broken
 3. Review the diff with `gh pr diff <number>`
-4. Add a review comment documenting what was checked
-5. Only then merge (if all tests pass and no issues found)
+4. Check feature completeness (see checklist below)
+5. Add a review comment documenting what was checked
+6. Only then merge (if all tests pass and no issues found)
 
 **Full Process:**
 
@@ -93,26 +94,37 @@ gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
    ```
    If tests fail, fix the issues before proceeding.
 3. **Review the diff** thoroughly using `gh pr diff <number>`
-4. **Document the review** - add a comment listing what was verified:
+4. **Check feature completeness** (for new features/commands):
+   - [ ] `/help` updated with new commands (`showHelp()` in `src/index.ts`)
+   - [ ] System prompts reviewed for relevance (search for `generateSystemPrompt`)
+   - [ ] Worker/delegation prompts correct if feature involves AI calls
+   - [ ] `README.md` updated with user-facing documentation
+   - [ ] `CLAUDE.md` updated with developer documentation
+   - [ ] `docs/index.html` updated if significant feature
+   - [ ] CLI `--help` flags documented if new options added
+   - [ ] Tests added for new functionality
+   - [ ] Version bumped if significant change (package.json + src/version.ts)
+5. **Document the review** - add a comment listing what was verified:
    ```bash
    gh pr comment <number> --body "## Self-Review
    - ✅ Build passes
    - ✅ All tests pass (N tests)
    - ✅ Verified change X
    - ✅ Verified change Y
+   - ✅ Feature completeness checked
    - No issues found. Ready to merge."
    ```
-5. **If issues found**, add comments and fix:
+6. **If issues found**, add comments and fix:
    ```bash
    # Add a review comment on specific issues
    gh pr review <number> --comment --body "Found issue: description of problem"
    ```
-6. **Fix the issues** in a new commit (don't amend if already pushed)
-7. **For issues to address later**, create a GitHub issue:
+7. **Fix the issues** in a new commit (don't amend if already pushed)
+8. **For issues to address later**, create a GitHub issue:
    ```bash
    gh issue create --title "Title" --body "Description of future work"
    ```
-8. **Merge only after review is complete and all tests pass**
+9. **Merge only after review is complete and all tests pass**
 
 This ensures:
 - All review feedback is tracked in the PR history
