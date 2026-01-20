@@ -130,6 +130,18 @@ CODI_RUN_PTY_TESTS=1 pnpm test
 - See `docs/ROADMAP.md` for feature roadmap
 - Add inline JSDoc comments for complex functions
 
+## License & Contributor Agreement
+
+Codi is dual-licensed under AGPL-3.0 (open source) and a commercial license. See [LICENSING.md](./LICENSING.md) for details.
+
+By contributing to Codi, you agree that:
+
+1. Your contributions will be licensed under the same dual-license terms (AGPL-3.0 / Commercial)
+2. You have the right to submit the contribution under these terms
+3. You grant the project maintainers the right to use your contribution in both open source and commercial versions
+
+For significant contributions (new features, major refactors), we may ask you to sign a Contributor License Agreement (CLA) to ensure we can continue offering commercial licenses.
+
 ## Questions?
 
 Feel free to open an issue for any questions or suggestions!

@@ -1,5 +1,5 @@
 // Copyright 2026 Layne Penney
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
  * E2E tests for slash commands using MockProvider with file-based responses.

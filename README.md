@@ -12,7 +12,7 @@
   <a href="#quick-start"><img src="https://img.shields.io/badge/Claude-Anthropic-blueviolet?style=flat-square" alt="Claude" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/GPT-OpenAI-74aa9c?style=flat-square" alt="OpenAI" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Ollama-Local-orange?style=flat-square" alt="Ollama" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="Apache 2.0 License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0 License" /></a>
 </p>
 
 <p align="center">
@@ -638,7 +638,9 @@ See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as
 
 ## License
 
-Apache 2.0
+AGPL-3.0-or-later (see [LICENSE](./LICENSE))
+
+Commercial licenses available for proprietary use. See [LICENSING.md](./LICENSING.md) for details.
 
 ---
 
