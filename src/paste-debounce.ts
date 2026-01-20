@@ -91,16 +91,24 @@ export class PasteInterceptor extends Transform {
           this.pasteBuffer = '';
         } else {
           // Check if buffer might contain partial paste start sequence
-          // Keep the last few chars in case they're the start of an escape sequence
+          // Only hold back if we see the start of what could be a paste marker
           const escIdx = this.buffer.lastIndexOf('\x1b');
-          if (escIdx !== -1 && escIdx >= this.buffer.length - PASTE_START.length) {
-            // Partial escape sequence at end - keep it for next chunk
-            const toPass = this.buffer.slice(0, escIdx);
-            this.prefixBuffer += toPass; // Track for potential paste
-            output += toPass;
-            this.buffer = this.buffer.slice(escIdx);
-            break;
-          } else {
+          if (escIdx !== -1) {
+            const remaining = this.buffer.slice(escIdx);
+            // Only hold back if this could be a partial paste start sequence
+            // PASTE_START is '\x1b[200~' - check if remaining matches a prefix of it
+            const isPotentialPasteStart = PASTE_START.startsWith(remaining) && remaining.length < PASTE_START.length;
+            if (isPotentialPasteStart) {
+              // Partial paste sequence at end - keep it for next chunk
+              const toPass = this.buffer.slice(0, escIdx);
+              this.prefixBuffer += toPass; // Track for potential paste
+              output += toPass;
+              this.buffer = this.buffer.slice(escIdx);
+              break;
+            }
+          }
+          // No partial paste markers, pass through everything
+          {
             // No paste markers, pass through and track
             // Check for newline - reset prefix tracking on new line
             const newlineIdx = this.buffer.lastIndexOf('\n');

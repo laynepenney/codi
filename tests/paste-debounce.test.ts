@@ -257,6 +257,94 @@ describe('prefix capture', () => {
   });
 });
 
+describe('escape sequence handling', () => {
+  it('passes arrow key escape sequences through immediately', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Arrow key escape sequences used for history navigation
+    const UP_ARROW = '\x1b[A';
+    const DOWN_ARROW = '\x1b[B';
+    const LEFT_ARROW = '\x1b[D';
+    const RIGHT_ARROW = '\x1b[C';
+
+    interceptor.write(UP_ARROW);
+    interceptor.write(DOWN_ARROW);
+    interceptor.write(LEFT_ARROW);
+    interceptor.write(RIGHT_ARROW);
+    interceptor.end();
+
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    // All escape sequences should pass through unchanged
+    expect(chunks.join('')).toBe(UP_ARROW + DOWN_ARROW + LEFT_ARROW + RIGHT_ARROW);
+    expect(hasPendingPaste()).toBe(false);
+  });
+
+  it('does not buffer non-paste escape sequences', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Various terminal escape sequences that should pass through
+    const sequences = [
+      '\x1b[A',     // Up arrow
+      '\x1b[B',     // Down arrow
+      '\x1b[H',     // Home
+      '\x1b[F',     // End
+      '\x1b[3~',    // Delete
+      '\x1bOH',     // Home (alternate)
+    ];
+
+    for (const seq of sequences) {
+      interceptor.write(seq);
+    }
+    interceptor.end();
+
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    expect(chunks.join('')).toBe(sequences.join(''));
+  });
+
+  it('only buffers potential paste start sequences', async () => {
+    const interceptor = createPasteInterceptor();
+    const chunks: string[] = [];
+
+    interceptor.on('data', (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+    });
+
+    // Write partial paste start sequence - this SHOULD be buffered
+    // PASTE_START is '\x1b[200~'
+    interceptor.write('\x1b[2');  // Partial paste start
+
+    // Give it a moment, then complete the sequence
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Mock stdout.write
+    const originalWrite = process.stdout.write;
+    process.stdout.write = vi.fn().mockReturnValue(true);
+
+    interceptor.write(`00~content${PASTE_END}`);
+    interceptor.end();
+
+    await new Promise<void>(resolve => interceptor.on('finish', resolve));
+
+    // The paste should have been captured
+    expect(hasPendingPaste()).toBe(true);
+    expect(consumePendingPaste()?.content).toBe('content');
+
+    process.stdout.write = originalWrite;
+  });
+});
+
 describe('consumePendingPaste', () => {
   it('returns null when no paste pending', () => {
     expect(consumePendingPaste()).toBe(null);
