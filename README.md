@@ -155,6 +155,7 @@ codi --provider runpod --endpoint-id your-endpoint-id
 | `-y, --yes` | Auto-approve all tool operations | Prompt |
 | `--no-tools` | Disable tool use (for models that don't support it) | Tools enabled |
 | `-s, --session <name>` | Load a saved session on startup | - |
+| `--resume [name]` | Resume the most recent session for this working directory (or a specific session) | - |
 | `-c, --compress` | Enable context compression | Disabled |
 | `--context-window <tokens>` | Context window size before compaction | Model default |
 | `--summarize-model <name>` | Model for context summarization | Primary model |
@@ -226,6 +227,8 @@ These options are used internally when spawning worker agents:
 
 <details>
 <summary><strong>💾 Session Management</strong></summary>
+
+Sessions auto-save after each response; use `/save` to name or snapshot a session.
 
 | Command | Description |
 |---------|-------------|
