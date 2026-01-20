@@ -25,6 +25,14 @@ pnpm build            # Compile to JavaScript
 pnpm test             # Run tests
 pnpm test:watch       # Watch mode
 
+# Interactive mode (default)
+ANTHROPIC_API_KEY=... pnpm dev
+
+# Non-interactive mode (single prompt and exit)
+codi -P "explain this code" -f json           # JSON output
+codi --prompt "fix the bug" --quiet          # Suppress spinners
+codi -P "write tests" -y                      # Auto-approve all tools
+
 # Testing with different providers
 ANTHROPIC_API_KEY=... pnpm dev
 OPENAI_API_KEY=... pnpm dev -- --provider openai
@@ -264,6 +272,70 @@ Key test areas:
 - Provider instantiation
 - Agent initialization
 - File system operations (uses temp directories)
+
+---
+
+## Non-Interactive Mode
+
+Codi supports a non-interactive mode for scripting and automation. Instead of starting the interactive REPL, you can run a single prompt and get the result.
+
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `-P, --prompt <text>` | Run a single prompt and exit |
+| `-f, --output-format <format>` | Output format: `text` (default) or `json` |
+| `-q, --quiet` | Suppress spinners and progress output |
+| `-y, --yes` | Auto-approve all tool operations |
+
+### Usage Examples
+
+```bash
+# Basic usage - get response and exit
+codi -P "explain what this function does" src/utils.ts
+
+# JSON output for scripting
+codi -P "list all TODO comments" -f json
+
+# Quiet mode for CI/CD pipelines
+codi -P "run tests and fix any failures" -q -y
+
+# Combine with shell commands
+codi -P "generate a commit message" | git commit -F -
+```
+
+### JSON Output Format
+
+When using `-f json`, the output is a JSON object:
+
+```json
+{
+  "success": true,
+  "response": "The function calculates...",
+  "toolCalls": [
+    { "name": "read_file", "input": { "path": "src/utils.ts" } }
+  ],
+  "usage": { "inputTokens": 1000, "outputTokens": 500 }
+}
+```
+
+On error:
+```json
+{
+  "success": false,
+  "response": "",
+  "toolCalls": [],
+  "usage": null,
+  "error": "API key not found"
+}
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (API error, tool failure, etc.) |
 
 ---
 
