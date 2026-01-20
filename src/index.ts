@@ -553,6 +553,12 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.bold('\nUsage & Cost:'));
   console.log(chalk.dim('  /usage [period]    - Show token usage and costs'));
 
+  console.log(chalk.bold('\nMulti-Agent:'));
+  console.log(chalk.dim('  /delegate <branch> <task> - Spawn worker in new worktree'));
+  console.log(chalk.dim('  /workers           - List active workers'));
+  console.log(chalk.dim('  /workers cancel    - Cancel a running worker'));
+  console.log(chalk.dim('  /worktrees         - List managed worktrees'));
+
   console.log(chalk.bold('\nCode Navigation:'));
   console.log(chalk.dim('  /symbols [action]  - Manage symbol index (rebuild, stats, search)'));
   console.log(chalk.dim('  /rag [action]      - Manage RAG semantic search index'));
