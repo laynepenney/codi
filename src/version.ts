@@ -10,4 +10,4 @@
  * - MINOR: New features, significant refactoring, non-breaking changes
  * - PATCH: Bug fixes, minor improvements
  */
-export const VERSION = '0.13.0';
+export const VERSION = '0.13.1';
