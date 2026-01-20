@@ -217,7 +217,7 @@ export class Orchestrator extends EventEmitter {
       '--child-mode',
       '--socket-path', this.config.socketPath,
       '--child-id', workerId,
-      '--task', config.task,
+      '--child-task', config.task,
     ];
 
     if (config.model) {

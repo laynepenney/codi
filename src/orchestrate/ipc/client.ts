@@ -93,11 +93,13 @@ export class IPCClient extends EventEmitter {
 
       this.socket.on('connect', async () => {
         try {
-          await this.performHandshake();
+          // Set connected early so handshake can send messages
           this.connected = true;
+          await this.performHandshake();
           this.emit('connected');
           resolve();
         } catch (err) {
+          this.connected = false;
           reject(err);
         }
       });

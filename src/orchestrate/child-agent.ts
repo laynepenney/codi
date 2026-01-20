@@ -194,12 +194,24 @@ export class ChildAgent {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
 
-      // Send error
-      this.ipcClient.sendTaskError({
-        message: error.message,
-        recoverable: false,
-      });
-      this.ipcClient.sendStatus('failed');
+      // Log the error first
+      console.error('Child agent error:', error.message);
+      if (error.stack) {
+        console.error(error.stack);
+      }
+
+      // Only try to send error via IPC if we're connected
+      if (this.ipcClient.isConnected()) {
+        try {
+          this.ipcClient.sendTaskError({
+            message: error.message,
+            recoverable: false,
+          });
+          this.ipcClient.sendStatus('failed');
+        } catch {
+          // Ignore IPC errors during error handling
+        }
+      }
 
       return {
         workerId: this.config.childId,
