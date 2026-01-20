@@ -2602,8 +2602,35 @@ async function main() {
       // Ignore git errors
     }
 
-    // Build system prompt
-    const systemPrompt = generateSystemPrompt(projectInfo, useTools);
+    // Build system prompt with worker-specific additions
+    let systemPrompt = generateSystemPrompt(projectInfo, useTools);
+
+    // Add worker-specific context
+    systemPrompt += `
+
+## Worker Agent Context
+
+You are a **delegated worker agent** running in an isolated git worktree.
+
+**Your Assignment:**
+- Branch: \`${currentBranch}\`
+- Task: Complete the specific task assigned to you (see first message)
+
+**Important Guidelines:**
+1. **Focus on the task**: Complete only what is asked. Do not add extra features or refactoring.
+2. **Be autonomous**: Do not ask clarifying questions. Make reasonable assumptions and proceed.
+3. **Complete the work**: When the task is done, summarize what you accomplished.
+4. **Tool permissions**: Your tool requests are routed to the commander for approval. Wait for results.
+5. **Stay in scope**: Work only within this worktree. Do not reference or modify files outside.
+
+**Workflow:**
+1. Understand the task from the first message
+2. Use tools to explore the codebase if needed
+3. Implement the required changes
+4. Verify your work (read files back, run tests if applicable)
+5. Provide a brief summary of what was done
+
+Begin by analyzing the task and planning your approach.`;
 
     console.log(chalk.dim(`Running as child agent: ${options.childId}`));
     console.log(chalk.dim(`Task: ${options.childTask}`));
