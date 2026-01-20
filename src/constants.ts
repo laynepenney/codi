@@ -125,6 +125,4 @@ export const CONTEXT_OPTIMIZATION = {
   PRESERVE_TOOL_PAIRS: true,
   /** Keep messages referencing recently accessed files */
   PRESERVE_WORKING_SET: true,
-  /** Maximum files to track in working set */
-  MAX_WORKING_SET_FILES: 10,
 } as const;

@@ -73,19 +73,17 @@ describe('Context Windowing', () => {
       expect(ws.recentFiles.size).toBe(0);
     });
 
-    it('enforces max working set size', () => {
+    it('allows working set to grow without limit', () => {
       const ws = createWorkingSet();
-      const config = { ...DEFAULT_WINDOWING_CONFIG, maxWorkingSetFiles: 3 };
 
-      updateWorkingSet(ws, 'read_file', { path: '/file1.ts' }, config);
-      updateWorkingSet(ws, 'read_file', { path: '/file2.ts' }, config);
-      updateWorkingSet(ws, 'read_file', { path: '/file3.ts' }, config);
-      updateWorkingSet(ws, 'read_file', { path: '/file4.ts' }, config);
+      // Add many files - all should be retained
+      for (let i = 1; i <= 20; i++) {
+        updateWorkingSet(ws, 'read_file', { path: `/file${i}.ts` });
+      }
 
-      expect(ws.recentFiles.size).toBe(3);
-      expect(ws.recentFiles.has('/file4.ts')).toBe(true);
-      // Oldest should be removed
-      expect(ws.recentFiles.has('/file1.ts')).toBe(false);
+      expect(ws.recentFiles.size).toBe(20);
+      expect(ws.recentFiles.has('/file1.ts')).toBe(true);
+      expect(ws.recentFiles.has('/file20.ts')).toBe(true);
     });
   });
 

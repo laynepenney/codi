@@ -46,7 +46,6 @@ export interface WindowingConfig {
   importanceThreshold: number;   // Keep messages with score >= this
   preserveToolPairs: boolean;    // Never split tool_use from tool_result
   preserveWorkingSet: boolean;   // Keep messages referencing recent files
-  maxWorkingSetFiles: number;    // Limit working set size
 }
 
 /**
@@ -58,7 +57,6 @@ export const DEFAULT_WINDOWING_CONFIG: WindowingConfig = {
   importanceThreshold: 0.4,
   preserveToolPairs: true,
   preserveWorkingSet: true,
-  maxWorkingSetFiles: 10,
 };
 
 /**
@@ -88,8 +86,7 @@ const FILE_TOOLS = new Set([
 export function updateWorkingSet(
   workingSet: WorkingSet,
   toolName: string,
-  input: Record<string, unknown>,
-  config: WindowingConfig = DEFAULT_WINDOWING_CONFIG
+  input: Record<string, unknown>
 ): void {
   if (!FILE_TOOLS.has(toolName)) return;
 
@@ -97,14 +94,8 @@ export function updateWorkingSet(
   const filePath = (input.path || input.file_path || input.file) as string | undefined;
 
   if (filePath) {
-    // Add to recent files
+    // Add to recent files (no limit - working set grows with session)
     workingSet.recentFiles.add(filePath);
-
-    // Enforce max size by removing oldest entries
-    if (workingSet.recentFiles.size > config.maxWorkingSetFiles) {
-      const iterator = workingSet.recentFiles.values();
-      workingSet.recentFiles.delete(iterator.next().value!);
-    }
   }
 
   // For glob/grep, extract pattern-matched files from results if available

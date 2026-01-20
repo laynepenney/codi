@@ -433,7 +433,6 @@ Always use tools to interact with the filesystem rather than asking the user to 
       importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD,
       preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
       preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
-      maxWorkingSetFiles: CONTEXT_OPTIMIZATION.MAX_WORKING_SET_FILES,
     };
 
     // Select what to keep using smart windowing
@@ -1464,7 +1463,6 @@ Always use tools to interact with the filesystem rather than asking the user to 
       importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD,
       preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
       preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
-      maxWorkingSetFiles: CONTEXT_OPTIMIZATION.MAX_WORKING_SET_FILES,
     };
 
     const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
