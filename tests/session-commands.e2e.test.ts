@@ -21,7 +21,13 @@ function distEntry(): string {
 function createTempProjectDir(): string {
   const dir = path.join(os.tmpdir(), `codi-session-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  return fs.realpathSync(dir);
+}
+
+function createTempHomeDir(): string {
+  const baseDir = path.join(process.cwd(), '.tmp');
+  fs.mkdirSync(baseDir, { recursive: true });
+  return fs.mkdtempSync(path.join(baseDir, 'codi-home-'));
 }
 
 function cleanupTempDir(dir: string): void {
@@ -78,13 +84,39 @@ class ProcessHarness {
   }
 }
 
+function writeSessionFile(
+  sessionsDir: string,
+  data: {
+    name: string;
+    projectPath: string;
+    createdAt: string;
+    updatedAt: string;
+  }
+): void {
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const session = {
+    name: data.name,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+    projectPath: data.projectPath,
+    projectName: 'test-project',
+    provider: 'mock',
+    model: 'mock-model',
+    messages: [{ role: 'user', content: 'Hello' }],
+    conversationSummary: null,
+  };
+  fs.writeFileSync(path.join(sessionsDir, `${data.name}.json`), JSON.stringify(session, null, 2));
+}
+
 describe('/save command E2E', () => {
   let mockSession: MockE2ESession;
   let projectDir: string;
+  let homeDir: string;
   let proc: ProcessHarness;
 
   beforeEach(() => {
     projectDir = createTempProjectDir();
+    homeDir = createTempHomeDir();
     mockSession = setupMockE2E([
       textResponse('First response for session.'),
     ]);
@@ -94,12 +126,17 @@ describe('/save command E2E', () => {
     if (proc) { proc.kill(); await proc.waitForExit().catch(() => {}); }
     cleanupMockE2E(mockSession);
     cleanupTempDir(projectDir);
+    cleanupTempDir(homeDir);
   });
 
   it('should save session', async () => {
     proc = new ProcessHarness(process.execPath, [distEntry(), '--provider', 'mock'], {
       cwd: projectDir,
-      env: mockSession.env,
+      env: {
+        ...mockSession.env,
+        HOME: homeDir,
+        USERPROFILE: homeDir,
+      },
     });
 
     await proc.waitFor(/>|codi/i);
@@ -117,13 +154,103 @@ describe('/save command E2E', () => {
   });
 });
 
-describe('/load command E2E', () => {
+describe('auto-save and resume E2E', () => {
   let mockSession: MockE2ESession;
   let projectDir: string;
+  let homeDir: string;
   let proc: ProcessHarness;
 
   beforeEach(() => {
     projectDir = createTempProjectDir();
+    homeDir = createTempHomeDir();
+    mockSession = setupMockE2E([
+      textResponse('Auto-save response.'),
+    ]);
+  });
+
+  afterEach(async () => {
+    if (proc) { proc.kill(); await proc.waitForExit().catch(() => {}); }
+    cleanupMockE2E(mockSession);
+    cleanupTempDir(projectDir);
+    cleanupTempDir(homeDir);
+  });
+
+  it('auto-saves sessions after a response', async () => {
+    proc = new ProcessHarness(process.execPath, [distEntry(), '--provider', 'mock'], {
+      cwd: projectDir,
+      env: {
+        ...mockSession.env,
+        HOME: homeDir,
+        USERPROFILE: homeDir,
+      },
+    });
+
+    await proc.waitFor(/>|codi/i);
+    proc.writeLine('Hello');
+    await proc.waitFor(/Auto-save response/i);
+    proc.writeLine('/exit');
+    await proc.waitForExit();
+
+    const sessionsDir = path.join(homeDir, '.codi', 'sessions');
+    const sessionFiles = fs.readdirSync(sessionsDir).filter(file => file.endsWith('.json'));
+    expect(sessionFiles.length).toBe(1);
+
+    const sessionData = JSON.parse(
+      fs.readFileSync(path.join(sessionsDir, sessionFiles[0]), 'utf-8')
+    );
+    expect(fs.realpathSync(sessionData.projectPath)).toBe(fs.realpathSync(projectDir));
+    expect(sessionData.messages.length).toBeGreaterThan(0);
+  });
+
+  it('resumes the most recent session for the current directory', async () => {
+    const sessionsDir = path.join(homeDir, '.codi', 'sessions');
+    const older = new Date('2024-01-01T00:00:00.000Z').toISOString();
+    const newer = new Date('2024-01-02T00:00:00.000Z').toISOString();
+    const other = new Date('2024-01-03T00:00:00.000Z').toISOString();
+
+    writeSessionFile(sessionsDir, {
+      name: 'project-old',
+      projectPath: projectDir,
+      createdAt: older,
+      updatedAt: older,
+    });
+    writeSessionFile(sessionsDir, {
+      name: 'project-new',
+      projectPath: projectDir,
+      createdAt: newer,
+      updatedAt: newer,
+    });
+    writeSessionFile(sessionsDir, {
+      name: 'other-new',
+      projectPath: path.join(projectDir, 'other'),
+      createdAt: other,
+      updatedAt: other,
+    });
+
+    proc = new ProcessHarness(process.execPath, [distEntry(), '--provider', 'mock', '--resume'], {
+      cwd: projectDir,
+      env: {
+        ...mockSession.env,
+        HOME: homeDir,
+        USERPROFILE: homeDir,
+      },
+    });
+
+    await proc.waitFor(/Loaded session: project-new/i);
+    proc.writeLine('/exit');
+    await proc.waitForExit();
+  });
+});
+
+describe('/load command E2E', () => {
+  let mockSession: MockE2ESession;
+  let projectDir: string;
+  let homeDir: string;
+  let proc: ProcessHarness;
+
+  beforeEach(() => {
+    projectDir = createTempProjectDir();
+    homeDir = createTempHomeDir();
     mockSession = setupMockE2E([
       textResponse('Response in session.'),
     ]);
@@ -133,12 +260,17 @@ describe('/load command E2E', () => {
     if (proc) { proc.kill(); await proc.waitForExit().catch(() => {}); }
     cleanupMockE2E(mockSession);
     cleanupTempDir(projectDir);
+    cleanupTempDir(homeDir);
   });
 
   it('should report when session not found', async () => {
     proc = new ProcessHarness(process.execPath, [distEntry(), '--provider', 'mock'], {
       cwd: projectDir,
-      env: mockSession.env,
+      env: {
+        ...mockSession.env,
+        HOME: homeDir,
+        USERPROFILE: homeDir,
+      },
     });
 
     await proc.waitFor(/>|codi/i);
