@@ -833,11 +833,11 @@
       <div class="badges animate-in delay-2">
         <span class="badge">
           <span class="badge-label">Version</span>
-          <span class="badge-value">0.12.0</span>
+          <span class="badge-value">0.14.0</span>
         </span>
         <span class="badge">
           <span class="badge-label">License</span>
-          <span class="badge-value">Apache-2.0</span>
+          <span class="badge-value">AGPL-3.0</span>
         </span>
         <span class="badge">
           <span class="badge-label">Node</span>
@@ -924,6 +924,11 @@
         <div class="feature-icon">&#129513;</div>
         <h3>Session Memory</h3>
         <p>Save and restore sessions. Persistent memories across sessions. User profiles for personalized responses.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#129302;</div>
+        <h3>Multi-Agent Orchestration</h3>
+        <p>Run parallel AI agents in isolated git worktrees. Permission requests bubble up to you for human-in-the-loop approval.</p>
       </div>
     </div>
   </section>
@@ -1270,6 +1275,28 @@ codi --provider ollama-cloud --model llama3.2</code></pre>
           </div>
         </div>
       </div>
+
+      <div class="command-category">
+        <h3>&#129302; Multi-Agent Orchestration</h3>
+        <div class="command-list">
+          <div class="command-item">
+            <code>/delegate &lt;branch&gt; &lt;task&gt;</code>
+            <p>Spawn worker in worktree</p>
+          </div>
+          <div class="command-item">
+            <code>/workers</code>
+            <p>List active workers</p>
+          </div>
+          <div class="command-item">
+            <code>/workers cancel &lt;id&gt;</code>
+            <p>Cancel a worker</p>
+          </div>
+          <div class="command-item">
+            <code>/worktrees</code>
+            <p>List managed worktrees</p>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1293,11 +1320,12 @@ codi --provider ollama-cloud --model llama3.2</code></pre>
       <a href="https://github.com/laynepenney/codi">GitHub</a>
       <a href="https://github.com/laynepenney/codi/issues">Issues</a>
       <a href="https://github.com/laynepenney/codi/blob/main/LICENSE">License</a>
+      <a href="https://github.com/laynepenney/codi/blob/main/LICENSING.md">Commercial</a>
     </div>
     <p>
       Built with &#128156; by developers, for developers.
       <br>
-      Apache 2.0 License &bull; &copy; 2026 Layne Penney
+      <a href="https://github.com/laynepenney/codi/blob/main/LICENSING.md">AGPL-3.0 / Commercial</a> &bull; &copy; 2026 Layne Penney
     </p>
   </footer>
 </body>

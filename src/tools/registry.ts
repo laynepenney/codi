@@ -1,5 +1,5 @@
 // Copyright 2026 Layne Penney
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ToolDefinition, ToolCall, ToolResult } from '../types.js';
 import { BaseTool } from './base.js';

@@ -1,5 +1,5 @@
 // Copyright 2026 Layne Penney
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
@@ -517,7 +517,21 @@ Always use tools to interact with the filesystem rather than asking the user to 
         [
           {
             role: 'user',
-            content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.${filesContext}\n\n${contextToSummarize}`,
+            content: `Create a concise summary of this conversation for context preservation.
+
+## What to Include
+- **Goal**: What task is the user trying to accomplish?
+- **Progress**: What has been done so far?
+- **Files Modified**: List any files that were created, edited, or deleted
+- **Key Decisions**: Any important choices made during the conversation
+- **Current State**: Where did the conversation leave off?
+
+## Format
+Write 3-5 short paragraphs. Use bullet points for file lists. Be factual and specific.
+${filesContext}
+
+## Conversation to Summarize
+${contextToSummarize}`,
           },
         ],
         undefined, // No tools for summary
@@ -1502,7 +1516,21 @@ Always use tools to interact with the filesystem rather than asking the user to 
       const summaryResponse = await summaryProvider.streamChat(
         [{
           role: 'user',
-          content: `Summarize this conversation history concisely, preserving key details about what was discussed, what files were modified, and any important decisions made. Be brief but complete.${filesContext}\n\n${contextToSummarize}`,
+          content: `Create a concise summary of this conversation for context preservation.
+
+## What to Include
+- **Goal**: What task is the user trying to accomplish?
+- **Progress**: What has been done so far?
+- **Files Modified**: List any files that were created, edited, or deleted
+- **Key Decisions**: Any important choices made during the conversation
+- **Current State**: Where did the conversation leave off?
+
+## Format
+Write 3-5 short paragraphs. Use bullet points for file lists. Be factual and specific.
+${filesContext}
+
+## Conversation to Summarize
+${contextToSummarize}`,
         }],
         undefined,
         undefined

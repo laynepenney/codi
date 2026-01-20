@@ -12,7 +12,7 @@
   <a href="#quick-start"><img src="https://img.shields.io/badge/Claude-Anthropic-blueviolet?style=flat-square" alt="Claude" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/GPT-OpenAI-74aa9c?style=flat-square" alt="OpenAI" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Ollama-Local-orange?style=flat-square" alt="Ollama" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="Apache 2.0 License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0 License" /></a>
 </p>
 
 <p align="center">
@@ -69,6 +69,9 @@ Dangerous operations require user approval. Diff previews before file changes. F
 
 ### 🧩 Extensible Architecture
 Easy to add new tools, commands, providers, and plugins.
+
+### 🤖 Multi-Agent Orchestration
+Run parallel AI agents in isolated git worktrees with permission routing back to you.
 
 </td>
 </tr>
@@ -162,6 +165,17 @@ codi --provider runpod --endpoint-id your-endpoint-id
 | `--verbose` | Show tool inputs/outputs with timing | - |
 | `--debug` | Show API details and context info | - |
 | `--trace` | Show full request/response payloads | - |
+
+### Child Mode (Multi-Agent)
+
+These options are used internally when spawning worker agents:
+
+| Option | Description |
+|--------|-------------|
+| `--child-mode` | Run as child agent (connects to commander via IPC) |
+| `--socket-path <path>` | IPC socket path for permission routing |
+| `--child-id <id>` | Unique worker identifier |
+| `--child-task <task>` | Task description for the worker |
 
 ---
 
@@ -315,6 +329,34 @@ The symbol index enables IDE-like code navigation for the AI.
 | `/plans` | - | List saved plans |
 | `/plans show <id>` | - | Show a specific plan |
 | `/plans delete <id>` | - | Delete a plan |
+
+</details>
+
+<details>
+<summary><strong>🤖 Multi-Agent Orchestration</strong></summary>
+
+Run multiple AI agents in parallel, each in isolated git worktrees:
+
+| Command | Description |
+|---------|-------------|
+| `/delegate <branch> <task>` | Spawn a worker agent in a new worktree |
+| `/workers` | List active workers and their status |
+| `/workers cancel <id>` | Cancel a running worker |
+| `/worktrees` | List all managed worktrees |
+| `/worktrees cleanup` | Remove completed worktrees |
+
+**Example workflow:**
+```bash
+# Spawn workers for parallel tasks
+/delegate feat/auth "implement OAuth2 login"
+/delegate feat/api "add REST endpoints for users"
+
+# Monitor progress
+/workers
+
+# Workers route permission requests to you for approval
+# [feat/auth] Permission: write_file → approve/deny?
+```
 
 </details>
 
@@ -614,6 +656,7 @@ codi/
 │   ├── tools/             # Filesystem interaction
 │   ├── rag/               # Semantic code search
 │   ├── model-map/         # Multi-model orchestration
+│   ├── orchestrate/       # Multi-agent orchestration (IPC, worktrees)
 │   └── symbol-index/      # Code symbol indexing
 ├── tests/                 # Vitest test suite
 ├── docs/                  # Documentation
@@ -638,7 +681,9 @@ See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as
 
 ## License
 
-Apache 2.0
+AGPL-3.0-or-later (see [LICENSE](./LICENSE))
+
+Commercial licenses available for proprietary use. See [LICENSING.md](./LICENSING.md) for details.
 
 ---
 

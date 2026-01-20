@@ -1,5 +1,5 @@
 // Copyright 2026 Layne Penney
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copyright 2026 Layne Penney
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createInterface, type Interface } from 'readline';
 import {
@@ -283,6 +283,7 @@ import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag
 import { registerApprovalCommands } from './commands/approval-commands.js';
 import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
 import { registerMCPCommands } from './commands/mcp-commands.js';
+import { setOrchestrator, getOrchestratorInstance } from './commands/orchestrate-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import {
   BackgroundIndexer,
@@ -297,6 +298,8 @@ import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
 import { loadSession } from './session.js';
+import { runChildAgent } from './orchestrate/child-agent.js';
+import { Orchestrator } from './orchestrate/commander.js';
 import {
   loadWorkspaceConfig,
   loadLocalConfig,
@@ -339,6 +342,11 @@ program
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
   .option('-q, --quiet', 'Suppress spinners and progress output (for scripting)')
+  // Child mode options (for multi-agent orchestration)
+  .option('--child-mode', 'Run as child agent (connects to commander via IPC)')
+  .option('--socket-path <path>', 'IPC socket path (for child mode)')
+  .option('--child-id <id>', 'Unique child identifier (for child mode)')
+  .option('--child-task <task>', 'Task to execute (for child mode)')
   .parse();
 
 const options = program.opts();
@@ -544,6 +552,12 @@ function showHelp(projectInfo: ProjectInfo | null): void {
 
   console.log(chalk.bold('\nUsage & Cost:'));
   console.log(chalk.dim('  /usage [period]    - Show token usage and costs'));
+
+  console.log(chalk.bold('\nMulti-Agent:'));
+  console.log(chalk.dim('  /delegate <branch> <task> - Spawn worker in new worktree'));
+  console.log(chalk.dim('  /workers           - List active workers'));
+  console.log(chalk.dim('  /workers cancel    - Cancel a running worker'));
+  console.log(chalk.dim('  /worktrees         - List managed worktrees'));
 
   console.log(chalk.bold('\nCode Navigation:'));
   console.log(chalk.dim('  /symbols [action]  - Manage symbol index (rebuild, stats, search)'));
@@ -2567,6 +2581,84 @@ async function main() {
   }
   console.log();
 
+  // =========================================================================
+  // CHILD MODE - Run as child agent for multi-agent orchestration
+  // =========================================================================
+  if (options.childMode) {
+    // Validate required options
+    if (!options.socketPath) {
+      console.error(chalk.red('Error: --socket-path is required for child mode'));
+      process.exit(1);
+    }
+    if (!options.childId) {
+      console.error(chalk.red('Error: --child-id is required for child mode'));
+      process.exit(1);
+    }
+    if (!options.childTask) {
+      console.error(chalk.red('Error: --child-task is required for child mode'));
+      process.exit(1);
+    }
+
+    // Get current branch
+    const { execSync } = await import('child_process');
+    let currentBranch = 'unknown';
+    try {
+      currentBranch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
+    } catch {
+      // Ignore git errors
+    }
+
+    // Build system prompt with worker-specific additions
+    let systemPrompt = generateSystemPrompt(projectInfo, useTools);
+
+    // Add worker-specific context
+    systemPrompt += `
+
+## Worker Agent Context
+
+You are a **delegated worker agent** running in an isolated git worktree.
+
+**Your Assignment:**
+- Branch: \`${currentBranch}\`
+- Task: Complete the specific task assigned to you (see first message)
+
+**Important Guidelines:**
+1. **Focus on the task**: Complete only what is asked. Do not add extra features or refactoring.
+2. **Be autonomous**: Do not ask clarifying questions. Make reasonable assumptions and proceed.
+3. **Complete the work**: When the task is done, summarize what you accomplished.
+4. **Tool permissions**: Your tool requests are routed to the commander for approval. Wait for results.
+5. **Stay in scope**: Work only within this worktree. Do not reference or modify files outside.
+
+**Workflow:**
+1. Understand the task from the first message
+2. Use tools to explore the codebase if needed
+3. Implement the required changes
+4. Verify your work (read files back, run tests if applicable)
+5. Provide a brief summary of what was done
+
+Begin by analyzing the task and planning your approach.`;
+
+    console.log(chalk.dim(`Running as child agent: ${options.childId}`));
+    console.log(chalk.dim(`Task: ${options.childTask}`));
+    console.log(chalk.dim(`Socket: ${options.socketPath}`));
+
+    // Run child agent and exit
+    await runChildAgent({
+      socketPath: options.socketPath,
+      childId: options.childId,
+      worktree: process.cwd(),
+      branch: currentBranch,
+      task: options.childTask,
+      provider,
+      toolRegistry: globalRegistry,
+      systemPrompt,
+      model: provider.getModel(),
+      providerName: provider.getName(),
+      autoApprove: resolvedConfig.autoApprove,
+    });
+    return;
+  }
+
   // Enable bracketed paste mode for better paste detection
   enableBracketedPaste();
 
@@ -2600,6 +2692,11 @@ async function main() {
     // Cleanup MCP connections
     if (mcpManager) {
       mcpManager.disconnectAll().catch(() => {});
+    }
+    // Cleanup orchestrator (stop IPC server, cleanup worktrees)
+    const orch = getOrchestratorInstance();
+    if (orch) {
+      orch.stop().catch(() => {});
     }
     console.log(chalk.dim('\nGoodbye!'));
     process.exit(0);
@@ -2669,6 +2766,36 @@ async function main() {
 
   // Track tool start times for duration logging
   const toolStartTimes = new Map<string, number>();
+
+  // =========================================================================
+  // ORCHESTRATOR - Initialize for multi-agent orchestration
+  // =========================================================================
+  const orchestrator = new Orchestrator({
+    repoRoot: process.cwd(),
+    readline: rl,
+    onPermissionRequest: async (workerId, confirmation) => {
+      // Display worker context
+      console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));
+      console.log(chalk.dim(`  Tool: ${confirmation.toolName}`));
+      if (confirmation.input.command) {
+        console.log(chalk.dim(`  Command: ${confirmation.input.command}`));
+      } else if (confirmation.input.file_path) {
+        console.log(chalk.dim(`  File: ${confirmation.input.file_path}`));
+      }
+      // Use existing prompt confirmation
+      return promptConfirmationWithSuggestions(rl, confirmation);
+    },
+  });
+
+  // Start orchestrator and make it available to commands
+  try {
+    await orchestrator.start();
+    setOrchestrator(orchestrator);
+    console.log(chalk.dim('Orchestrator: ready'));
+  } catch (err) {
+    // Non-fatal - orchestrator commands will show appropriate errors
+    console.log(chalk.dim(`Orchestrator: disabled (${err instanceof Error ? err.message : err})`));
+  }
 
   // Create agent with enhanced system prompt
   const agent = new Agent({
