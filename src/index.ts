@@ -16,8 +16,7 @@ import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
-import { SessionInfo } from './session.js';
-import { promptSessionSelection } from './session-selection.js';
+import { format as formatUtil } from 'util';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -310,9 +309,14 @@ import {
   formatSessionInfo,
   type SessionInfo,
 } from './session.js';
+import { promptSessionSelection } from './session-selection.js';
 import { runChildAgent } from './orchestrate/child-agent.js';
 import { Orchestrator } from './orchestrate/commander.js';
 import { READER_ALLOWED_TOOLS } from './orchestrate/types.js';
+import { WorkerStatusUI } from './orchestrate/worker-status-ui.js';
+import { runInkUi } from './ui/ink/run-ink-ui.js';
+import { InkUiController } from './ui/ink/controller.js';
+import { attachInkTranscriptWriter } from './ui/ink/transcript.js';
 import {
   loadWorkspaceConfig,
   loadLocalConfig,
@@ -356,15 +360,29 @@ program
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
   .option('-q, --quiet', 'Suppress spinners and progress output (for scripting)')
+  .option('--ui <mode>', 'UI mode: classic or ink (default: classic)', 'classic')
   // Child mode options (for multi-agent orchestration)
   .option('--child-mode', 'Run as child agent (connects to commander via IPC)')
   .option('--reader-mode', 'Run as reader agent (read-only tools only)')
   .option('--socket-path <path>', 'IPC socket path (for child mode)')
   .option('--child-id <id>', 'Unique child identifier (for child mode)')
   .option('--child-task <task>', 'Task to execute (for child mode)')
-  .parse();
+  .parse(
+    (() => {
+      const rawArgv = process.argv.slice(2);
+      const cleanedArgv = rawArgv[0] === '--' ? rawArgv.slice(1) : rawArgv;
+      return ['node', 'codi', ...cleanedArgv];
+    })(),
+    { from: 'node' }
+  );
 
 const options = program.opts();
+const requestedUiMode = String(options.ui || 'classic').toLowerCase();
+const supportedUiModes = new Set(['classic', 'ink']);
+if (!supportedUiModes.has(requestedUiMode)) {
+  console.error(chalk.red(`Unknown UI mode: ${requestedUiMode}. Use "classic" or "ink".`));
+  process.exit(1);
+}
 
 /**
  * Builds the system prompt given to the agent.
@@ -698,6 +716,61 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
   }
 
   return display;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function startConsoleCapture(): {
+  stdout: string[];
+  stderr: string[];
+  restore: () => void;
+} {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const original = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+  };
+
+  const capture = (target: string[], args: unknown[]) => {
+    const line = stripAnsi(formatUtil(...args));
+    for (const part of line.split('\n')) {
+      target.push(part);
+    }
+  };
+
+  console.log = (...args: unknown[]) => capture(stdout, args);
+  console.info = (...args: unknown[]) => capture(stdout, args);
+  console.warn = (...args: unknown[]) => capture(stderr, args);
+  console.error = (...args: unknown[]) => capture(stderr, args);
+
+  const restore = () => {
+    console.log = original.log;
+    console.info = original.info;
+    console.warn = original.warn;
+    console.error = original.error;
+  };
+
+  return { stdout, stderr, restore };
+}
+
+function emitCapturedOutput(
+  inkController: InkUiController | null,
+  captured: { stdout: string[]; stderr: string[] }
+): void {
+  if (!inkController) return;
+  const stdoutText = captured.stdout.join('\n');
+  const stderrText = captured.stderr.join('\n');
+  if (stdoutText.trim()) {
+    inkController.addMessage('system', `Output:\n${stdoutText}`);
+  }
+  if (stderrText.trim()) {
+    inkController.addMessage('system', `Error:\n${stderrText}`);
+  }
 }
 
 /**
@@ -2856,57 +2929,32 @@ Begin by analyzing the query and planning your research approach.`;
     return;
   }
 
-  // Enable bracketed paste mode for better paste detection
-  enableBracketedPaste();
+  const canUseInkUi =
+    requestedUiMode === 'ink' &&
+    process.stdout.isTTY &&
+    process.stdin.isTTY &&
+    !options.prompt;
+  const useInkUi = canUseInkUi;
+  if (requestedUiMode === 'ink' && !useInkUi && !options.prompt) {
+    console.log(chalk.dim('Ink UI requires a TTY. Falling back to classic.'));
+  }
 
-  // Create paste interceptor to capture paste markers before readline strips them
-  const pasteInterceptor = createPasteInterceptor();
-  process.stdin.pipe(pasteInterceptor);
-
-  // Create readline interface with history and tab completion
-  const history = loadHistory();
-  const completer = createCompleter();
-  const rl = createInterface({
-    input: pasteInterceptor, // Use interceptor instead of raw stdin
-    output: process.stdout,
-    history,
-    historySize: MAX_HISTORY_SIZE,
-    terminal: true,
-    prompt: chalk.bold.cyan('\nYou: '),
-    completer,
-  });
-
-  // Track if readline is closed (for piped input)
-  let rlClosed = false;
-  rl.on('close', () => {
-    rlClosed = true;
-    // Don't exit here if in non-interactive mode - runNonInteractive handles its own cleanup
-    if (options.prompt) {
-      return;
-    }
-    // Disable bracketed paste mode before exit
-    disableBracketedPaste();
-    // Shutdown RAG indexer if running
-    if (ragIndexer) {
-      ragIndexer.shutdown();
-    }
-    // Cleanup MCP connections
-    if (mcpManager) {
-      mcpManager.disconnectAll().catch(() => {});
-    }
-    // Cleanup orchestrator (stop IPC server, cleanup worktrees)
-    const orch = getOrchestratorInstance();
-    if (orch) {
-      orch.stop().catch(() => {});
-    }
-    console.log(chalk.dim('\nGoodbye!'));
-    process.exit(0);
-  });
-
-  // Handle readline errors
-  rl.on('error', (err) => {
-    logger.error(`Readline error: ${err.message}`, err);
-  });
+  const inkController = useInkUi ? new InkUiController() : null;
+  if (inkController) {
+    inkController.setStatus({
+      provider: provider.getName(),
+      model: provider.getModel(),
+      activity: 'idle',
+    });
+  }
+  const transcriptWriter = inkController
+    ? attachInkTranscriptWriter({
+        controller: inkController,
+        status: inkController.getStatus(),
+        projectName: projectInfo?.name,
+        projectPath: projectInfo?.rootPath,
+      })
+    : null;
 
   // Session name tracking for prompt display
   let currentSession: string | null = null;
@@ -2920,6 +2968,7 @@ Begin by analyzing the query and planning your research approach.`;
     setSessionName: (name: string | null) => {
       currentSession = name;
       setCurrentSessionName(name);
+      inkController?.setStatus({ sessionName: name });
       if (commandContext.sessionState) {
         commandContext.sessionState.currentName = name;
       }
@@ -2951,6 +3000,84 @@ Begin by analyzing the query and planning your research approach.`;
   // Get custom dangerous patterns from config
   const customDangerousPatterns = getCustomDangerousPatterns(resolvedConfig);
 
+  let rl: Interface | null = null;
+  let workerStatusUI: WorkerStatusUI | null = null;
+  let rlClosed = false;
+  let promptUser: (preserveCursor?: boolean) => void = () => {};
+  let exitApp: () => void = () => {};
+
+  const shutdown = () => {
+    workerStatusUI?.clear();
+    transcriptWriter?.dispose();
+    // Disable bracketed paste mode before exit
+    disableBracketedPaste();
+    // Shutdown RAG indexer if running
+    if (ragIndexer) {
+      ragIndexer.shutdown();
+    }
+    // Cleanup MCP connections
+    if (mcpManager) {
+      mcpManager.disconnectAll().catch(() => {});
+    }
+    // Cleanup orchestrator (stop IPC server, cleanup worktrees)
+    const orch = getOrchestratorInstance();
+    if (orch) {
+      orch.stop().catch(() => {});
+    }
+  };
+  const handleExit = () => {
+    auditLogger.sessionEnd();
+    shutdown();
+    console.log(chalk.dim('\nGoodbye!'));
+  };
+
+  if (!useInkUi) {
+    // Enable bracketed paste mode for better paste detection
+    enableBracketedPaste();
+
+    // Create paste interceptor to capture paste markers before readline strips them
+    const pasteInterceptor = createPasteInterceptor();
+    process.stdin.pipe(pasteInterceptor);
+
+    // Create readline interface with history and tab completion
+    const history = loadHistory();
+    const completer = createCompleter();
+    rl = createInterface({
+      input: pasteInterceptor, // Use interceptor instead of raw stdin
+      output: process.stdout,
+      history,
+      historySize: MAX_HISTORY_SIZE,
+      terminal: true,
+      prompt: chalk.bold.cyan('\nYou: '),
+      completer,
+    });
+
+    workerStatusUI = process.stdout.isTTY ? new WorkerStatusUI(rl) : null;
+    promptUser = (preserveCursor?: boolean) => {
+      rl?.prompt(preserveCursor);
+      workerStatusUI?.setPromptActive(true);
+    };
+    exitApp = () => {
+      rl?.close();
+    };
+
+    // Track if readline is closed (for piped input)
+    rl.on('close', () => {
+      rlClosed = true;
+      handleExit();
+      process.exit(0);
+    });
+
+    // Handle readline errors
+    rl.on('error', (err) => {
+      logger.error(`Readline error: ${err.message}`, err);
+    });
+  } else {
+    exitApp = () => {
+      inkController?.requestExit();
+    };
+  }
+
   // Initialize logger with level from CLI options
   const logLevel = parseLogLevel({
     verbose: options.verbose,
@@ -2964,10 +3091,14 @@ Begin by analyzing the query and planning your research approach.`;
   if (logLevel > LogLevel.NORMAL) {
     spinner.setEnabled(false);
   }
+  if (useInkUi) {
+    spinner.setEnabled(false);
+  }
 
   // Track if we've received streaming output (to manage spinner)
   let isStreaming = false;
   let isReasoningStreaming = false;
+  let currentAssistantMessageId: string | null = null;
 
   // Track tool start times for duration logging
   const toolStartTimes = new Map<string, number>();
@@ -2977,7 +3108,7 @@ Begin by analyzing the query and planning your research approach.`;
   // =========================================================================
   const orchestrator = new Orchestrator({
     repoRoot: process.cwd(),
-    readline: rl,
+    readline: rl ?? undefined,
     // Pass current provider/model so spawned agents inherit them
     // Provider names must be lowercase for createProvider()
     defaultProvider: provider.getName().toLowerCase(),
@@ -3015,25 +3146,40 @@ Begin by analyzing the query and planning your research approach.`;
       return parts.length > 0 ? parts.join('\n') : undefined;
     },
 
-    onPermissionRequest: async (workerId, confirmation) => {
-      // Display worker context
-      console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));
-      console.log(chalk.dim(`  Tool: ${confirmation.toolName}`));
-      if (confirmation.input.command) {
-        console.log(chalk.dim(`  Command: ${confirmation.input.command}`));
-      } else if (confirmation.input.file_path) {
-        console.log(chalk.dim(`  File: ${confirmation.input.file_path}`));
-      }
-      // Use existing prompt confirmation
-      return promptConfirmationWithSuggestions(rl, confirmation);
-    },
+    onPermissionRequest: useInkUi
+      ? async (workerId, confirmation) => {
+          if (!inkController) {
+            return 'deny';
+          }
+          return inkController.requestConfirmation('worker', confirmation, workerId);
+        }
+      : async (workerId, confirmation) => {
+          workerStatusUI?.setPromptActive(false, { preservePrompt: false });
+          workerStatusUI?.pause();
+          try {
+            // Display worker context
+            console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));
+            console.log(chalk.dim(`  Tool: ${confirmation.toolName}`));
+            if (confirmation.input.command) {
+              console.log(chalk.dim(`  Command: ${confirmation.input.command}`));
+            } else if (confirmation.input.file_path) {
+              console.log(chalk.dim(`  File: ${confirmation.input.file_path}`));
+            }
+            // Use existing prompt confirmation
+            return promptConfirmationWithSuggestions(rl!, confirmation);
+          } finally {
+            if (!rlClosed) {
+              promptUser(true);
+            }
+            workerStatusUI?.resume();
+          }
+        },
   });
 
   // Start orchestrator and make it available to commands
   try {
     await orchestrator.start();
     setOrchestrator(orchestrator);
-
     // Register orchestration tools for AI-driven multi-agent workflows
     const { workerResultTool, readerResultTool } = registerOrchestrationTools();
 
@@ -3045,6 +3191,87 @@ Begin by analyzing the query and planning your research approach.`;
       readerResultTool.storeResult(result);
     });
 
+    if (useInkUi && inkController) {
+      orchestrator.on('workerStarted', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          inkController.updateWorker(state);
+          inkController.addMessage('worker', 'Started.', workerId);
+        }
+      });
+      orchestrator.on('workerStatus', (_workerId, state) => {
+        inkController.updateWorker(state);
+      });
+      orchestrator.on('workerCompleted', (workerId, result) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          inkController.updateWorker(state);
+        }
+        inkController.updateWorkerResult(result);
+        const response = result.response?.trimEnd();
+        if (response) {
+          inkController.addMessage('worker', `Completed.\n\n${response}`, workerId);
+        } else if (result.error) {
+          inkController.addMessage('worker', `Failed: ${result.error}`, workerId);
+        } else {
+          inkController.addMessage('worker', 'Completed.', workerId);
+        }
+      });
+      orchestrator.on('workerFailed', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          inkController.updateWorker(state);
+          const message = state.error ? `Failed: ${state.error}` : 'Failed.';
+          inkController.addMessage('worker', message, workerId);
+        } else {
+          inkController.addMessage('worker', 'Failed.', workerId);
+        }
+      });
+      orchestrator.on('workerLog', (workerId, log) => {
+        inkController.addWorkerLog(workerId, log);
+      });
+    } else if (workerStatusUI) {
+      orchestrator.on('workerStarted', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          workerStatusUI.updateWorkerState(state);
+        }
+      });
+      orchestrator.on('workerStatus', (_workerId, state) => {
+        workerStatusUI.updateWorkerState(state);
+      });
+      orchestrator.on('workerCompleted', (workerId, result) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          workerStatusUI.updateWorkerState(state);
+        }
+
+        const response = result.response || '';
+        if (response.trim()) {
+          workerStatusUI?.setPromptActive(false, { preservePrompt: false });
+          workerStatusUI?.pause();
+          try {
+            const branch = result.branch || state?.config.branch || workerId;
+            console.log(chalk.green(`\n[Worker: ${branch}] Completed`));
+            console.log(response.trimEnd());
+          } finally {
+            if (!rlClosed) {
+              promptUser(true);
+            }
+            workerStatusUI?.resume();
+          }
+        }
+      });
+      orchestrator.on('workerFailed', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          workerStatusUI.updateWorkerState(state);
+        }
+      });
+      orchestrator.on('workerLog', (workerId, log) => {
+        workerStatusUI.updateWorkerLog(workerId, log);
+      });
+    }
     console.log(chalk.dim('Orchestrator: ready'));
   } catch (err) {
     // Non-fatal - orchestrator commands will show appropriate errors
@@ -3075,22 +3302,45 @@ Begin by analyzing the query and planning your research approach.`;
       if (!isStreaming) {
         isStreaming = true;
         spinner.stop();
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'responding', activityDetail: null });
+        }
       }
-      process.stdout.write(text);
+      if (useInkUi && inkController) {
+        if (!currentAssistantMessageId) {
+          currentAssistantMessageId = inkController.startAssistantMessage();
+        }
+        inkController.appendToMessage(currentAssistantMessageId, text);
+      }
+      if (!useInkUi) {
+        process.stdout.write(text);
+      }
     },
     onReasoning: (reasoning) => {
       spinner.stop();
-      console.log(chalk.dim.italic('\n💭 Thinking...'));
-      console.log(chalk.dim(reasoning));
-      console.log(chalk.dim.italic('---\n'));
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      }
+      if (!useInkUi) {
+        console.log(chalk.dim.italic('\n💭 Thinking...'));
+        console.log(chalk.dim(reasoning));
+        console.log(chalk.dim.italic('---\n'));
+      }
     },
     onReasoningChunk: (chunk) => {
       if (!isReasoningStreaming) {
         isReasoningStreaming = true;
         spinner.stop();
-        console.log(chalk.dim.italic('\n💭 Thinking...'));
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'thinking', activityDetail: null });
+        }
+        if (!useInkUi) {
+          console.log(chalk.dim.italic('\n💭 Thinking...'));
+        }
       }
-      process.stdout.write(chalk.dim(chunk));
+      if (!useInkUi) {
+        process.stdout.write(chalk.dim(chunk));
+      }
     },
     onToolCall: (name, input) => {
       // Stop any spinner and record start time
@@ -3102,14 +3352,20 @@ Begin by analyzing the query and planning your research approach.`;
       // Audit log
       auditLogger.toolCall(name, input as Record<string, unknown>, toolId);
 
-      // Log tool input based on verbosity level
-      if (logLevel >= LogLevel.VERBOSE) {
-        logger.toolInput(name, input as Record<string, unknown>);
-      } else {
-        // Normal mode: show simple tool call info
-        console.log(chalk.yellow(`\n\n📎 ${name}`));
-        const preview = JSON.stringify(input);
-        console.log(chalk.dim(preview.length > 100 ? preview.slice(0, 100) + '...' : preview));
+      if (!useInkUi) {
+        // Log tool input based on verbosity level
+        if (logLevel >= LogLevel.VERBOSE) {
+          logger.toolInput(name, input as Record<string, unknown>);
+        } else {
+          // Normal mode: show simple tool call info
+          console.log(chalk.yellow(`\n\n📎 ${name}`));
+          const preview = JSON.stringify(input);
+          console.log(chalk.dim(preview.length > 100 ? preview.slice(0, 100) + '...' : preview));
+        }
+      }
+
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'tool', activityDetail: name });
       }
 
       // Start spinner for tool execution
@@ -3128,23 +3384,38 @@ Begin by analyzing the query and planning your research approach.`;
       // Stop spinner
       spinner.stop();
 
-      // Log tool result based on verbosity level
-      if (logLevel >= LogLevel.VERBOSE) {
-        logger.toolOutput(name, result, duration, isError);
-      } else {
-        // Normal mode: show simple result
-        if (isError) {
-          console.log(chalk.red(`\n❌ Error: ${result.slice(0, 200)}`));
+      if (!useInkUi) {
+        // Log tool result based on verbosity level
+        if (logLevel >= LogLevel.VERBOSE) {
+          logger.toolOutput(name, result, duration, isError);
         } else {
-          const lines = result.split('\n').length;
-          console.log(chalk.green(`\n✓ ${name} (${lines} lines)`));
+          // Normal mode: show simple result
+          if (isError) {
+            console.log(chalk.red(`\n❌ Error: ${result.slice(0, 200)}`));
+          } else {
+            const lines = result.split('\n').length;
+            console.log(chalk.green(`\n✓ ${name} (${lines} lines)`));
+          }
         }
+        console.log();
+      } else if (isError && inkController) {
+        const preview = result.length > 200 ? `${result.slice(0, 200)}...` : result;
+        inkController.addMessage('system', `Tool error (${name}): ${preview}`);
       }
-      console.log();
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      }
     },
     onConfirm: async (confirmation) => {
       // Stop spinner during confirmation
       spinner.stop();
+
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'confirm', activityDetail: confirmation.toolName });
+        const result = await inkController.requestConfirmation('agent', confirmation);
+        inkController.setStatus({ activity: 'thinking', activityDetail: null });
+        return result;
+      }
 
       console.log('\n' + formatConfirmation(confirmation));
 
@@ -3156,7 +3427,7 @@ Begin by analyzing the query and planning your research approach.`;
         (confirmation.toolName === 'bash' || FILE_TOOLS.has(confirmation.toolName));
 
       if (hasApprovalSuggestions) {
-        const result = await promptConfirmationWithSuggestions(rl, confirmation);
+        const result = await promptConfirmationWithSuggestions(rl!, confirmation);
 
         // Show feedback when pattern/category is saved
         if (typeof result === 'object') {
@@ -3186,7 +3457,7 @@ Begin by analyzing the query and planning your research approach.`;
         ? chalk.red.bold('Approve? [y/N/abort] ')
         : chalk.yellow('Approve? [y/N/abort] ');
 
-      const result = await promptConfirmation(rl, promptText);
+      const result = await promptConfirmation(rl!, promptText);
       return result;
     },
   });
@@ -3245,6 +3516,7 @@ Begin by analyzing the query and planning your research approach.`;
       agent.loadSession(session.messages, session.conversationSummary);
       currentSession = session.name;
       setCurrentSessionName(session.name);
+      inkController?.setStatus({ sessionName: session.name });
       if (commandContext.sessionState) {
         commandContext.sessionState.currentName = session.name;
       }
@@ -3291,11 +3563,14 @@ Begin by analyzing the query and planning your research approach.`;
    */
   const handleInput = async (input: string) => {
     const trimmed = input.trim();
+    workerStatusUI?.setPromptActive(false, { preservePrompt: true });
 
     if (!trimmed) {
-      rl.prompt();
+      promptUser();
       return;
     }
+
+    inkController?.addMessage('user', trimmed);
 
     // Save to history file
     saveToHistory(trimmed);
@@ -3308,7 +3583,7 @@ Begin by analyzing the query and planning your research approach.`;
       const shellCommand = trimmed.slice(1).trim();
       if (!shellCommand) {
         console.log(chalk.dim('Usage: !<command> - run a shell command directly'));
-        rl.prompt();
+        promptUser();
         return;
       }
 
@@ -3323,12 +3598,12 @@ Begin by analyzing the query and planning your research approach.`;
         if (code !== 0) {
           console.log(chalk.dim(`Exit code: ${code}`));
         }
-        rl.prompt();
+        promptUser();
       });
 
       child.on('error', (err) => {
         console.log(chalk.red(`Error: ${err.message}`));
-        rl.prompt();
+        promptUser();
       });
 
       return;
@@ -3364,33 +3639,26 @@ Begin by analyzing the query and planning your research approach.`;
       } else {
         showHelp(projectInfo);
       }
-      rl.prompt();
+      promptUser();
       return;
     }
 
     // Handle built-in commands
     if (trimmed === '/exit' || trimmed === '/quit') {
-      console.log(chalk.dim('\nGoodbye!'));
-      // Log session end
-      auditLogger.sessionEnd();
-      // Cleanup MCP connections
-      if (mcpManager) {
-        await mcpManager.disconnectAll();
-      }
-      rl.close();
-      process.exit(0);
+      exitApp();
+      return;
     }
 
     if (trimmed === '/clear') {
       agent.clearHistory();
       console.log(chalk.dim('Conversation cleared.'));
-      rl.prompt();
+      promptUser();
       return;
     }
 
     if (trimmed === '/help') {
       showHelp(projectInfo);
-      rl.prompt();
+      promptUser();
       return;
     }
 
@@ -3401,7 +3669,7 @@ Begin by analyzing the query and planning your research approach.`;
       } else {
         console.log(chalk.dim('\nNo project detected in current directory.'));
       }
-      rl.prompt();
+      promptUser();
       return;
     }
 
@@ -3457,7 +3725,7 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.dim(`    Working set:  ${info.workingSetFiles} files`));
 
       console.log('');
-      rl.prompt();
+      promptUser();
       return;
     }
 
@@ -3474,7 +3742,19 @@ Begin by analyzing the query and planning your research approach.`;
               spinner.start(chalk.cyan('Compacting context...'));
             }
 
-            const result = await command.execute(parsed.args, commandContext);
+            let result: string | null = null;
+            let capturedOutput: ReturnType<typeof startConsoleCapture> | null = null;
+            try {
+              if (useInkUi && inkController) {
+                capturedOutput = startConsoleCapture();
+              }
+              result = await command.execute(parsed.args, commandContext);
+            } finally {
+              if (capturedOutput) {
+                capturedOutput.restore();
+                emitCapturedOutput(inkController, capturedOutput);
+              }
+            }
 
             if (needsSpinner) {
               spinner.stop();
@@ -3483,37 +3763,37 @@ Begin by analyzing the query and planning your research approach.`;
               // Handle session command outputs (special format)
               if (result.startsWith('__SESSION_')) {
                 handleSessionOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle config command outputs
               if (result.startsWith('__CONFIG_') || result.startsWith('__INIT_RESULT__')) {
                 handleConfigOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle history command outputs
               if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
                 handleHistoryOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle usage command outputs
               if (result.startsWith('__USAGE_')) {
                 handleUsageOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle plugin command outputs
               if (result.startsWith('__PLUGIN')) {
                 handlePluginOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle models command outputs
               if (result.startsWith('__MODELS__')) {
                 handleModelsOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle switch command outputs
@@ -3525,13 +3805,13 @@ Begin by analyzing the query and planning your research approach.`;
                   commandContext.sessionState.provider = switchParts[1];
                   commandContext.sessionState.model = switchParts[2];
                 }
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle modelmap command outputs
               if (result.startsWith('__MODELMAP_')) {
                 handleModelMapOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle pipeline command outputs
@@ -3577,14 +3857,14 @@ Begin by analyzing the query and planning your research approach.`;
 
                   if (!modelMap) {
                     console.log(chalk.red('\nPipeline error: No model map loaded'));
-                    rl.prompt();
+                    promptUser();
                     return;
                   }
 
                   const pipeline = modelMap.config.pipelines?.[pipelineName];
                   if (!pipeline) {
                     console.log(chalk.red(`\nPipeline error: Unknown pipeline "${pipelineName}"`));
-                    rl.prompt();
+                    promptUser();
                     return;
                   }
 
@@ -3596,7 +3876,7 @@ Begin by analyzing the query and planning your research approach.`;
 
                     if (files.length === 0) {
                       console.log(chalk.red(`\nNo files found matching: ${input}`));
-                      rl.prompt();
+                      promptUser();
                       return;
                     }
 
@@ -3711,7 +3991,7 @@ Begin by analyzing the query and planning your research approach.`;
 
                         // If triage-only, we're done
                         if (triageOnly) {
-                          rl.prompt();
+                          promptUser();
                           return;
                         }
                       } else {
@@ -3797,7 +4077,7 @@ Begin by analyzing the query and planning your research approach.`;
                       console.log(chalk.red(`\nIterative pipeline failed: ${error instanceof Error ? error.message : String(error)}`));
                     }
 
-                    rl.prompt();
+                    promptUser();
                     return;
                   }
 
@@ -3840,49 +4120,49 @@ Begin by analyzing the query and planning your research approach.`;
                     console.log(chalk.red(`\nPipeline execution failed: ${error instanceof Error ? error.message : String(error)}`));
                   }
 
-                  rl.prompt();
+                  promptUser();
                   return;
                 }
 
                 // Other pipeline outputs (list, info, error)
                 handlePipelineOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle import command outputs
               if (result.startsWith('__IMPORT_')) {
                 handleImportOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle memory command outputs
               if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
                 handleMemoryOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle compression command outputs
               if (result.startsWith('COMPRESS_')) {
                 handleCompressionOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle compact command outputs
               if (result.startsWith('COMPACT_')) {
                 handleCompactOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle approval command outputs
               if (result.startsWith('__APPROVAL')) {
                 handleApprovalOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle symbols command outputs
               if (result.startsWith('__SYMBOLS_')) {
                 handleSymbolsOutput(result);
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Clear history for slash commands - they should start fresh
@@ -3920,7 +4200,7 @@ Begin by analyzing the query and planning your research approach.`;
                     console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')} (${elapsed}s)`));
                     console.log(chalk.bold('\nResult:'));
                     console.log(pipelineResult.output);
-                    rl.prompt();
+                    promptUser();
                     return;
                   }
                 } catch (routingError) {
@@ -3930,37 +4210,64 @@ Begin by analyzing the query and planning your research approach.`;
               }
 
               // Command returned a prompt - send to agent
-              console.log(chalk.bold.magenta('\nAssistant: '));
+              if (!useInkUi) {
+                console.log(chalk.bold.magenta('\nAssistant: '));
+              }
               isStreaming = false;
               spinner.thinking();
+              if (useInkUi && inkController) {
+                inkController.setStatus({ activity: 'thinking', activityDetail: null });
+              }
+              currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
+              const assistantMessageId = currentAssistantMessageId;
               const startTime = Date.now();
-              await agent.chat(result, { taskType: command.taskType });
+              try {
+                await agent.chat(result, { taskType: command.taskType });
+              } finally {
+                const finalizedId = assistantMessageId ?? currentAssistantMessageId;
+                if (finalizedId) {
+                  inkController?.completeAssistantMessage(finalizedId);
+                }
+                if (useInkUi && inkController) {
+                  inkController.setStatus({ activity: 'idle', activityDetail: null });
+                }
+                currentAssistantMessageId = null;
+              }
               if (isReasoningStreaming) {
                 console.log(chalk.dim.italic('\n---\n'));
                 isReasoningStreaming = false;
               }
-              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-              console.log(chalk.dim(`\n(${elapsed}s)`));
+              if (!useInkUi) {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(chalk.dim(`\n(${elapsed}s)`));
+              }
               autoSaveSession(commandContext, agent);
             }
           } catch (error) {
             spinner.stop();
             logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
           }
-          rl.prompt();
+          promptUser();
           return;
         } else {
           console.log(chalk.yellow(`Unknown command: /${parsed.name}. Type /help for available commands.`));
-          rl.prompt();
+          promptUser();
           return;
         }
       }
     }
 
     // Regular message - send to agent
-    console.log(chalk.bold.magenta('\nAssistant: '));
+    if (!useInkUi) {
+      console.log(chalk.bold.magenta('\nAssistant: '));
+    }
     isStreaming = false;
     spinner.thinking();
+    if (useInkUi && inkController) {
+      inkController.setStatus({ activity: 'thinking', activityDetail: null });
+    }
+    currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
+    const assistantMessageId = currentAssistantMessageId;
 
     try {
       const startTime = Date.now();
@@ -3969,16 +4276,42 @@ Begin by analyzing the query and planning your research approach.`;
         console.log(chalk.dim.italic('\n---\n'));
         isReasoningStreaming = false;
       }
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.dim(`\n(${elapsed}s)`));
+      if (!useInkUi) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(chalk.dim(`\n(${elapsed}s)`));
+      }
       autoSaveSession(commandContext, agent);
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
+    } finally {
+      const finalizedId = assistantMessageId ?? currentAssistantMessageId;
+      if (finalizedId) {
+        inkController?.completeAssistantMessage(finalizedId);
+      }
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'idle', activityDetail: null });
+      }
+      currentAssistantMessageId = null;
     }
 
-    rl.prompt();
+    promptUser();
   };
+
+  if (useInkUi && inkController) {
+    const history = loadHistory();
+    const completer = createCompleter();
+    await runInkUi({
+      controller: inkController,
+      onSubmit: handleInput,
+      onExit: () => {
+        handleExit();
+      },
+      history,
+      completer,
+    });
+    process.exit(0);
+  }
 
   // Paste detection via debouncing
   // When lines arrive rapidly (within debounce window), they're buffered
@@ -4019,10 +4352,10 @@ Begin by analyzing the query and planning your research approach.`;
   };
 
   // Set up line handler for REPL
-  rl.on('line', onLine);
+  rl?.on('line', onLine);
 
   console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
-  rl.prompt();
+  promptUser();
 }
 
 // Handle uncaught errors gracefully

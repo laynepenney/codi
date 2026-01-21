@@ -43,6 +43,7 @@ function resolveCodiPath(inputPath: string): string {
   return inputPath;
 }
 import type { Interface as ReadlineInterface } from 'readline';
+import { createRequire } from 'module';
 import chalk from 'chalk';
 
 import { IPCServer } from './ipc/server.js';
@@ -81,6 +82,8 @@ export interface OrchestratorEvents {
   workerCompleted: (workerId: string, result: WorkerResult) => void;
   /** Worker failed */
   workerFailed: (workerId: string, error: string) => void;
+  /** Log message from worker */
+  workerLog: (workerId: string, log: LogMessage) => void;
   /** Permission request from worker */
   permissionRequest: (workerId: string, confirmation: ToolConfirmation) => void;
   /** All workers completed */
@@ -118,7 +121,7 @@ export interface OrchestratorConfig extends OrchestratorOptions {
   onPermissionRequest?: PermissionPromptCallback | undefined;
   /** Repository root path */
   repoRoot: string;
-  /** Path to codi executable */
+  /** Path to codi entrypoint (script) */
   codiPath?: string;
   /** Default provider for spawned agents (inherited from parent) */
   defaultProvider?: string;
@@ -126,6 +129,10 @@ export interface OrchestratorConfig extends OrchestratorOptions {
   defaultModel?: string;
   /** Callback to generate background context for agents */
   contextProvider?: ContextProviderCallback;
+  /** Executable to run the entrypoint (default: process.execPath) */
+  codiExecPath?: string;
+  /** Extra exec args for the runtime (default: process.execArgv) */
+  codiExecArgs?: string[];
 }
 
 /**
@@ -146,6 +153,8 @@ interface ResolvedOrchestratorConfig {
   contextProvider: ContextProviderCallback | undefined;
   defaultProvider: string | undefined;
   defaultModel: string | undefined;
+  codiExecPath: string;
+  codiExecArgs: string[];
 }
 
 /**
@@ -165,7 +174,10 @@ export class Orchestrator extends EventEmitter {
   }> = new Map();
   private results: WorkerResult[] = [];
   private readerResults: ReaderResult[] = [];
+  private resultsByWorker: Map<string, WorkerResult> = new Map();
+  private logBuffers: Map<string, string> = new Map();
   private started = false;
+  private static readonly MAX_LOG_CHARS = 12000;
 
   constructor(config: OrchestratorConfig) {
     super();
@@ -186,6 +198,8 @@ export class Orchestrator extends EventEmitter {
       defaultProvider: config.defaultProvider,
       defaultModel: config.defaultModel,
       contextProvider: config.contextProvider,
+      codiExecPath: config.codiExecPath || process.execPath,
+      codiExecArgs: config.codiExecArgs || process.execArgv,
     };
 
     // Initialize IPC server
@@ -273,7 +287,7 @@ export class Orchestrator extends EventEmitter {
     config: WorkerConfig,
     worktreePath: string
   ): Promise<void> {
-    const args = [
+    const childArgs = [
       '--child-mode',
       '--socket-path', this.config.socketPath,
       '--child-id', workerId,
@@ -285,16 +299,17 @@ export class Orchestrator extends EventEmitter {
     const provider = config.provider || this.config.defaultProvider;
 
     if (model) {
-      args.push('--model', model);
+      childArgs.push('--model', model);
     }
     if (provider) {
-      args.push('--provider', provider);
+      childArgs.push('--provider', provider);
     }
     if (config.autoApprove?.length) {
-      args.push('--auto-approve', config.autoApprove.join(','));
+      childArgs.push('--auto-approve', config.autoApprove.join(','));
     }
 
-    const proc = spawn('node', [this.config.codiPath, ...args], {
+    const { command, args } = this.resolveChildCommand(childArgs);
+    const proc = spawn(command, args, {
       cwd: worktreePath,
       env: {
         ...process.env,
@@ -307,19 +322,37 @@ export class Orchestrator extends EventEmitter {
 
     this.processes.set(workerId, proc);
 
-    // Handle stdout (for debugging)
+    // Handle stdout/stderr from the child process (debugging and early failures)
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+
     proc.stdout?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.log(chalk.dim(`[${config.branch}] ${text}`));
+      stdoutBuffer += data.toString();
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(workerId, createMessage<LogMessage>('log', {
+          childId: workerId,
+          level: 'info',
+          content: text,
+        }));
       }
     });
 
-    // Handle stderr
     proc.stderr?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.error(chalk.red(`[${config.branch}] ${text}`));
+      stderrBuffer += data.toString();
+      const lines = stderrBuffer.split('\n');
+      stderrBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(workerId, createMessage<LogMessage>('log', {
+          childId: workerId,
+          level: 'error',
+          content: text,
+        }));
       }
     });
 
@@ -336,6 +369,49 @@ export class Orchestrator extends EventEmitter {
         }
       }
     });
+  }
+
+  /**
+   * Resolve the runtime command/args for child agents.
+   */
+  private resolveChildCommand(childArgs: string[]): { command: string; args: string[] } {
+    const execArgs = [...this.config.codiExecArgs];
+    const entrypoint = this.config.codiPath;
+
+    if (!entrypoint) {
+      throw new Error('Unable to resolve codi entrypoint');
+    }
+
+    if (entrypoint.endsWith('.ts') && !this.hasRuntimeLoader(execArgs)) {
+      const tsxLoader = this.resolveTsxLoader();
+      if (tsxLoader) {
+        execArgs.push('--loader', tsxLoader);
+      }
+    }
+
+    return {
+      command: this.config.codiExecPath,
+      args: [...execArgs, entrypoint, ...childArgs],
+    };
+  }
+
+  private hasRuntimeLoader(execArgs: string[]): boolean {
+    return execArgs.some((arg) =>
+      arg === '--loader' ||
+      arg.startsWith('--loader=') ||
+      arg === '--import' ||
+      arg.startsWith('--import=') ||
+      arg.includes('tsx')
+    );
+  }
+
+  private resolveTsxLoader(): string | null {
+    try {
+      const require = createRequire(import.meta.url);
+      return require.resolve('tsx');
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -515,6 +591,20 @@ export class Orchestrator extends EventEmitter {
   }
 
   /**
+   * Get the last completed result for a worker.
+   */
+  getResult(workerId: string): WorkerResult | undefined {
+    return this.resultsByWorker.get(workerId);
+  }
+
+  /**
+   * Get accumulated log output for a worker.
+   */
+  getLogs(workerId: string): string | undefined {
+    return this.logBuffers.get(workerId);
+  }
+
+  /**
    * Get active (non-completed) workers.
    */
   getActiveWorkers(): WorkerState[] {
@@ -583,8 +673,8 @@ export class Orchestrator extends EventEmitter {
     const workerState = this.workers.get(childId);
     if (workerState) {
       workerState.status = 'idle';
+      workerState.statusMessage = undefined;
       this.emit('workerStatus', childId, workerState);
-
       // Send background context if provider is configured
       if (this.config.contextProvider) {
         const context = this.config.contextProvider(childId, workerState.config.task);
@@ -618,8 +708,8 @@ export class Orchestrator extends EventEmitter {
     if (workerState && workerState.status !== 'complete' && workerState.status !== 'failed') {
       workerState.status = 'failed';
       workerState.error = 'Worker disconnected unexpectedly';
+      workerState.statusMessage = undefined;
       this.emit('workerFailed', childId, workerState.error);
-      return;
     }
 
     const readerState = this.readers.get(childId);
@@ -644,8 +734,8 @@ export class Orchestrator extends EventEmitter {
 
     state.status = 'waiting_permission';
     state.currentTool = request.confirmation.toolName;
-
     if (workerState) {
+      workerState.statusMessage = `Waiting for permission: ${request.confirmation.toolName}`;
       this.emit('workerStatus', childId, workerState);
     } else if (readerState) {
       this.emit('readerStatus', childId, readerState);
@@ -675,6 +765,7 @@ export class Orchestrator extends EventEmitter {
 
     state.status = 'thinking';
     if (workerState) {
+      workerState.statusMessage = undefined;
       this.emit('workerStatus', childId, workerState);
     } else if (readerState) {
       this.emit('readerStatus', childId, readerState);
@@ -690,6 +781,7 @@ export class Orchestrator extends EventEmitter {
       workerState.status = status.status;
       workerState.currentTool = status.currentTool;
       workerState.progress = status.progress;
+      workerState.statusMessage = status.message;
       if (status.tokensUsed) {
         workerState.tokensUsed = status.tokensUsed;
       }
@@ -717,6 +809,7 @@ export class Orchestrator extends EventEmitter {
     if (workerState) {
       workerState.status = 'complete';
       workerState.completedAt = new Date();
+      workerState.statusMessage = undefined;
 
       const workerResult: WorkerResult = {
         workerId: childId,
@@ -725,6 +818,8 @@ export class Orchestrator extends EventEmitter {
 
       this.results.push(workerResult);
       this.emit('workerCompleted', childId, workerResult);
+
+      this.resultsByWorker.set(childId, workerResult);
 
       // Check if all done
       if (this.getActiveWorkers().length === 0) {
@@ -763,7 +858,7 @@ export class Orchestrator extends EventEmitter {
       workerState.status = 'failed';
       workerState.error = error.error.message;
       workerState.completedAt = new Date();
-
+      workerState.statusMessage = undefined;
       this.emit('workerFailed', childId, error.error.message);
 
       // Check if all done
@@ -784,10 +879,34 @@ export class Orchestrator extends EventEmitter {
   }
 
   /**
+   * Append a log entry to the worker's log buffer with size limits.
+   */
+  private appendLog(childId: string, log: LogMessage): void {
+    const existing = this.logBuffers.get(childId) || '';
+    let entry = log.content;
+    if (log.level !== 'text') {
+      entry = `[${log.level}] ${entry}\n`;
+    }
+    let combined = existing + entry;
+    if (combined.length > Orchestrator.MAX_LOG_CHARS) {
+      combined = combined.slice(-Orchestrator.MAX_LOG_CHARS);
+    }
+    this.logBuffers.set(childId, combined);
+  }
+
+  /**
    * Handle log from worker or reader.
    */
   private handleLog(childId: string, log: LogMessage): void {
     const workerState = this.workers.get(childId);
+    if (workerState) {
+      this.appendLog(childId, log);
+      if (this.listenerCount('workerLog') > 0) {
+        this.emit('workerLog', childId, log);
+        return;
+      }
+    }
+
     const readerState = this.readers.get(childId);
     const prefix = workerState
       ? `[${workerState.config.branch}]`

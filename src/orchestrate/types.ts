@@ -104,6 +104,8 @@ export interface WorkerState {
   progress?: number;
   /** Token usage */
   tokensUsed?: { input: number; output: number };
+  /** Human-friendly status message */
+  statusMessage?: string;
   /** Number of restart attempts */
   restartCount: number;
   /** Error message if failed */
