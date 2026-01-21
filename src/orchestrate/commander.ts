@@ -115,6 +115,10 @@ export interface OrchestratorConfig extends OrchestratorOptions {
   repoRoot: string;
   /** Path to codi executable */
   codiPath?: string;
+  /** Default provider for spawned agents (inherited from parent) */
+  defaultProvider?: string;
+  /** Default model for spawned agents (inherited from parent) */
+  defaultModel?: string;
 }
 
 /**
@@ -132,6 +136,8 @@ interface ResolvedOrchestratorConfig {
   onPermissionRequest: PermissionPromptCallback | undefined;
   repoRoot: string;
   codiPath: string;
+  defaultProvider: string | undefined;
+  defaultModel: string | undefined;
 }
 
 /**
@@ -169,6 +175,8 @@ export class Orchestrator extends EventEmitter {
       onPermissionRequest: config.onPermissionRequest,
       repoRoot: config.repoRoot,
       codiPath: resolveCodiPath(config.codiPath || process.argv[1]), // Resolve to compiled JS
+      defaultProvider: config.defaultProvider,
+      defaultModel: config.defaultModel,
     };
 
     // Initialize IPC server
@@ -263,11 +271,15 @@ export class Orchestrator extends EventEmitter {
       '--child-task', config.task,
     ];
 
-    if (config.model) {
-      args.push('--model', config.model);
+    // Use config values or fall back to orchestrator defaults (inherited from parent)
+    const model = config.model || this.config.defaultModel;
+    const provider = config.provider || this.config.defaultProvider;
+
+    if (model) {
+      args.push('--model', model);
     }
-    if (config.provider) {
-      args.push('--provider', config.provider);
+    if (provider) {
+      args.push('--provider', provider);
     }
     if (config.autoApprove?.length) {
       args.push('--auto-approve', config.autoApprove.join(','));
@@ -377,11 +389,15 @@ export class Orchestrator extends EventEmitter {
       '--child-task', config.query,
     ];
 
-    if (config.model) {
-      args.push('--model', config.model);
+    // Use config values or fall back to orchestrator defaults (inherited from parent)
+    const model = config.model || this.config.defaultModel;
+    const provider = config.provider || this.config.defaultProvider;
+
+    if (model) {
+      args.push('--model', model);
     }
-    if (config.provider) {
-      args.push('--provider', config.provider);
+    if (provider) {
+      args.push('--provider', provider);
     }
     // Note: scope is not a CLI flag - it should be included in the query itself
 

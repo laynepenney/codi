@@ -2982,6 +2982,9 @@ Begin by analyzing the query and planning your research approach.`;
   const orchestrator = new Orchestrator({
     repoRoot: process.cwd(),
     readline: rl,
+    // Pass current provider/model so spawned agents inherit them
+    defaultProvider: provider.getName(),
+    defaultModel: provider.getModel(),
     onPermissionRequest: async (workerId, confirmation) => {
       // Display worker context
       console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));
