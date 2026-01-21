@@ -9,10 +9,39 @@
  */
 
 import { spawn, type ChildProcess } from 'child_process';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { EventEmitter } from 'events';
+
+/**
+ * Resolve the codi executable path, handling dev mode (tsx) vs production.
+ * When running via tsx (pnpm dev), process.argv[1] is the .ts source file.
+ * Child processes need the compiled .js file since they run with node directly.
+ */
+function resolveCodiPath(inputPath: string): string {
+  // If it's a .ts file, convert to the compiled .js equivalent
+  if (inputPath.endsWith('.ts')) {
+    // Convert src/index.ts -> dist/index.js
+    const compiledPath = inputPath
+      .replace(/\/src\//, '/dist/')
+      .replace(/\.ts$/, '.js');
+
+    // Verify the compiled file exists
+    if (existsSync(compiledPath)) {
+      return compiledPath;
+    }
+
+    // Fallback: try finding dist/index.js in the same project
+    const projectRoot = dirname(dirname(inputPath));
+    const fallbackPath = join(projectRoot, 'dist', 'index.js');
+    if (existsSync(fallbackPath)) {
+      return fallbackPath;
+    }
+  }
+
+  return inputPath;
+}
 import type { Interface as ReadlineInterface } from 'readline';
 import chalk from 'chalk';
 
@@ -139,7 +168,7 @@ export class Orchestrator extends EventEmitter {
       readline: config.readline,
       onPermissionRequest: config.onPermissionRequest,
       repoRoot: config.repoRoot,
-      codiPath: config.codiPath || process.argv[1], // Default to current codi
+      codiPath: resolveCodiPath(config.codiPath || process.argv[1]), // Resolve to compiled JS
     };
 
     // Initialize IPC server
