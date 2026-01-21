@@ -22,6 +22,14 @@ export { PipelineTool } from './pipeline.js';
 export { GenerateDocsTool } from './generate-docs.js';
 export { PrintTreeTool } from './print-tree.js';
 
+// Orchestration tools
+export {
+  DelegateTaskTool,
+  CheckWorkersTool,
+  GetWorkerResultTool,
+  CancelWorkerTool,
+} from './orchestrate-tools.js';
+
 // Tool fallback utilities
 export {
   findBestToolMatch,
@@ -67,6 +75,12 @@ import { ShellInfoTool } from './shell-info.js';
 import { PipelineTool } from './pipeline.js';
 import { GenerateDocsTool } from './generate-docs.js';
 import { PrintTreeTool } from './print-tree.js';
+import {
+  DelegateTaskTool,
+  CheckWorkersTool,
+  GetWorkerResultTool,
+  CancelWorkerTool,
+} from './orchestrate-tools.js';
 import type { Retriever } from '../rag/retriever.js';
 import type { SymbolIndexService } from '../symbol-index/service.js';
 import {
@@ -147,4 +161,19 @@ export function registerSymbolIndexTools(indexService: SymbolIndexService, proje
   globalRegistry.register(new ShowImpactTool(indexService));
   globalRegistry.register(new GetIndexStatusTool(indexService, root));
   globalRegistry.register(new RebuildIndexTool(root));
+}
+
+/**
+ * Register orchestration tools for multi-agent workflows.
+ * Returns the GetWorkerResultTool instance so it can receive worker results.
+ */
+export function registerOrchestrationTools(): GetWorkerResultTool {
+  const resultTool = new GetWorkerResultTool();
+
+  globalRegistry.register(new DelegateTaskTool());
+  globalRegistry.register(new CheckWorkersTool());
+  globalRegistry.register(resultTool);
+  globalRegistry.register(new CancelWorkerTool());
+
+  return resultTool;
 }

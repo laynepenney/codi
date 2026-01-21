@@ -292,7 +292,7 @@ import {
   DEFAULT_RAG_CONFIG,
   type RAGConfig,
 } from './rag/index.js';
-import { registerRAGSearchTool, registerSymbolIndexTools } from './tools/index.js';
+import { registerRAGSearchTool, registerSymbolIndexTools, registerOrchestrationTools } from './tools/index.js';
 import { createCompleter } from './completions.js';
 import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
@@ -2908,6 +2908,15 @@ Begin by analyzing the task and planning your approach.`;
   try {
     await orchestrator.start();
     setOrchestrator(orchestrator);
+
+    // Register orchestration tools for AI-driven multi-agent workflows
+    const resultTool = registerOrchestrationTools();
+
+    // Wire up orchestrator events to store worker results
+    orchestrator.on('workerCompleted', (_workerId, result) => {
+      resultTool.storeResult(result);
+    });
+
     console.log(chalk.dim('Orchestrator: ready'));
   } catch (err) {
     // Non-fatal - orchestrator commands will show appropriate errors
