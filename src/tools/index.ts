@@ -22,6 +22,16 @@ export { PipelineTool } from './pipeline.js';
 export { GenerateDocsTool } from './generate-docs.js';
 export { PrintTreeTool } from './print-tree.js';
 
+// Orchestration tools
+export {
+  DelegateTaskTool,
+  CheckWorkersTool,
+  GetWorkerResultTool,
+  CancelWorkerTool,
+  SpawnReaderTool,
+  GetReaderResultTool,
+} from './orchestrate-tools.js';
+
 // Tool fallback utilities
 export {
   findBestToolMatch,
@@ -67,6 +77,14 @@ import { ShellInfoTool } from './shell-info.js';
 import { PipelineTool } from './pipeline.js';
 import { GenerateDocsTool } from './generate-docs.js';
 import { PrintTreeTool } from './print-tree.js';
+import {
+  DelegateTaskTool,
+  CheckWorkersTool,
+  GetWorkerResultTool,
+  CancelWorkerTool,
+  SpawnReaderTool,
+  GetReaderResultTool,
+} from './orchestrate-tools.js';
 import type { Retriever } from '../rag/retriever.js';
 import type { SymbolIndexService } from '../symbol-index/service.js';
 import {
@@ -147,4 +165,35 @@ export function registerSymbolIndexTools(indexService: SymbolIndexService, proje
   globalRegistry.register(new ShowImpactTool(indexService));
   globalRegistry.register(new GetIndexStatusTool(indexService, root));
   globalRegistry.register(new RebuildIndexTool(root));
+}
+
+/**
+ * Result tools for orchestration - returned so event handlers can store results.
+ */
+export interface OrchestrationResultTools {
+  workerResultTool: GetWorkerResultTool;
+  readerResultTool: GetReaderResultTool;
+}
+
+/**
+ * Register orchestration tools for multi-agent workflows.
+ * Returns the result tool instances so they can receive worker/reader results.
+ */
+export function registerOrchestrationTools(): OrchestrationResultTools {
+  const workerResultTool = new GetWorkerResultTool();
+  const readerResultTool = new GetReaderResultTool();
+
+  // Worker tools
+  globalRegistry.register(new DelegateTaskTool());
+  globalRegistry.register(workerResultTool);
+  globalRegistry.register(new CancelWorkerTool());
+
+  // Reader tools
+  globalRegistry.register(new SpawnReaderTool());
+  globalRegistry.register(readerResultTool);
+
+  // Shared tool (shows both workers and readers)
+  globalRegistry.register(new CheckWorkersTool());
+
+  return { workerResultTool, readerResultTool };
 }

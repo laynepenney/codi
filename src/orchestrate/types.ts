@@ -32,6 +32,47 @@ export interface WorkerConfig {
 }
 
 /**
+ * Configuration for spawning a reader agent (lightweight, read-only).
+ */
+export interface ReaderConfig {
+  /** Unique identifier for this reader */
+  id: string;
+  /** Query/task description for the reader */
+  query: string;
+  /** Optional scope - limit to certain paths */
+  scope?: string;
+  /** Model to use (from model-map) */
+  model?: string;
+  /** Provider override */
+  provider?: string;
+  /** Maximum iterations for the agent loop */
+  maxIterations?: number;
+  /** Timeout in milliseconds */
+  timeout?: number;
+}
+
+/**
+ * Read-only tools that readers are allowed to use.
+ */
+export const READER_ALLOWED_TOOLS = [
+  'read_file',
+  'glob',
+  'grep',
+  'list_directory',
+  'analyze_image',
+  'print_tree',
+  'rag_search',
+  'find_symbol',
+  'find_references',
+  'goto_definition',
+  'get_dependency_graph',
+  'get_inheritance',
+  'get_call_graph',
+  'show_impact',
+  'get_index_status',
+] as const;
+
+/**
  * Information about a git worktree.
  */
 export interface WorktreeInfo {
@@ -71,6 +112,54 @@ export interface WorkerState {
   startedAt: Date;
   /** Completion time */
   completedAt?: Date;
+}
+
+/**
+ * Current state of a reader agent (lightweight, no worktree).
+ */
+export interface ReaderState {
+  /** Reader configuration */
+  config: ReaderConfig;
+  /** Current status */
+  status: WorkerStatus;
+  /** Child process PID */
+  pid?: number;
+  /** Current tool being executed */
+  currentTool?: string;
+  /** Progress percentage (0-100) */
+  progress?: number;
+  /** Token usage */
+  tokensUsed?: { input: number; output: number };
+  /** Number of restart attempts */
+  restartCount: number;
+  /** Error message if failed */
+  error?: string;
+  /** Start time */
+  startedAt: Date;
+  /** Completion time */
+  completedAt?: Date;
+}
+
+/**
+ * Result of a completed reader task.
+ */
+export interface ReaderResult {
+  /** Reader ID */
+  readerId: string;
+  /** Whether the task succeeded */
+  success: boolean;
+  /** Response from the agent */
+  response: string;
+  /** Number of tool calls made */
+  toolCallCount: number;
+  /** Total tokens used */
+  tokensUsed: { input: number; output: number };
+  /** Duration in milliseconds */
+  duration: number;
+  /** Files read during the task */
+  filesRead: string[];
+  /** Error message if failed */
+  error?: string;
 }
 
 /**
