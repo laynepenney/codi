@@ -342,13 +342,10 @@ export class Orchestrator extends EventEmitter {
     config: ReaderConfig
   ): Promise<void> {
     const args = [
-      '--child-mode',
-      '--reader-mode', // New flag for read-only mode
+      '--reader-mode', // Reader-only mode (read-only tools, auto-approved)
       '--socket-path', this.config.socketPath,
       '--child-id', readerId,
       '--child-task', config.query,
-      // Auto-approve all read-only tools
-      '--auto-approve', READER_ALLOWED_TOOLS.join(','),
     ];
 
     if (config.model) {
@@ -357,9 +354,7 @@ export class Orchestrator extends EventEmitter {
     if (config.provider) {
       args.push('--provider', config.provider);
     }
-    if (config.scope) {
-      args.push('--scope', config.scope);
-    }
+    // Note: scope is not a CLI flag - it should be included in the query itself
 
     const proc = spawn('node', [this.config.codiPath, ...args], {
       cwd: this.config.repoRoot, // Run in main repo, not a worktree

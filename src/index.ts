@@ -250,7 +250,7 @@ async function resolveFileList(
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
-import { globalRegistry, registerDefaultTools } from './tools/index.js';
+import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
 import { detectProject, formatProjectContext, loadContextFile } from './context.js';
 import {
   isCommand,
@@ -308,6 +308,7 @@ import {
 } from './session.js';
 import { runChildAgent } from './orchestrate/child-agent.js';
 import { Orchestrator } from './orchestrate/commander.js';
+import { READER_ALLOWED_TOOLS } from './orchestrate/types.js';
 import {
   loadWorkspaceConfig,
   loadLocalConfig,
@@ -353,6 +354,7 @@ program
   .option('-q, --quiet', 'Suppress spinners and progress output (for scripting)')
   // Child mode options (for multi-agent orchestration)
   .option('--child-mode', 'Run as child agent (connects to commander via IPC)')
+  .option('--reader-mode', 'Run as reader agent (read-only tools only)')
   .option('--socket-path <path>', 'IPC socket path (for child mode)')
   .option('--child-id <id>', 'Unique child identifier (for child mode)')
   .option('--child-task <task>', 'Task to execute (for child mode)')
@@ -2776,6 +2778,92 @@ Begin by analyzing the task and planning your approach.`;
     return;
   }
 
+  // =========================================================================
+  // READER MODE - Run as reader agent (read-only tools) for orchestration
+  // =========================================================================
+  if (options.readerMode) {
+    // Validate required options
+    if (!options.socketPath) {
+      console.error(chalk.red('Error: --socket-path is required for reader mode'));
+      process.exit(1);
+    }
+    if (!options.childId) {
+      console.error(chalk.red('Error: --child-id is required for reader mode'));
+      process.exit(1);
+    }
+    if (!options.childTask) {
+      console.error(chalk.red('Error: --child-task is required for reader mode'));
+      process.exit(1);
+    }
+
+    // Build system prompt with reader-specific additions
+    let systemPrompt = generateSystemPrompt(projectInfo, useTools);
+
+    // Add reader-specific context
+    systemPrompt += `
+
+## Reader Agent Context
+
+You are a **read-only research agent** helping gather information and analyze code.
+
+**Your Assignment:**
+- Query: ${options.childTask}
+
+**Important Guidelines:**
+1. **Read-only access**: You only have access to read files, search, and analyze. You cannot modify files.
+2. **Be thorough**: Search comprehensively to find all relevant information.
+3. **Be autonomous**: Do not ask clarifying questions. Use available tools to find answers.
+4. **Complete the research**: When done, provide a clear summary of your findings.
+5. **Stay focused**: Answer only what is asked. Do not speculate beyond the evidence.
+
+**Available Tools:**
+- read_file: Read file contents
+- glob: Find files by pattern
+- grep: Search file contents
+- list_directory: List directory contents
+- analyze_image: Analyze images
+- print_tree: Show directory structure
+- rag_search: Semantic code search
+- Symbol index tools: find_symbol, find_references, goto_definition, etc.
+
+**Workflow:**
+1. Understand the query
+2. Use search tools to find relevant files and code
+3. Read and analyze the relevant content
+4. Provide a comprehensive answer with specific references
+
+Begin by analyzing the query and planning your research approach.`;
+
+    console.log(chalk.dim(`Running as reader agent: ${options.childId}`));
+    console.log(chalk.dim(`Query: ${options.childTask}`));
+    console.log(chalk.dim(`Socket: ${options.socketPath}`));
+
+    // Filter tool registry to only read-only tools
+    const readerToolRegistry = new ToolRegistry();
+    for (const toolName of READER_ALLOWED_TOOLS) {
+      const tool = globalRegistry.get(toolName);
+      if (tool) {
+        readerToolRegistry.register(tool);
+      }
+    }
+
+    // Run reader agent and exit
+    await runChildAgent({
+      socketPath: options.socketPath,
+      childId: options.childId,
+      worktree: process.cwd(),
+      branch: 'reader', // Readers don't use branches but need a value
+      task: options.childTask,
+      provider,
+      toolRegistry: readerToolRegistry,
+      systemPrompt,
+      model: provider.getModel(),
+      providerName: provider.getName(),
+      autoApprove: READER_ALLOWED_TOOLS as unknown as string[], // Auto-approve all reader tools
+    });
+    return;
+  }
+
   // Enable bracketed paste mode for better paste detection
   enableBracketedPaste();
 
@@ -2800,6 +2888,10 @@ Begin by analyzing the task and planning your approach.`;
   let rlClosed = false;
   rl.on('close', () => {
     rlClosed = true;
+    // Don't exit here if in non-interactive mode - runNonInteractive handles its own cleanup
+    if (options.prompt) {
+      return;
+    }
     // Disable bracketed paste mode before exit
     disableBracketedPaste();
     // Shutdown RAG indexer if running
