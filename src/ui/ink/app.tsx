@@ -415,11 +415,11 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
         }
         return;
       }
-      if (key.end) {
+      if (key.ctrl && inputKey === 'e') {
         setLogScrollOffset(0);
         return;
       }
-      if (key.home) {
+      if (key.ctrl && inputKey === 'a') {
         setLogScrollOffset(transcriptPanel.maxStart);
         return;
       }
@@ -457,14 +457,6 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
             setLogScrollOffset((prev) => clamp(prev + delta, 0, maxStart));
           }
         }
-        return;
-      }
-      if (key.end) {
-        setLogScrollOffset(0);
-        return;
-      }
-      if (key.home) {
-        setLogScrollOffset(transcriptPanel.maxStart);
         return;
       }
       if (key.upArrow) {
@@ -710,7 +702,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       return 'Workers: Up/Down select | PgUp/PgDn or Ctrl+U/Ctrl+D scroll | L logs/result | Esc back';
     }
     if (focus === 'scroll') {
-      return 'Scroll mode: Up/Down line | PgUp/PgDn page | Home/End | Esc back';
+      return 'Scroll mode: Up/Down line | PgUp/PgDn page | Ctrl+A/Ctrl+E | Esc back';
     }
     if (completionHint) {
       return completionHint;
@@ -765,8 +757,8 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     setLogScrollOffset((prev) => clamp(prev, 0, transcriptPanel.maxStart));
   }, [transcriptPanel.maxStart]);
 
-  const handleSubmit = async () => {
-    const trimmed = inputValue.trim();
+  const handleSubmit = async (submitted?: string) => {
+    const trimmed = (submitted ?? inputValue).trim();
     if (!trimmed) return;
     setInputValue('');
     setCompletionHint(null);
@@ -829,7 +821,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
               }
             }}
             onSubmit={handleSubmit}
-            isFocused={focus === 'input' && !confirmation}
+            focus={focus === 'input' && !confirmation}
             placeholder={focus === 'input' ? 'Type a command' : ''}
           />
         </Box>
