@@ -28,6 +28,8 @@ export {
   CheckWorkersTool,
   GetWorkerResultTool,
   CancelWorkerTool,
+  SpawnReaderTool,
+  GetReaderResultTool,
 } from './orchestrate-tools.js';
 
 // Tool fallback utilities
@@ -80,6 +82,8 @@ import {
   CheckWorkersTool,
   GetWorkerResultTool,
   CancelWorkerTool,
+  SpawnReaderTool,
+  GetReaderResultTool,
 } from './orchestrate-tools.js';
 import type { Retriever } from '../rag/retriever.js';
 import type { SymbolIndexService } from '../symbol-index/service.js';
@@ -164,16 +168,32 @@ export function registerSymbolIndexTools(indexService: SymbolIndexService, proje
 }
 
 /**
- * Register orchestration tools for multi-agent workflows.
- * Returns the GetWorkerResultTool instance so it can receive worker results.
+ * Result tools for orchestration - returned so event handlers can store results.
  */
-export function registerOrchestrationTools(): GetWorkerResultTool {
-  const resultTool = new GetWorkerResultTool();
+export interface OrchestrationResultTools {
+  workerResultTool: GetWorkerResultTool;
+  readerResultTool: GetReaderResultTool;
+}
 
+/**
+ * Register orchestration tools for multi-agent workflows.
+ * Returns the result tool instances so they can receive worker/reader results.
+ */
+export function registerOrchestrationTools(): OrchestrationResultTools {
+  const workerResultTool = new GetWorkerResultTool();
+  const readerResultTool = new GetReaderResultTool();
+
+  // Worker tools
   globalRegistry.register(new DelegateTaskTool());
-  globalRegistry.register(new CheckWorkersTool());
-  globalRegistry.register(resultTool);
+  globalRegistry.register(workerResultTool);
   globalRegistry.register(new CancelWorkerTool());
 
-  return resultTool;
+  // Reader tools
+  globalRegistry.register(new SpawnReaderTool());
+  globalRegistry.register(readerResultTool);
+
+  // Shared tool (shows both workers and readers)
+  globalRegistry.register(new CheckWorkersTool());
+
+  return { workerResultTool, readerResultTool };
 }

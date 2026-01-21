@@ -139,13 +139,14 @@ describe('Orchestration Tools', () => {
     it('returns message when no workers active', async () => {
       const mockOrchestrator = {
         getWorkers: vi.fn().mockReturnValue([]),
+        getReaders: vi.fn().mockReturnValue([]),
       };
       __setMockOrchestrator(mockOrchestrator);
 
       const tool = new CheckWorkersTool();
       const result = await tool.execute({});
 
-      expect(result).toContain('No workers currently active');
+      expect(result).toContain('No workers or readers currently active');
     });
 
     it('lists all workers', async () => {
@@ -161,13 +162,14 @@ describe('Orchestration Tools', () => {
             status: 'complete',
           },
         ]),
+        getReaders: vi.fn().mockReturnValue([]),
       };
       __setMockOrchestrator(mockOrchestrator);
 
       const tool = new CheckWorkersTool();
       const result = await tool.execute({});
 
-      expect(result).toContain('Active Workers');
+      expect(result).toContain('Workers');
       expect(result).toContain('feat/auth');
       expect(result).toContain('feat/api');
       expect(result).toContain('thinking');
@@ -200,13 +202,14 @@ describe('Orchestration Tools', () => {
     it('returns error when worker not found', async () => {
       const mockOrchestrator = {
         getWorker: vi.fn().mockReturnValue(null),
+        getReader: vi.fn().mockReturnValue(null),
       };
       __setMockOrchestrator(mockOrchestrator);
 
       const tool = new CheckWorkersTool();
       const result = await tool.execute({ worker_id: 'nonexistent' });
 
-      expect(result).toContain('Worker not found');
+      expect(result).toContain('Agent not found');
     });
   });
 

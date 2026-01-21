@@ -2910,11 +2910,14 @@ Begin by analyzing the task and planning your approach.`;
     setOrchestrator(orchestrator);
 
     // Register orchestration tools for AI-driven multi-agent workflows
-    const resultTool = registerOrchestrationTools();
+    const { workerResultTool, readerResultTool } = registerOrchestrationTools();
 
-    // Wire up orchestrator events to store worker results
+    // Wire up orchestrator events to store worker/reader results
     orchestrator.on('workerCompleted', (_workerId, result) => {
-      resultTool.storeResult(result);
+      workerResultTool.storeResult(result);
+    });
+    orchestrator.on('readerCompleted', (_readerId, result) => {
+      readerResultTool.storeResult(result);
     });
 
     console.log(chalk.dim('Orchestrator: ready'));
