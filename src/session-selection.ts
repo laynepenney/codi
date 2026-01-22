@@ -30,7 +30,7 @@ export class SessionSelector {
   private sessions: SessionInfo[];
   private options: Required<SessionSelectionOptions>;
   private selectedIndex: number = 0;
-  private isSelecting: boolean = false;
+  private keypressHandler: ((chunk: Buffer, key: any) => void) | null = null;
 
   constructor(rl: ReadlineInterface, sessions: SessionInfo[], options?: SessionSelectionOptions) {
     this.rl = rl;
@@ -106,65 +106,102 @@ export class SessionSelector {
         return;
       }
 
-      console.log(chalk.bold(`\n${this.options.promptMessage}`));
-      
       // Save current readline state
       const wasPaused = this.rl.isPaused();
       if (!wasPaused) {
         this.rl.pause();
       }
 
+      // Enable raw mode to capture individual key presses
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+
+      console.log(chalk.bold(`\n${this.options.promptMessage}`));
+
       // Render initial selection
       this.renderSelection();
 
-      // Handle input
-      const handleInput = (line: string) => {
-        // Handle enter key
-        if (line === '') {
-          this.cleanup();
-          if (!wasPaused) {
-            this.rl.resume();
-          }
-          resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
-          return;
-        }
-        
-        // Handle escape or 'q' to cancel
-        if (line === '\u001b' || line === 'q') {
-          this.cleanup();
-          if (!wasPaused) {
-            this.rl.resume();
-          }
-          resolve({ session: null, cancelled: true });
-          return;
-        }
-        
-        // Handle number selection (1, 2, 3, etc.)
-        const choice = Number.parseInt(line, 10);
-        if (!Number.isNaN(choice) && choice >= 1 && choice <= this.sessions.length) {
-          this.selectedIndex = choice - 1;
-          this.cleanup();
-          if (!wasPaused) {
-            this.rl.resume();
-          }
-          resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
-          return;
-        }
-        
-        // Re-render after invalid input
-        this.renderSelection();
-      };
-
-      // Set up readline to capture input
-      this.rl.removeAllListeners('line');
-      this.rl.on('line', handleInput);
-      
       // Show help text
       console.log(chalk.dim('\n(Use ↑↓ arrow keys to navigate, Enter to select, Esc/q to cancel)'));
       console.log(chalk.dim('(Or type a number 1-9 to jump to that session)'));
       
       // Prompt for input
       process.stdout.write(chalk.cyan('> '));
+
+      // Handle keypress events
+      const handleKeypress = (chunk: Buffer, key: any) => {
+        if (!key) {
+          return;
+        }
+
+        // Handle arrow keys
+        if (key.name === 'up') {
+          this.selectedIndex = this.selectedIndex > 0 ? this.selectedIndex - 1 : this.sessions.length - 1;
+          this.renderSelection();
+          process.stdout.write(chalk.cyan('> '));
+          return;
+        }
+
+        if (key.name === 'down') {
+          this.selectedIndex = this.selectedIndex < this.sessions.length - 1 ? this.selectedIndex + 1 : 0;
+          this.renderSelection();
+          process.stdout.write(chalk.cyan('> '));
+          return;
+        }
+
+        // Handle Enter to select
+        if (key.name === 'return' || key.name === 'enter') {
+          this.cleanup();
+          if (!wasPaused) {
+            this.rl.resume();
+          }
+          process.stdout.write('\n');
+          resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
+          return;
+        }
+
+        // Handle Escape or 'q' to cancel
+        if (key.name === 'escape' || (key.name === 'q' && !key.ctrl)) {
+          this.cleanup();
+          if (!wasPaused) {
+            this.rl.resume();
+          }
+          process.stdout.write('\n');
+          resolve({ session: null, cancelled: true });
+          return;
+        }
+
+        // Handle Ctrl+C to cancel
+        if (key.name === 'c' && key.ctrl) {
+          this.cleanup();
+          if (!wasPaused) {
+            this.rl.resume();
+          }
+          process.stdout.write('\n');
+          resolve({ session: null, cancelled: true });
+          return;
+        }
+
+        // Handle number keys (1-9) for quick selection
+        if (key.name && /^\d$/.test(key.name)) {
+          const num = Number.parseInt(key.name, 10);
+          if (num >= 1 && num <= this.sessions.length) {
+            this.cleanup();
+            if (!wasPaused) {
+              this.rl.resume();
+            }
+            process.stdout.write('\n');
+            resolve({ session: this.sessions[num - 1] || null, cancelled: false });
+            return;
+          }
+        }
+      };
+
+      // Set up keypress listener
+      process.stdin.on('keypress', handleKeypress);
+
+      // Store handler for cleanup
+      this.keypressHandler = handleKeypress;
     });
   }
 
@@ -190,8 +227,15 @@ export class SessionSelector {
    * Cleanup resources and restore state
    */
   private cleanup(): void {
-    // Remove our line listener
-    this.rl.removeAllListeners('line');
+    // Disable raw mode
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+
+    // Remove keypress listener if it exists
+    if (this.keypressHandler) {
+      process.stdin.removeListener('keypress', this.keypressHandler);
+      this.keypressHandler = null;
+    }
     
     // Clear any saved cursor positions
     process.stdout.write('\x1B[u\x1B[J'); // Restore cursor and clear
