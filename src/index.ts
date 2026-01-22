@@ -2983,7 +2983,8 @@ Begin by analyzing the query and planning your research approach.`;
     repoRoot: process.cwd(),
     readline: rl,
     // Pass current provider/model so spawned agents inherit them
-    defaultProvider: provider.getName(),
+    // Provider names must be lowercase for createProvider()
+    defaultProvider: provider.getName().toLowerCase(),
     defaultModel: provider.getModel(),
     onPermissionRequest: async (workerId, confirmation) => {
       // Display worker context
