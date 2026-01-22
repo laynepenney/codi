@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { Agent } from '../agent.js';
+import type { OpenFilesManager } from '../open-files.js';
 
 export interface Command {
   name: string;
@@ -36,6 +37,8 @@ export interface CommandContext {
   sessionState?: SessionState;
   /** Callback to update session name after save/load */
   setSessionName?: (name: string | null) => void;
+  /** OpenFilesManager for tracking working set */
+  openFilesManager?: OpenFilesManager;
 }
 
 export interface ProjectInfo {

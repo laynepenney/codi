@@ -13,6 +13,7 @@ import {
   getSessionsDir,
   type Session,
 } from '../session.js';
+import { OpenFilesManager } from '../open-files.js';
 
 /**
  * Current session name - persists across commands.
@@ -58,7 +59,7 @@ export const saveCommand: Command = {
       projectName: context.projectInfo?.name || '',
       provider: context.sessionState?.provider || '',
       model: context.sessionState?.model || '',
-      openFilesState: undefined,
+      openFilesState: context.openFilesManager?.toJSON(),
     });
 
     // Update session name via callback or local state
@@ -117,6 +118,20 @@ export const loadCommand: Command = {
 
     // Load the session into the agent
     context.agent.loadSession(session.messages, session.conversationSummary);
+    
+    // Restore working set if it exists in the session
+    if (session.openFilesState && context.openFilesManager) {
+      const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
+      // Update the existing manager with restored state by clearing and repopulating
+      context.openFilesManager.clear();
+      const restoredState = restoredManager.toJSON();
+      if (restoredState.files) {
+        for (const [filePath, meta] of Object.entries(restoredState.files)) {
+          context.openFilesManager.open(filePath, { pinned: meta.pinned });
+        }
+      }
+    }
+    
     currentSessionName = session.name;
     context.setSessionName?.(session.name);
 

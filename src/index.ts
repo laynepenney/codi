@@ -252,6 +252,7 @@ import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.j
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
 import { detectProject, formatProjectContext, loadContextFile } from './context.js';
+import { OpenFilesManager } from './open-files.js';
 import {
   isCommand,
   parseCommand,
@@ -861,7 +862,7 @@ function autoSaveSession(context: CommandContext, agent: Agent): void {
       projectName: context.projectInfo?.name || '',
       provider: provider.getName(),
       model: provider.getModel(),
-      openFilesState: undefined,
+      openFilesState: context.openFilesManager?.toJSON(),
     });
   } catch (error) {
     logger.debug(`Auto-save failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -2921,6 +2922,9 @@ Begin by analyzing the query and planning your research approach.`;
   // Session name tracking for prompt display
   let currentSession: string | null = null;
 
+  // Create OpenFilesManager instance for tracking working set
+  const openFilesManager = new OpenFilesManager();
+
   // Command context for slash commands (will be updated with agent after creation)
   const commandContext: CommandContext = {
     projectInfo,
@@ -2931,6 +2935,7 @@ Begin by analyzing the query and planning your research approach.`;
         commandContext.sessionState.currentName = name;
       }
     },
+    openFilesManager, // Add OpenFilesManager to command context
   };
 
   // Build system prompt with config additions
@@ -3254,6 +3259,20 @@ Begin by analyzing the query and planning your research approach.`;
       if (commandContext.sessionState) {
         commandContext.sessionState.currentName = session.name;
       }
+      
+      // Restore working set if it exists in the session
+      if (session.openFilesState && commandContext.openFilesManager) {
+        const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
+        // Update the existing manager with restored state by clearing and repopulating
+        commandContext.openFilesManager.clear();
+        const restoredState = restoredManager.toJSON();
+        if (restoredState.files) {
+          for (const [filePath, meta] of Object.entries(restoredState.files)) {
+            commandContext.openFilesManager.open(filePath, { pinned: meta.pinned });
+          }
+        }
+      }
+      
       console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
       if (session.conversationSummary) {
         console.log(chalk.dim('Session has conversation summary from previous compaction.'));
