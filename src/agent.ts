@@ -1317,6 +1317,26 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Inject background context into the conversation.
+   * This adds a user message with context that the agent can reference.
+   */
+  injectContext(context: string): void {
+    if (!context) return;
+
+    // Add as a user message so it appears in conversation history
+    this.messages.push({
+      role: 'user',
+      content: `## Background Context\n\nThe following context may be helpful for your task:\n\n${context}\n\n---\nPlease consider this context when working on the assigned task.`,
+    });
+
+    // Add acknowledgment so conversation flow is natural
+    this.messages.push({
+      role: 'assistant',
+      content: 'I understand. I\'ll consider this background context while working on the task.',
+    });
+  }
+
+  /**
    * Get the current provider.
    */
   getProvider(): BaseProvider {

@@ -25,6 +25,7 @@ export type IPCMessageType =
   | 'handshake_ack'
   | 'permission_response'
   | 'cancel'
+  | 'inject_context'
   | 'ping'
   | 'pong';
 
@@ -146,6 +147,19 @@ export interface HandshakeAckMessage extends IPCMessage {
     autoApprove?: string[];
     timeout?: number;
   };
+  /** Background context to inject into agent's conversation */
+  context?: string;
+}
+
+/**
+ * Inject background context into a running agent.
+ */
+export interface InjectContextMessage extends IPCMessage {
+  type: 'inject_context';
+  /** Background context (project info, memories, relevant history) */
+  context: string;
+  /** Optional: specific files or symbols to highlight */
+  relevantFiles?: string[];
 }
 
 /**
@@ -217,6 +231,10 @@ export function isPermissionResponse(msg: IPCMessage): msg is PermissionResponse
 
 export function isCancel(msg: IPCMessage): msg is CancelMessage {
   return msg.type === 'cancel';
+}
+
+export function isInjectContext(msg: IPCMessage): msg is InjectContextMessage {
+  return msg.type === 'inject_context';
 }
 
 export function isPing(msg: IPCMessage): msg is PingMessage {

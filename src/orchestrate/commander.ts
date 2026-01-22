@@ -106,6 +106,11 @@ export type PermissionPromptCallback = (
 /**
  * Orchestrator options with readline for user interaction.
  */
+/**
+ * Callback to provide background context for spawned agents.
+ */
+export type ContextProviderCallback = (childId: string, task: string) => string | undefined;
+
 export interface OrchestratorConfig extends OrchestratorOptions {
   /** Readline interface for permission prompts */
   readline?: ReadlineInterface | undefined;
@@ -119,6 +124,8 @@ export interface OrchestratorConfig extends OrchestratorOptions {
   defaultProvider?: string;
   /** Default model for spawned agents (inherited from parent) */
   defaultModel?: string;
+  /** Callback to generate background context for agents */
+  contextProvider?: ContextProviderCallback;
 }
 
 /**
@@ -136,6 +143,7 @@ interface ResolvedOrchestratorConfig {
   onPermissionRequest: PermissionPromptCallback | undefined;
   repoRoot: string;
   codiPath: string;
+  contextProvider: ContextProviderCallback | undefined;
   defaultProvider: string | undefined;
   defaultModel: string | undefined;
 }
@@ -177,6 +185,7 @@ export class Orchestrator extends EventEmitter {
       codiPath: resolveCodiPath(config.codiPath || process.argv[1]), // Resolve to compiled JS
       defaultProvider: config.defaultProvider,
       defaultModel: config.defaultModel,
+      contextProvider: config.contextProvider,
     };
 
     // Initialize IPC server
@@ -575,6 +584,14 @@ export class Orchestrator extends EventEmitter {
     if (workerState) {
       workerState.status = 'idle';
       this.emit('workerStatus', childId, workerState);
+
+      // Send background context if provider is configured
+      if (this.config.contextProvider) {
+        const context = this.config.contextProvider(childId, workerState.config.task);
+        if (context) {
+          this.server.sendContext(childId, context);
+        }
+      }
       return;
     }
 
@@ -582,6 +599,14 @@ export class Orchestrator extends EventEmitter {
     if (readerState) {
       readerState.status = 'idle';
       this.emit('readerStatus', childId, readerState);
+
+      // Send background context if provider is configured
+      if (this.config.contextProvider) {
+        const context = this.config.contextProvider(childId, readerState.config.query);
+        if (context) {
+          this.server.sendContext(childId, context);
+        }
+      }
     }
   }
 
