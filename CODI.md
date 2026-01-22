@@ -19,7 +19,7 @@ This project is designed to work optimally with Codi, an AI coding assistant tha
 
 #### Direct Tool Access
 Codi agents can call tools directly by mentioning them in conversation:
-- `E1()`: Check token usage and context status in real-time
+- `get_context_status()`: Check token usage and context status in real-time
 - `read_file(path)`: Read file contents efficiently with caching
 - `search_codebase(query)`: Semantic search across the entire codebase
 - `find_symbol(name)`: Locate function/class/interface definitions instantly
@@ -41,7 +41,7 @@ As a Codi agent, you can work with this codebase efficiently:
 find_symbol("SessionInfo") // Locates all definitions
 read_file("src/session.ts") // Reads the session implementation
 grep("saveSession", "src/") // Finds all references to saveSession
-E1() // Checks current context usage
+get_context_status() // Checks current context usage
 ```
 
 This project's architecture anticipates intelligent tool use and context management.
