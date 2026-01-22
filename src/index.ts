@@ -438,6 +438,18 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 - WAIT for tool results before continuing - never make up file contents
 - Use edit_file for targeted changes, write_file only for new files or complete rewrites
 
+## Git Commit Guidelines
+When creating git commits, ALWAYS include this trailer at the end of the commit message:
+
+Wingman: Codi <codi@layne.pro>
+
+Example commit message format:
+feat(auth): add OAuth2 login flow
+
+Implement OAuth2 authentication with Google and GitHub providers.
+
+Wingman: Codi <codi@layne.pro>
+
 ## Tool Call Format (for models without native tool support)
 If you cannot make native tool calls, output tool requests in this JSON format:
 \`\`\`json
