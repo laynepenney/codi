@@ -283,7 +283,7 @@ import { registerMemoryCommands } from './commands/memory-commands.js';
 import { registerCompactCommands } from './commands/compact-commands.js';
 import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
 import { registerApprovalCommands } from './commands/approval-commands.js';
-import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
+import { registerSymbolCommands, setSymbolIndexService, getSymbolIndexService } from './commands/symbol-commands.js';
 import { registerMCPCommands } from './commands/mcp-commands.js';
 import { setOrchestrator, getOrchestratorInstance } from './commands/orchestrate-commands.js';
 import { registerImageCommands } from './commands/image-commands.js';
@@ -2933,6 +2933,11 @@ Begin by analyzing the query and planning your research approach.`;
     if (orch) {
       orch.stop().catch(() => {});
     }
+    // Close symbol index database
+    const symbolIndex = getSymbolIndexService();
+    if (symbolIndex) {
+      symbolIndex.close();
+    }
     console.log(chalk.dim('\nGoodbye!'));
     process.exit(0);
   });
@@ -4079,5 +4084,28 @@ process.on('unhandledRejection', (reason) => {
   console.error(chalk.red(`\nUnhandled rejection: ${reason}`));
   process.exit(1);
 });
+
+// Graceful shutdown on SIGTERM/SIGINT
+const gracefulShutdown = (signal: string) => {
+  console.log(chalk.dim(`\nReceived ${signal}, shutting down gracefully...`));
+  disableBracketedPaste();
+
+  // Close symbol index database to prevent corruption
+  const symbolIndex = getSymbolIndexService();
+  if (symbolIndex) {
+    symbolIndex.close();
+  }
+
+  // Cleanup orchestrator
+  const orch = getOrchestratorInstance();
+  if (orch) {
+    orch.stop().catch(() => {});
+  }
+
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 main().catch(console.error);
