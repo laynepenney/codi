@@ -107,7 +107,8 @@ export class SessionSelector {
       }
 
       // Save current readline state
-      const wasPaused = this.rl.isPaused ? this.rl.isPaused() : false;
+      const input = (this.rl as { input?: NodeJS.ReadableStream }).input;
+      const wasPaused = typeof input?.isPaused === 'function' ? input.isPaused() : false;
       if (!wasPaused) {
         this.rl.pause();
       }
