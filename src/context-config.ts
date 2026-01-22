@@ -33,8 +33,8 @@ export interface ContextTier {
   recentMessagesToKeep: number;
   /** Truncate old tool results longer than this (characters) */
   toolResultTruncateThreshold: number;
-  /** Number of recent tool results to keep untruncated */
-  recentToolResultsToKeep: number;
+  /** Percentage of context window to allocate for tool results (0.0-1.0) */
+  toolResultsTokenBudgetPercent: number;
   /** Maximum immediate tool result size (characters) */
   maxImmediateToolResult: number;
 }
@@ -63,8 +63,8 @@ export interface ComputedContextConfig {
   recentMessagesToKeep: number;
   /** Tool result truncation threshold (characters) */
   toolResultTruncateThreshold: number;
-  /** Recent tool results to keep untruncated */
-  recentToolResultsToKeep: number;
+  /** Token budget for tool results (computed from percentage) */
+  toolResultsTokenBudget: number;
   /** Maximum immediate tool result (characters) */
   maxImmediateToolResult: number;
 }
@@ -95,7 +95,7 @@ export const CONTEXT_TIERS: ContextTier[] = [
     minViablePercent: 0.15, // Need at least 15% of context
     recentMessagesToKeep: 4,
     toolResultTruncateThreshold: 50_000, // 50k chars
-    recentToolResultsToKeep: 5,
+    toolResultsTokenBudgetPercent: 0.20, // 20% of context for tool results
     maxImmediateToolResult: 30_000, // 30k chars
   },
   {
@@ -107,7 +107,7 @@ export const CONTEXT_TIERS: ContextTier[] = [
     minViablePercent: 0.10, // Need at least 10%
     recentMessagesToKeep: 8,
     toolResultTruncateThreshold: 100_000, // 100k chars
-    recentToolResultsToKeep: 10,
+    toolResultsTokenBudgetPercent: 0.25, // 25% of context for tool results
     maxImmediateToolResult: 75_000, // 75k chars
   },
   {
@@ -119,7 +119,7 @@ export const CONTEXT_TIERS: ContextTier[] = [
     minViablePercent: 0.05, // Need at least 5%
     recentMessagesToKeep: 15,
     toolResultTruncateThreshold: 300_000, // 300k chars
-    recentToolResultsToKeep: 20,
+    toolResultsTokenBudgetPercent: 0.30, // 30% of context for tool results
     maxImmediateToolResult: 200_000, // 200k chars
   },
   {
@@ -131,7 +131,7 @@ export const CONTEXT_TIERS: ContextTier[] = [
     minViablePercent: 0.03, // Need at least 3%
     recentMessagesToKeep: 25,
     toolResultTruncateThreshold: 500_000, // 500k chars
-    recentToolResultsToKeep: 30,
+    toolResultsTokenBudgetPercent: 0.35, // 35% of context for tool results
     maxImmediateToolResult: 500_000, // 500k chars
   },
 ];
@@ -171,7 +171,7 @@ export function computeContextConfig(contextWindow: number): ComputedContextConf
     minViableContext,
     recentMessagesToKeep: tier.recentMessagesToKeep,
     toolResultTruncateThreshold: tier.toolResultTruncateThreshold,
-    recentToolResultsToKeep: tier.recentToolResultsToKeep,
+    toolResultsTokenBudget: Math.floor(contextWindow * tier.toolResultsTokenBudgetPercent),
     maxImmediateToolResult: tier.maxImmediateToolResult,
   };
 
@@ -197,7 +197,7 @@ export function toLegacyConfig(config: ComputedContextConfig): {
   MIN_VIABLE_CONTEXT: number;
   RECENT_MESSAGES_TO_KEEP: number;
   TOOL_RESULT_TRUNCATE_THRESHOLD: number;
-  RECENT_TOOL_RESULTS_TO_KEEP: number;
+  TOOL_RESULTS_TOKEN_BUDGET: number;
   MAX_IMMEDIATE_TOOL_RESULT: number;
 } {
   // Find the tier to get the percentage
@@ -213,7 +213,7 @@ export function toLegacyConfig(config: ComputedContextConfig): {
     MIN_VIABLE_CONTEXT: config.minViableContext,
     RECENT_MESSAGES_TO_KEEP: config.recentMessagesToKeep,
     TOOL_RESULT_TRUNCATE_THRESHOLD: config.toolResultTruncateThreshold,
-    RECENT_TOOL_RESULTS_TO_KEEP: config.recentToolResultsToKeep,
+    TOOL_RESULTS_TOKEN_BUDGET: config.toolResultsTokenBudget,
     MAX_IMMEDIATE_TOOL_RESULT: config.maxImmediateToolResult,
   };
 }

@@ -21,6 +21,7 @@ export { ShellInfoTool } from './shell-info.js';
 export { PipelineTool } from './pipeline.js';
 export { GenerateDocsTool } from './generate-docs.js';
 export { PrintTreeTool } from './print-tree.js';
+export { RecallResultTool } from './recall-result.js';
 
 // Orchestration tools
 export {
@@ -77,6 +78,7 @@ import { ShellInfoTool } from './shell-info.js';
 import { PipelineTool } from './pipeline.js';
 import { GenerateDocsTool } from './generate-docs.js';
 import { PrintTreeTool } from './print-tree.js';
+import { RecallResultTool } from './recall-result.js';
 import {
   DelegateTaskTool,
   CheckWorkersTool,
@@ -139,6 +141,9 @@ export function registerDefaultTools(): void {
 
   // Documentation
   globalRegistry.register(new GenerateDocsTool());
+
+  // Context management
+  globalRegistry.register(new RecallResultTool());
 }
 
 /**

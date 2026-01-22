@@ -37,7 +37,22 @@ export {
 export {
   summarizeToolResult,
   truncateOldToolResults,
+  isToolResultTruncated,
+  extractCacheId,
+  type ToolResultConfig,
 } from './tool-result-utils.js';
+
+// Tool result caching for RAG-like retrieval
+export {
+  generateCacheId,
+  cacheToolResult,
+  getCachedResult,
+  hasCachedResult,
+  listCachedResults,
+  cleanupCache,
+  clearCache,
+  type CachedToolResult,
+} from './tool-result-cache.js';
 
 // Image parsing utilities
 export {

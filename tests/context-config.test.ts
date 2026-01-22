@@ -136,7 +136,7 @@ describe('context-config', () => {
 
       // Larger tiers should have larger limits
       expect(large.toolResultTruncateThreshold).toBeGreaterThan(small.toolResultTruncateThreshold);
-      expect(large.recentToolResultsToKeep).toBeGreaterThan(small.recentToolResultsToKeep);
+      expect(large.toolResultsTokenBudget).toBeGreaterThan(small.toolResultsTokenBudget);
       expect(large.maxImmediateToolResult).toBeGreaterThan(small.maxImmediateToolResult);
     });
 
@@ -161,7 +161,7 @@ describe('context-config', () => {
       expect(legacy).toHaveProperty('MIN_VIABLE_CONTEXT');
       expect(legacy).toHaveProperty('RECENT_MESSAGES_TO_KEEP');
       expect(legacy).toHaveProperty('TOOL_RESULT_TRUNCATE_THRESHOLD');
-      expect(legacy).toHaveProperty('RECENT_TOOL_RESULTS_TO_KEEP');
+      expect(legacy).toHaveProperty('TOOL_RESULTS_TOKEN_BUDGET');
       expect(legacy).toHaveProperty('MAX_IMMEDIATE_TOOL_RESULT');
     });
 

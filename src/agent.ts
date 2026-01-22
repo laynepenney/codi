@@ -1241,9 +1241,9 @@ ${contextToSummarize}`,
         });
       }
 
-      // Truncate old tool results to save context (using tier-based config)
+      // Truncate old tool results to save context (using tier-based token budget)
       truncateOldToolResults(this.messages, {
-        recentToolResultsToKeep: this.contextConfig.recentToolResultsToKeep,
+        toolResultsTokenBudget: this.contextConfig.toolResultsTokenBudget,
         toolResultTruncateThreshold: this.contextConfig.toolResultTruncateThreshold,
       });
     }
