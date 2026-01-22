@@ -536,9 +536,11 @@ When suggesting changes, format them clearly so the user can apply them manually
  * @param projectInfo - Detected information about the current project, if any.
  */
 function showHelp(projectInfo: ProjectInfo | null): void {
-  console.log(chalk.bold('\nShortcuts:'));
-  console.log(chalk.dim('  !<command>         - Run shell command directly (e.g., !ls, !git status)'));
-  console.log(chalk.dim('  ?[topic]           - Show help, optionally filtered by topic'));
+  console.log(chalk.bold.cyan('\n⚡ Quick Shortcuts:'));
+  console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
+  console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
+  console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
+  console.log();
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
@@ -3346,7 +3348,15 @@ Begin by analyzing the query and planning your research approach.`;
     if (trimmed.startsWith('!')) {
       const shellCommand = trimmed.slice(1).trim();
       if (!shellCommand) {
-        console.log(chalk.dim('Usage: !<command> - run a shell command directly'));
+        console.log(chalk.cyan('\n⚡ Shell Command Shortcuts\n'));
+        console.log(chalk.dim('Run shell commands directly without going through the AI:\n'));
+        console.log(chalk.dim('  Examples:'));
+        console.log(chalk.dim('    !ls                 - List files'));
+        console.log(chalk.dim('    !git status         - Check git status'));
+        console.log(chalk.dim('    !npm test           - Run tests'));
+        console.log(chalk.dim('    !docker ps          - List containers'));
+        console.log(chalk.dim('    !pwd                - Show current directory\n'));
+        console.log(chalk.dim('  Tip: Use ! for quick commands, /ask the AI for help with commands.\n'));
         rl.prompt();
         return;
       }
@@ -4060,7 +4070,13 @@ Begin by analyzing the query and planning your research approach.`;
   // Set up line handler for REPL
   rl.on('line', onLine);
 
-  console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
+  console.log(
+    chalk.dim('Tips: ') +
+      chalk.cyan('!<command>') + chalk.dim(' to run shell directly, ') +
+      chalk.cyan('?topic') + chalk.dim(' for help, ') +
+      chalk.cyan('/help') + chalk.dim(' for commands, ') +
+      chalk.cyan('/exit') + chalk.dim(' to quit.\n')
+  );
   rl.prompt();
 }
 
