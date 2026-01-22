@@ -618,6 +618,16 @@ ${contextToSummarize}`,
         systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
       }
 
+      // Add dynamic context alert when usage is high
+      const contextInfo = this.getContextInfo();
+      const usagePercent = (contextInfo.tokens / contextInfo.maxTokens) * 100;
+      if (usagePercent >= 75) {
+        const statusLabel = usagePercent >= 90 ? 'CRITICAL' : 'HIGH';
+        const alert = `\n\n## Context Alert\n${statusLabel} usage (${usagePercent.toFixed(0)}%). Prefer grep/search_codebase over read_file. Use recall_result for previously read content.`;
+        systemContext += alert;
+        logger.debug(`Context alert: ${statusLabel} usage at ${usagePercent.toFixed(1)}%`);
+      }
+
       // Apply compression if enabled and it actually saves space
       let messagesToSend = this.messages;
       this.lastCompressionEntities = null; // Reset for this iteration

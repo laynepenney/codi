@@ -22,6 +22,8 @@ export { PipelineTool } from './pipeline.js';
 export { GenerateDocsTool } from './generate-docs.js';
 export { PrintTreeTool } from './print-tree.js';
 export { RecallResultTool } from './recall-result.js';
+export { GetContextStatusTool } from './get-context-status.js';
+export type { ContextInfoProvider } from './get-context-status.js';
 
 // Orchestration tools
 export {
@@ -79,6 +81,7 @@ import { PipelineTool } from './pipeline.js';
 import { GenerateDocsTool } from './generate-docs.js';
 import { PrintTreeTool } from './print-tree.js';
 import { RecallResultTool } from './recall-result.js';
+import { GetContextStatusTool } from './get-context-status.js';
 import {
   DelegateTaskTool,
   CheckWorkersTool,
@@ -201,4 +204,14 @@ export function registerOrchestrationTools(): OrchestrationResultTools {
   globalRegistry.register(new CheckWorkersTool());
 
   return { workerResultTool, readerResultTool };
+}
+
+/**
+ * Register the context status tool.
+ * Returns the tool instance so the agent can be set as the context provider.
+ */
+export function registerContextStatusTool(): GetContextStatusTool {
+  const tool = new GetContextStatusTool();
+  globalRegistry.register(tool);
+  return tool;
 }

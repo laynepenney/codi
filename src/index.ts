@@ -16,7 +16,6 @@ import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
-import { SessionInfo } from './session.js';
 import { promptSessionSelection } from './session-selection.js';
 
 // History configuration - allow override for testing
@@ -296,7 +295,7 @@ import {
   DEFAULT_RAG_CONFIG,
   type RAGConfig,
 } from './rag/index.js';
-import { registerRAGSearchTool, registerSymbolIndexTools, registerOrchestrationTools } from './tools/index.js';
+import { registerRAGSearchTool, registerSymbolIndexTools, registerOrchestrationTools, registerContextStatusTool } from './tools/index.js';
 import { createCompleter } from './completions.js';
 import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
@@ -397,6 +396,37 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 4. **Follow conventions**: Match the existing code style and patterns
 5. **Handle errors**: Include appropriate error handling
 6. **Test awareness**: Consider how changes affect tests
+
+## Context Management
+
+You operate within a token budget. Use tools efficiently to maximize useful work.
+
+### Search Strategy (Most to Least Efficient)
+1. **search_codebase** - Semantic search. Best when you don't know where code lives.
+2. **grep** - Pattern search for known terms, function names, strings.
+3. **glob** - Find files by name patterns before reading.
+4. **find_symbol** - Jump directly to function/class definitions.
+5. **read_file** with offset/limit - Read specific portions of files.
+6. **read_file** (full) - Use sparingly, only when complete context needed.
+
+### Cached Tool Results
+Large tool results are truncated and cached. You'll see messages like:
+\`[read_file: 500 lines] (cached: read_file_abc123, ~2000 tokens)\`
+
+Use **recall_result** to retrieve full content:
+- \`recall_result\` with \`cache_id\` retrieves the full content
+- \`recall_result\` with \`action: "list"\` shows all cached results
+
+### Efficient Patterns
+- Explore with grep/glob before reading files
+- Use offset/limit parameters for large files
+- Use search_codebase when file location is unknown
+- Don't re-read files already in context
+
+### Anti-Patterns to Avoid
+- Reading entire files when you only need one function
+- Using read_file to scan for content (use grep instead)
+- Ignoring cached results when you need truncated content
 
 ## Tool Use Rules
 - The tool list below is authoritative for this run. Use only these tool names and their parameters.
@@ -3215,6 +3245,11 @@ Begin by analyzing the query and planning your research approach.`;
     agent.setEmbeddingProvider(ragEmbeddingProvider);
     logger.debug(`RAG: Embedding provider set for semantic message deduplication`);
   }
+
+  // Set up context status tool with agent as provider
+  const contextStatusTool = registerContextStatusTool();
+  contextStatusTool.setContextProvider(agent);
+  logger.debug(`Context status tool registered`);
 
   // Deprecated: setSessionAgent is now a no-op
   // Agent reference is passed via commandContext

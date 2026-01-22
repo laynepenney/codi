@@ -107,7 +107,8 @@ export class SessionSelector {
       }
 
       // Save current readline state
-      const wasPaused = this.rl.isPaused ? this.rl.isPaused() : false;
+      // Node.js Interface has isPaused at runtime but types may not reflect it
+      const wasPaused = (this.rl as unknown as { isPaused?: () => boolean }).isPaused?.() ?? false;
       if (!wasPaused) {
         this.rl.pause();
       }
