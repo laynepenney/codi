@@ -2988,6 +2988,39 @@ Begin by analyzing the query and planning your research approach.`;
     // Provider names must be lowercase for createProvider()
     defaultProvider: provider.getName().toLowerCase(),
     defaultModel: provider.getModel(),
+
+    // Provide background context for spawned agents
+    contextProvider: (_childId, _task) => {
+      const parts: string[] = [];
+
+      // Add project info
+      if (projectInfo) {
+        parts.push(`## Project: ${projectInfo.name}`);
+        parts.push(`- Language: ${projectInfo.language}`);
+        if (projectInfo.framework) {
+          parts.push(`- Framework: ${projectInfo.framework}`);
+        }
+        parts.push('');
+      }
+
+      // Add project context file (CODI.md)
+      if (contextFileContent) {
+        parts.push('## Project Context');
+        parts.push(contextFileContent.slice(0, 4000)); // Limit size
+        parts.push('');
+      }
+
+      // Add memory context (profile + memories)
+      const memoryCtx = generateMemoryContext(process.cwd());
+      if (memoryCtx) {
+        parts.push('## User Context');
+        parts.push(memoryCtx.slice(0, 2000)); // Limit size
+        parts.push('');
+      }
+
+      return parts.length > 0 ? parts.join('\n') : undefined;
+    },
+
     onPermissionRequest: async (workerId, confirmation) => {
       // Display worker context
       console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));

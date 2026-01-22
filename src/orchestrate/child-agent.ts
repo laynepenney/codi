@@ -115,6 +115,13 @@ export class ChildAgent {
       console.error('Task cancelled by commander');
       process.exit(1);
     });
+
+    // Handle context injection from commander
+    this.ipcClient.on('contextReceived', (message) => {
+      if (message.context) {
+        this.agent.injectContext(message.context);
+      }
+    });
   }
 
   /**
