@@ -44,7 +44,9 @@ Steps:
 
 Important:
 - Do NOT commit files that look like they contain secrets (.env, credentials, API keys)
-- Ask for confirmation before running the actual git commit command`;
+- Ask for confirmation before running the actual git commit command
+- ALWAYS include this trailer at the end of the commit message:
+  Wingman: Codi <codi@layne.pro>`;
 }
 
 function branchPrompt(args: string, _context: CommandContext): string {
