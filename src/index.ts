@@ -458,6 +458,10 @@ Use **recall_result** to retrieve full content:
 - **get_inheritance**: Show class hierarchy (params: name, direction)
 - **get_call_graph**: Show function callers (params: name, file)
 
+### Context Management
+- **get_context_status**: Check token budget usage and status (params: include_cached)
+- **recall_result**: Retrieve truncated/cached tool results (params: cache_id, action)
+
 ### Other
 - **bash**: Execute shell commands (params: command, cwd)
 - **run_tests**: Run project tests (params: command, filter, timeout)
