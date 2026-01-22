@@ -6,7 +6,7 @@ import { promisify } from 'util';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { extname, resolve as pathResolve } from 'path';
-import type { CommandContext } from './index.js';
+import { registerCommand, type Command, type CommandContext } from './index.js';
 
 const execAsync = promisify(exec);
 
@@ -205,6 +205,5 @@ export const pickImageCommand = {
  * Register image-related commands
  */
 export function registerImageCommands(): void {
-  const { registerCommand } = require('./index.js');
   registerCommand(pickImageCommand);
 }

@@ -170,6 +170,17 @@ export class IPCServer extends EventEmitter {
   }
 
   /**
+   * Send background context to a worker.
+   */
+  sendContext(childId: string, context: string, relevantFiles?: string[]): boolean {
+    const message = createMessage('inject_context', {
+      context,
+      relevantFiles,
+    });
+    return this.send(childId, message);
+  }
+
+  /**
    * Get list of connected worker IDs.
    */
   getConnectedWorkers(): string[] {

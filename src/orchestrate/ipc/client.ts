@@ -22,12 +22,14 @@ import {
   type LogMessage,
   type WorkerStatus,
   type CancelMessage,
+  type InjectContextMessage,
   serialize,
   deserialize,
   createMessage,
   isHandshakeAck,
   isPermissionResponse,
   isCancel,
+  isInjectContext,
   isPing,
 } from './protocol.js';
 import type { ToolConfirmation, ConfirmationResult } from '../../agent.js';
@@ -42,6 +44,8 @@ export interface IPCClientEvents {
   disconnected: () => void;
   /** Cancel request from commander */
   cancel: (message: CancelMessage) => void;
+  /** Background context received from commander */
+  contextReceived: (message: InjectContextMessage) => void;
   /** Error occurred */
   error: (error: Error) => void;
 }
@@ -324,6 +328,12 @@ export class IPCClient extends EventEmitter {
     if (isCancel(message)) {
       this.cancelled = true;
       this.emit('cancel', message);
+      return;
+    }
+
+    // Handle context injection
+    if (isInjectContext(message)) {
+      this.emit('contextReceived', message);
       return;
     }
 
