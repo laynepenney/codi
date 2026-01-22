@@ -76,8 +76,7 @@ export interface IPCClientConfig {
  * Pending status updates to send after handshake completes
  */
 interface PendingStatusUpdate {
-  method: string;
-  args: Parameters<IPCClient['sendStatus']>;
+  send: () => void;
 }
 
 /**
@@ -191,7 +190,7 @@ export class IPCClient extends EventEmitter {
   private flushPendingStatusUpdates(): void {
     for (const update of this.pendingStatusUpdates) {
       try {
-        this[update.method as keyof IPCClient](...update.args);
+        update.send();
       } catch {
         // Ignore flush errors
       }
@@ -240,8 +239,7 @@ export class IPCClient extends EventEmitter {
     // Buffer during handshake
     if (!this.handshakeComplete) {
       this.pendingStatusUpdates.push({
-        method: 'sendStatus',
-        args: [status, options],
+        send: () => this.sendStatus(status, options),
       });
       return;
     }
@@ -261,8 +259,7 @@ export class IPCClient extends EventEmitter {
     // Buffer during handshake
     if (!this.handshakeComplete) {
       this.pendingStatusUpdates.push({
-        method: 'sendTaskComplete',
-        args: [result],
+        send: () => this.sendTaskComplete(result),
       });
       return;
     }
@@ -281,8 +278,7 @@ export class IPCClient extends EventEmitter {
     // Buffer during handshake
     if (!this.handshakeComplete) {
       this.pendingStatusUpdates.push({
-        method: 'sendTaskError',
-        args: [error],
+        send: () => this.sendTaskError(error),
       });
       return;
     }
@@ -301,8 +297,7 @@ export class IPCClient extends EventEmitter {
     // Buffer during handshake
     if (!this.handshakeComplete) {
       this.pendingStatusUpdates.push({
-        method: 'sendLog',
-        args: [level, content],
+        send: () => this.sendLog(level, content),
       });
       return;
     }
