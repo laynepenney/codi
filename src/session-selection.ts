@@ -107,7 +107,7 @@ export class SessionSelector {
       }
 
       // Save current readline state
-      const wasPaused = this.rl.isPaused();
+      const wasPaused = this.rl.isPaused ? this.rl.isPaused() : false;
       if (!wasPaused) {
         this.rl.pause();
       }
@@ -152,7 +152,7 @@ export class SessionSelector {
         // Handle Enter to select
         if (key.name === 'return' || key.name === 'enter') {
           this.cleanup();
-          if (!wasPaused) {
+          if (!wasPaused && this.rl.resume) {
             this.rl.resume();
           }
           process.stdout.write('\n');
@@ -163,7 +163,7 @@ export class SessionSelector {
         // Handle Escape or 'q' to cancel
         if (key.name === 'escape' || (key.name === 'q' && !key.ctrl)) {
           this.cleanup();
-          if (!wasPaused) {
+          if (!wasPaused && this.rl.resume) {
             this.rl.resume();
           }
           process.stdout.write('\n');
@@ -174,7 +174,7 @@ export class SessionSelector {
         // Handle Ctrl+C to cancel
         if (key.name === 'c' && key.ctrl) {
           this.cleanup();
-          if (!wasPaused) {
+          if (!wasPaused && this.rl.resume) {
             this.rl.resume();
           }
           process.stdout.write('\n');
@@ -187,7 +187,7 @@ export class SessionSelector {
           const num = Number.parseInt(key.name, 10);
           if (num >= 1 && num <= this.sessions.length) {
             this.cleanup();
-            if (!wasPaused) {
+            if (!wasPaused && this.rl.resume) {
               this.rl.resume();
             }
             process.stdout.write('\n');
