@@ -16,6 +16,8 @@ import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
+import { SessionInfo } from './session.js';
+import { promptSessionSelection } from './session-selection.js';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -789,31 +791,6 @@ function filterSessionsByProjectPath(sessions: SessionInfo[], projectPath: strin
   const normalized = normalizeSessionProjectPath(projectPath);
   if (!normalized) return [];
   return sessions.filter((session) => normalizeSessionProjectPath(session.projectPath) === normalized);
-}
-
-function promptSessionSelection(rl: Interface, sessions: SessionInfo[]): Promise<SessionInfo | null> {
-  console.log(chalk.bold('\nSelect a session to resume:'));
-  sessions.forEach((session, index) => {
-    console.log(chalk.dim(`  ${index + 1}) ${formatSessionInfo(session)}`));
-  });
-
-  const promptText = chalk.cyan(`Pick 1-${sessions.length} (Enter for 1): `);
-  return new Promise((resolve) => {
-    rl.question(promptText, (answer) => {
-      const trimmed = (answer || '').trim();
-      if (!trimmed) {
-        resolve(sessions[0] ?? null);
-        return;
-      }
-      const choice = Number.parseInt(trimmed, 10);
-      if (Number.isNaN(choice) || choice < 1 || choice > sessions.length) {
-        console.log(chalk.yellow('Invalid selection, using most recent session.'));
-        resolve(sessions[0] ?? null);
-        return;
-      }
-      resolve(sessions[choice - 1] ?? null);
-    });
-  });
 }
 
 async function resolveResumeSessionName(
