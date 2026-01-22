@@ -284,6 +284,7 @@ import { registerApprovalCommands } from './commands/approval-commands.js';
 import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
 import { registerMCPCommands } from './commands/mcp-commands.js';
 import { setOrchestrator, getOrchestratorInstance } from './commands/orchestrate-commands.js';
+import { registerImageCommands } from './commands/image-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
 import {
   BackgroundIndexer,
@@ -2518,6 +2519,7 @@ async function main() {
   registerPluginCommands();
   registerModelCommands();
   registerMemoryCommands();
+  registerImageCommands();
   registerCompactCommands();
   registerRAGCommands();
   registerApprovalCommands();
