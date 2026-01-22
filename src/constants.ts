@@ -28,8 +28,12 @@ export const AGENT_CONFIG = {
   RECENT_MESSAGES_TO_KEEP: 600,
   /** Truncate old tool results longer than this (characters) */
   TOOL_RESULT_TRUNCATE_THRESHOLD: 500000,
-  /** Keep this many recent tool result messages untruncated */
-  RECENT_TOOL_RESULTS_TO_KEEP: 20,
+  /**
+   * Tool result token budget is now tier-based (see context-config.ts).
+   * Small: 20%, Medium: 25%, Large: 30%, XLarge: 35% of context window.
+   * Truncated results are cached for retrieval via recall_result tool.
+   */
+  TOOL_RESULTS_TOKEN_BUDGET_PERCENT: 0.25,
   /** Truncate immediate tool results longer than this (characters) - helps smaller models */
   MAX_IMMEDIATE_TOOL_RESULT: 500000,
 } as const;

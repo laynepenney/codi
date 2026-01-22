@@ -5,9 +5,16 @@ import { describe, it, expect } from 'vitest';
 import {
   summarizeToolResult,
   truncateOldToolResults,
+  type ToolResultConfig,
 } from '../src/utils/tool-result-utils.js';
 import { AGENT_CONFIG } from '../src/constants.js';
 import type { Message, ContentBlock } from '../src/types.js';
+
+// Test config that will trigger truncation for large results
+const testConfig: ToolResultConfig = {
+  toolResultsTokenBudget: 1000, // Small budget to trigger truncation
+  toolResultTruncateThreshold: 1000, // Small threshold so content > 100 chars will be truncated
+};
 
 describe('tool-result-utils', () => {
   describe('summarizeToolResult', () => {
@@ -19,7 +26,7 @@ describe('tool-result-utils', () => {
           true
         );
 
-        expect(result).toContain('[read_file ERROR:');
+        expect(result).toContain('[read_file: ERROR:');
         expect(result).toContain('File not found');
         expect(result).not.toContain('Stack trace');
       });
@@ -167,39 +174,43 @@ describe('tool-result-utils', () => {
       };
     }
 
-    it('truncates old tool results', () => {
-      const longContent = 'A'.repeat(AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD + 50);
+    it('truncates old tool results when over token budget', () => {
+      // Create a large result that will exceed token budget
+      const longContent = 'A'.repeat(10000); // ~2500 tokens, exceeds budget of 1000
       const messages: Message[] = [
         createToolResultMessage('read_file', longContent),
         createTextMessage('Response 1'),
+        createToolResultMessage('read_file', 'OK'), // Recent result
+        createTextMessage('Response 2'),
+        createToolResultMessage('read_file', 'OK2'), // Most recent result
+        createTextMessage('Response 3'),
       ];
 
-      for (let i = 0; i < AGENT_CONFIG.RECENT_TOOL_RESULTS_TO_KEEP; i++) {
-        messages.push(createToolResultMessage('read_file', 'OK'));
-        messages.push(createTextMessage(`Response ${i + 2}`));
-      }
+      truncateOldToolResults(messages, testConfig);
 
-      truncateOldToolResults(messages);
-
-      // First two tool results should be truncated
+      // First tool result should be truncated (old and large)
       const firstContent = (messages[0].content as ContentBlock[])[0];
       expect(firstContent.type).toBe('tool_result');
       expect((firstContent as any).content).toContain('[read_file:');
-      expect((firstContent as any).content.length).toBeLessThan(100);
+      expect((firstContent as any).content).toContain('cached:');
 
-      // Recent tool results should remain intact
+      // Recent tool results should remain intact (last 2)
       const lastContent = (messages[messages.length - 2].content as ContentBlock[])[0];
-      expect((lastContent as any).content).toBe('OK');
+      expect((lastContent as any).content).toBe('OK2');
     });
 
-    it('preserves short tool results', () => {
+    it('preserves short tool results when under budget', () => {
       const shortContent = 'OK';
       const messages: Message[] = [
         createToolResultMessage('write_file', shortContent),
         createTextMessage('Response'),
       ];
 
-      truncateOldToolResults(messages);
+      // Large budget - nothing should be truncated
+      truncateOldToolResults(messages, {
+        toolResultsTokenBudget: 100000,
+        toolResultTruncateThreshold: AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD,
+      });
 
       const content = (messages[0].content as ContentBlock[])[0];
       expect((content as any).content).toBe(shortContent);
@@ -212,7 +223,7 @@ describe('tool-result-utils', () => {
       ];
 
       // Should not throw
-      truncateOldToolResults(messages);
+      truncateOldToolResults(messages, testConfig);
 
       expect(messages[0].content).toBe('Hello');
       expect(messages[1].content).toBe('World');
@@ -228,13 +239,18 @@ describe('tool-result-utils', () => {
               type: 'tool_result' as const,
               tool_use_id: 'id1',
               name: 'read_file',
-              content: 'A'.repeat(AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD + 50),
+              content: 'A'.repeat(10000), // Large enough to exceed budget
             },
           ],
         },
+        createTextMessage('Response 1'),
+        createToolResultMessage('read_file', 'OK'), // Recent
+        createTextMessage('Response 2'),
+        createToolResultMessage('read_file', 'OK2'), // Most recent
+        createTextMessage('Response 3'),
       ];
 
-      truncateOldToolResults(messages);
+      truncateOldToolResults(messages, testConfig);
 
       const content = messages[0].content as ContentBlock[];
       expect(content[0].type).toBe('text');
@@ -243,25 +259,24 @@ describe('tool-result-utils', () => {
 
     it('handles empty messages array', () => {
       const messages: Message[] = [];
-      truncateOldToolResults(messages);
+      truncateOldToolResults(messages, testConfig);
       expect(messages).toEqual([]);
     });
 
     it('preserves tool result metadata when truncating', () => {
       const messages: Message[] = [
-        createToolResultMessage('read_file', 'A'.repeat(AGENT_CONFIG.TOOL_RESULT_TRUNCATE_THRESHOLD + 50)),
+        createToolResultMessage('read_file', 'A'.repeat(10000)), // Large enough to exceed budget
         createTextMessage('Response 1'),
+        createToolResultMessage('read_file', 'OK'), // Recent
+        createTextMessage('Response 2'),
+        createToolResultMessage('read_file', 'OK2'), // Most recent
+        createTextMessage('Response 3'),
       ];
-
-      for (let i = 0; i < AGENT_CONFIG.RECENT_TOOL_RESULTS_TO_KEEP; i++) {
-        messages.push(createToolResultMessage('read_file', 'OK'));
-        messages.push(createTextMessage(`Response ${i + 2}`));
-      }
 
       // Mark first as error
       ((messages[0].content as ContentBlock[])[0] as any).is_error = true;
 
-      truncateOldToolResults(messages);
+      truncateOldToolResults(messages, testConfig);
 
       const firstContent = (messages[0].content as ContentBlock[])[0] as any;
       expect(firstContent.type).toBe('tool_result');
