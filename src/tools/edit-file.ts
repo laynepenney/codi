@@ -3,10 +3,10 @@
 
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
+import { validateAndResolvePath } from '../utils/path-validation.js';
 
 export class EditFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -56,7 +56,7 @@ export class EditFileTool extends BaseTool {
       throw new Error('new_string is required');
     }
 
-    const resolvedPath = resolve(process.cwd(), path);
+    const resolvedPath = validateAndResolvePath(path);
 
     if (!existsSync(resolvedPath)) {
       throw new Error(`File not found: ${resolvedPath}`);

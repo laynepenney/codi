@@ -6,6 +6,7 @@ import { ReadFileTool } from '../src/tools/read-file.js';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { addAllowedDirectory, removeAllowedDirectory } from '../src/utils/path-validation.js';
 
 describe('ReadFileTool', () => {
   let tool: ReadFileTool;
@@ -16,6 +17,7 @@ describe('ReadFileTool', () => {
     tool = new ReadFileTool();
     testDir = join(tmpdir(), `.codi-read-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    addAllowedDirectory(testDir);
 
     // Create a 10-line test file
     testFile = join(testDir, 'test.txt');
@@ -24,6 +26,7 @@ describe('ReadFileTool', () => {
   });
 
   afterEach(() => {
+    removeAllowedDirectory(testDir);
     rmSync(testDir, { recursive: true, force: true });
   });
 
@@ -53,7 +56,9 @@ describe('ReadFileTool', () => {
     });
 
     it('throws error when file does not exist', async () => {
-      await expect(tool.execute({ path: '/nonexistent/file.txt' }))
+      // Use a path within the allowed testDir that doesn't exist
+      const nonexistentPath = join(testDir, 'nonexistent.txt');
+      await expect(tool.execute({ path: nonexistentPath }))
         .rejects.toThrow('File not found');
     });
 

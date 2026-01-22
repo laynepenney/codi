@@ -6,6 +6,7 @@ import { PatchFileTool } from '../src/tools/patch-file.js';
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { addAllowedDirectory, removeAllowedDirectory } from '../src/utils/path-validation.js';
 
 // Mock the history module
 vi.mock('../src/history.js', () => ({
@@ -20,10 +21,12 @@ describe('PatchFileTool', () => {
     tool = new PatchFileTool();
     testDir = join(tmpdir(), `.codi-patch-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    addAllowedDirectory(testDir);
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    removeAllowedDirectory(testDir);
     rmSync(testDir, { recursive: true, force: true });
   });
 
