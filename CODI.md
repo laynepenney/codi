@@ -13,6 +13,38 @@ When changing this area:
 - keep `OpenFilesState` backwards-compatible (old sessions may not have it)
 - update tests that assert on session serialization/deserialization
 
+### Codi Agent Capabilities
+
+This project is designed to work optimally with Codi, an AI coding assistant that can directly interact with the codebase through a rich set of tools. When using Codi with this project, you have access to:
+
+#### Direct Tool Access
+Codi agents can call tools directly by mentioning them in conversation:
+- `get_context_status()`: Check token usage and context status in real-time
+- `read_file(path)`: Read file contents efficiently with caching
+- `search_codebase(query)`: Semantic search across the entire codebase
+- `find_symbol(name)`: Locate function/class/interface definitions instantly
+- `grep(pattern, path)`: Search for patterns within files
+- `glob(pattern)`: Find files matching patterns
+- And dozens of other tools for file operations, shell commands, and code intelligence
+
+#### Context Awareness
+Monitor and optimize resource usage:
+- Automatic context compaction when approaching token limits
+- Cached results via `recall_result(cache_id)` to avoid re-fetching
+- Working set tracking of recently accessed files
+- Tier-based configuration adapting to model context window size
+
+#### Example Usage
+As a Codi agent, you can work with this codebase efficiently:
+```
+"I need to understand the session management system"
+find_symbol("SessionInfo") // Locates all definitions
+read_file("src/session.ts") // Reads the session implementation
+grep("saveSession", "src/") // Finds all references to saveSession
+get_context_status() // Checks current context usage
+```
+
+This project's architecture anticipates intelligent tool use and context management.
 
 **Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, Ollama Cloud, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
 
