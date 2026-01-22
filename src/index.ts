@@ -2912,6 +2912,36 @@ Begin by analyzing the query and planning your research approach.`;
     completer,
   });
 
+  // Track the current line buffer for dynamic prompt updates
+  let currentLine = '';
+
+  // Listen for keypress events to update prompt dynamically
+  // @ts-ignore - readline emits keypress events but they're not in TS types
+  rl.on('keypress', (str: string | undefined, key: { name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
+    if (!rlClosed) {
+      // Get the current line content (private property, but accessible)
+      // @ts-ignore
+      currentLine = (rl._line || '') as string || '';
+      
+      // Detect prefix operators and update prompt
+      if (currentLine.trim().length === 0) {
+        if (str === '!') {
+          updatePrompt('shell');
+        } else if (str === '?') {
+          updatePrompt('help');
+        } else {
+          updatePrompt('normal');
+        }
+      } else if (currentLine.trim().length === 1) {
+        // Check if the line has been cleared (backspace)
+        if (currentLine.trim() === '') {
+          updatePrompt('normal');
+        }
+      }
+      // Keep existing mode if line has more content
+    }
+  });
+
   // Track if readline is closed (for piped input)
   let rlClosed = false;
   rl.on('close', () => {
@@ -2946,6 +2976,48 @@ Begin by analyzing the query and planning your research approach.`;
 
   // Session name tracking for prompt display
   let currentSession: string | null = null;
+
+  // Dynamic prompt mode tracking
+  type PromptMode = 'normal' | 'shell' | 'help';
+  let currentPromptMode: PromptMode = 'normal';
+
+  // Get the base prompt text without colors
+  const getBasePromptText = (mode: PromptMode): string => {
+    switch (mode) {
+      case 'shell':
+        return 'Shell';
+      case 'help':
+        return 'Help';
+      default:
+        return 'You';
+    }
+  };
+
+  // Get the colored prompt
+  const getPromptText = (mode: PromptMode): string => {
+    const baseText = getBasePromptText(mode);
+    let colorFn = chalk.bold.cyan;
+    
+    // Use different colors for different modes
+    if (mode === 'shell') {
+      colorFn = chalk.bold.yellow;
+    } else if (mode === 'help') {
+      colorFn = chalk.bold.green;
+    }
+    
+    return colorFn(`\n${baseText}: `);
+  };
+
+  // Update the readline prompt
+  const updatePrompt = (mode: PromptMode) => {
+    currentPromptMode = mode;
+    rl.setPrompt(getPromptText(mode));
+  };
+
+  // Reset prompt to normal mode
+  const resetPrompt = () => {
+    updatePrompt('normal');
+  };
 
   // Create OpenFilesManager instance for tracking working set
   const openFilesManager = new OpenFilesManager();
@@ -3357,6 +3429,7 @@ Begin by analyzing the query and planning your research approach.`;
         console.log(chalk.dim('    !docker ps          - List containers'));
         console.log(chalk.dim('    !pwd                - Show current directory\n'));
         console.log(chalk.dim('  Tip: Use ! for quick commands, /ask the AI for help with commands.\n'));
+        resetPrompt();
         rl.prompt();
         return;
       }
@@ -3372,11 +3445,13 @@ Begin by analyzing the query and planning your research approach.`;
         if (code !== 0) {
           console.log(chalk.dim(`Exit code: ${code}`));
         }
+        resetPrompt();
         rl.prompt();
       });
 
       child.on('error', (err) => {
         console.log(chalk.red(`Error: ${err.message}`));
+        resetPrompt();
         rl.prompt();
       });
 
@@ -3413,6 +3488,7 @@ Begin by analyzing the query and planning your research approach.`;
       } else {
         showHelp(projectInfo);
       }
+      resetPrompt();
       rl.prompt();
       return;
     }
@@ -3996,10 +4072,12 @@ Begin by analyzing the query and planning your research approach.`;
             spinner.stop();
             logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
           }
+          resetPrompt();
           rl.prompt();
           return;
         } else {
           console.log(chalk.yellow(`Unknown command: /${parsed.name}. Type /help for available commands.`));
+          resetPrompt();
           rl.prompt();
           return;
         }
@@ -4026,6 +4104,7 @@ Begin by analyzing the query and planning your research approach.`;
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
     }
 
+    resetPrompt();
     rl.prompt();
   };
 
