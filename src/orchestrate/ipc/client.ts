@@ -73,6 +73,13 @@ export interface IPCClientConfig {
 }
 
 /**
+ * Pending status updates to send after handshake completes
+ */
+interface PendingStatusUpdate {
+  send: () => void;
+}
+
+/**
  * IPC Client for worker agents.
  */
 export class IPCClient extends EventEmitter {
@@ -82,6 +89,9 @@ export class IPCClient extends EventEmitter {
   private connected = false;
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private cancelled = false;
+  private handshaking = false;
+  private handshakeComplete = false;
+  private pendingStatusUpdates: PendingStatusUpdate[] = [];
 
   constructor(config: IPCClientConfig) {
     super();
@@ -93,16 +103,27 @@ export class IPCClient extends EventEmitter {
    */
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      this.handshaking = true;
+
       this.socket = createConnection(this.config.socketPath);
 
       this.socket.on('connect', async () => {
         try {
-          // Set connected early so handshake can send messages
-          this.connected = true;
+          // Perform handshake BEFORE marking as connected
           await this.performHandshake();
+
+          // Handshake complete - mark as ready
+          this.handshaking = false;
+          this.handshakeComplete = true;
+          this.connected = true;
+
+          // Send any pending status updates
+          this.flushPendingStatusUpdates();
+
           this.emit('connected');
           resolve();
         } catch (err) {
+          this.handshaking = false;
           this.connected = false;
           reject(err);
         }
@@ -146,7 +167,7 @@ export class IPCClient extends EventEmitter {
    * Check if connected to the server.
    */
   isConnected(): boolean {
-    return this.connected;
+    return this.connected && this.handshakeComplete;
   }
 
   /**
@@ -154,6 +175,27 @@ export class IPCClient extends EventEmitter {
    */
   isCancelled(): boolean {
     return this.cancelled;
+  }
+
+  /**
+   * Check if currently handshaking.
+   */
+  isHandshaking(): boolean {
+    return this.handshaking;
+  }
+
+  /**
+   * Flush pending status updates after handshake completes.
+   */
+  private flushPendingStatusUpdates(): void {
+    for (const update of this.pendingStatusUpdates) {
+      try {
+        update.send();
+      } catch {
+        // Ignore flush errors
+      }
+    }
+    this.pendingStatusUpdates = [];
   }
 
   /**
@@ -194,6 +236,14 @@ export class IPCClient extends EventEmitter {
       message?: string;
     }
   ): void {
+    // Buffer during handshake
+    if (!this.handshakeComplete) {
+      this.pendingStatusUpdates.push({
+        send: () => this.sendStatus(status, options),
+      });
+      return;
+    }
+
     const message = createMessage<StatusUpdateMessage>('status_update', {
       childId: this.config.childId,
       status,
@@ -206,6 +256,14 @@ export class IPCClient extends EventEmitter {
    * Send task completion notification.
    */
   sendTaskComplete(result: TaskCompleteMessage['result']): void {
+    // Buffer during handshake
+    if (!this.handshakeComplete) {
+      this.pendingStatusUpdates.push({
+        send: () => this.sendTaskComplete(result),
+      });
+      return;
+    }
+
     const message = createMessage<TaskCompleteMessage>('task_complete', {
       childId: this.config.childId,
       result,
@@ -217,6 +275,14 @@ export class IPCClient extends EventEmitter {
    * Send task error notification.
    */
   sendTaskError(error: TaskErrorMessage['error']): void {
+    // Buffer during handshake
+    if (!this.handshakeComplete) {
+      this.pendingStatusUpdates.push({
+        send: () => this.sendTaskError(error),
+      });
+      return;
+    }
+
     const message = createMessage<TaskErrorMessage>('task_error', {
       childId: this.config.childId,
       error,
@@ -228,6 +294,14 @@ export class IPCClient extends EventEmitter {
    * Send a log message to the commander.
    */
   sendLog(level: LogMessage['level'], content: string): void {
+    // Buffer during handshake
+    if (!this.handshakeComplete) {
+      this.pendingStatusUpdates.push({
+        send: () => this.sendLog(level, content),
+      });
+      return;
+    }
+
     const message = createMessage<LogMessage>('log', {
       childId: this.config.childId,
       level,
@@ -240,7 +314,7 @@ export class IPCClient extends EventEmitter {
    * Send a message to the server.
    */
   private send(message: IPCMessage): void {
-    if (!this.socket || !this.connected) {
+    if (!this.socket || !this.connected || !this.handshakeComplete) {
       throw new Error('Not connected to IPC server');
     }
     this.socket.write(serialize(message));
