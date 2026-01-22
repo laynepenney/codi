@@ -30,17 +30,21 @@ models:
     provider: ollama
     model: glm-4.7:cloud
     description: Default Ollama model
+  coder:
+    provider: ollama
+    model: qwen3-coder:480b-cloud
+    description: default coder
 
 # Task routing - map task types to models
 tasks:
   fast:
-    model: haiku
+    model: gpt-5-nano
     description: Quick tasks (commits, summaries)
   code:
-    model: sonnet
+    model: coder
     description: Standard coding tasks
   complex:
-    model: opus
+    model: glm
     description: Architecture, debugging
   summarize:
     model: glm
