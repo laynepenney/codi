@@ -1,18 +1,14 @@
 import { clearScreenDown, cursorTo, emitKeypressEvents, Interface as ReadlineInterface, moveCursor } from 'readline';
+import stringWidth from 'string-width';
 import { SessionInfo, formatSessionInfo } from './session.js';
 import chalk from 'chalk';
-
-function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*m/g, '');
-}
 
 function countRenderedRows(lines: string[], columns: number): number {
   if (lines.length === 0) return 0;
   const width = Math.max(1, columns);
   let rows = 0;
   for (const line of lines) {
-    const plain = stripAnsi(line);
-    const len = plain.length;
+    const len = stringWidth(line);
     rows += Math.max(1, Math.ceil(len / width));
   }
   return rows;
@@ -144,7 +140,52 @@ export class SessionSelector {
 
       // Handle keypress events
       const handleKeypress = (chunk: Buffer, key: any) => {
+        const rawInput = chunk.toString('utf8');
         if (!key) {
+          if (rawInput === '\r' || rawInput === '\n') {
+            this.cleanup(wasRaw);
+            if (!wasPaused && this.rl.resume) {
+              this.rl.resume();
+            }
+            if (!wasStdinPaused) {
+              process.stdin.resume();
+            }
+            process.stdout.write('\n');
+            resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
+          } else if (rawInput === '\u0003') {
+            this.cleanup(wasRaw);
+            if (!wasPaused && this.rl.resume) {
+              this.rl.resume();
+            }
+            if (!wasStdinPaused) {
+              process.stdin.resume();
+            }
+            process.stdout.write('\n');
+            resolve({ session: null, cancelled: true });
+          } else if (/^[1-9]$/.test(rawInput)) {
+            const num = Number.parseInt(rawInput, 10);
+            if (num >= 1 && num <= this.sessions.length) {
+              this.cleanup(wasRaw);
+              if (!wasPaused && this.rl.resume) {
+                this.rl.resume();
+              }
+              if (!wasStdinPaused) {
+                process.stdin.resume();
+              }
+              process.stdout.write('\n');
+              resolve({ session: this.sessions[num - 1] || null, cancelled: false });
+            }
+          } else if (rawInput.toLowerCase() === 'q') {
+            this.cleanup(wasRaw);
+            if (!wasPaused && this.rl.resume) {
+              this.rl.resume();
+            }
+            if (!wasStdinPaused) {
+              process.stdin.resume();
+            }
+            process.stdout.write('\n');
+            resolve({ session: null, cancelled: true });
+          }
           return;
         }
 
