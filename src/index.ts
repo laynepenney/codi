@@ -819,34 +819,36 @@ function promptConfirmationWithSuggestions(
  * Returns an array of individual command strings.
  */
 function parseCommandChain(command: string): string[] {
-  // Split on pipes and logical operators (&&, ||)
-  // This regex splits on |, &&, or || while preserving the separators
-  const parts = command.split(/(\s*\|\s*|\s+&&\s+|\s+\|\|\s+)/);
-  
+  // Split on pipes and logical operators (|, &&, ||, ;)
+  // This regex splits on |, ;, &&, or || while preserving the separators
+  const parts = command.split(/(\s*\|\s*|\s*;\s*|\s+&&\s+|\s+\|\|\s+)/);
+
   const commands: string[] = [];
   let currentCommand = '';
-  
+
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    if (part === '|' || part === '&&' || part === '||') {
+    // Check if this part is separator content (|, ;, &&, ||)
+    const trimmed = part.trim();
+    const isSeparator = trimmed === '|' || trimmed === ';' || trimmed === '&&' || trimmed === '||';
+
+    if (isSeparator) {
       // Found a separator, push the current command and start a new one
       if (currentCommand.trim()) {
         commands.push(currentCommand.trim());
       }
       currentCommand = '';
-    } else if (part.trim()) {
+    } else if (trimmed) {
       // Part of a command - only add non-separators
-      if (part !== '|' && part !== '&&' && part !== '||') {
-        currentCommand += (currentCommand ? ' ' : '') + part.trim();
-      }
+      currentCommand += (currentCommand ? ' ' : '') + trimmed;
     }
   }
-  
+
   // Don't forget the last command
   if (currentCommand.trim()) {
     commands.push(currentCommand.trim());
   }
-  
+
   return commands;
 }
 
