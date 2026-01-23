@@ -15,6 +15,7 @@ import {
   validateModelMap,
   initModelMapFile,
   getExampleModelMap,
+  getGlobalConfigDir,
   type ModelMapConfig,
 } from '../model-map/index.js';
 
@@ -265,34 +266,44 @@ export const modelMapCommand: Command = {
   name: 'modelmap',
   aliases: ['mm', 'models-map'],
   description: 'Show and manage model map configuration (codi-models.yaml)',
-  usage: '/modelmap [init|show|example]',
+  usage: '/modelmap [init [--global]|show|example]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     const trimmed = args.trim().toLowerCase();
 
     // Handle help flag locally without API call
     if (trimmed === '-h' || trimmed === '--help') {
-      console.log('\nUsage: /modelmap [init|show|example]');
-      console.log('\nShow and manage model map configuration (codi-models.yaml).');
+      console.log('\nUsage: /modelmap [init [--global]|show|example]');
+      console.log('\nShow and manage model map configuration.');
+      console.log('\nConfig locations:');
+      console.log(`  Global:  ${getGlobalConfigDir()}/models.yaml`);
+      console.log('  Project: ./codi-models.yaml');
       console.log('\nActions:');
-      console.log('  show      Show current model map configuration (default)');
-      console.log('  init      Create a new codi-models.yaml file');
-      console.log('  example   Show example configuration');
+      console.log('  show          Show current model map configuration (default)');
+      console.log('  init          Create a new codi-models.yaml in current directory');
+      console.log('  init --global Create a new models.yaml in ~/.codi/');
+      console.log('  example       Show example configuration');
       console.log('\nExamples:');
-      console.log('  /modelmap          Show current configuration');
-      console.log('  /modelmap init     Create codi-models.yaml');
-      console.log('  /modelmap example  Show example YAML');
+      console.log('  /modelmap              Show current configuration');
+      console.log('  /modelmap init         Create project codi-models.yaml');
+      console.log('  /modelmap init --global Create global ~/.codi/models.yaml');
+      console.log('  /modelmap example      Show example YAML');
+      console.log('\nGlobal models can be used in any project with /switch <name>');
       console.log();
       return null;
     }
 
-    const action = trimmed || 'show';
+    // Parse action and flags
+    const parts = trimmed.split(/\s+/).filter(p => p);
+    const action = parts[0] || 'show';
+    const isGlobal = parts.includes('--global');
 
     switch (action) {
       case 'init': {
-        const result = initModelMapFile(process.cwd());
+        const result = initModelMapFile(process.cwd(), isGlobal);
         if (result.success) {
-          return `__MODELMAP_INIT__|${result.path}`;
+          const scope = result.isGlobal ? 'global' : 'project';
+          return `__MODELMAP_INIT__|${result.path}|${scope}`;
         }
         return `__MODELMAP_ERROR__|${result.error}`;
       }
@@ -310,11 +321,11 @@ export const modelMapCommand: Command = {
 
         if (modelMap) {
           // Model map is loaded, show its configuration
-          return formatModelMapOutput(modelMap.config, modelMap.configPath);
+          return formatModelMapOutput(modelMap.config, modelMap.configPath, modelMap.globalConfigPath);
         }
 
         // Try to load from disk
-        const { config, configPath, error } = loadModelMap(process.cwd());
+        const { config, configPath, globalConfigPath, error } = loadModelMap(process.cwd());
         if (error) {
           return `__MODELMAP_ERROR__|${error}`;
         }
@@ -328,15 +339,27 @@ export const modelMapCommand: Command = {
           return `__MODELMAP_INVALID__|${validation.errors.map(e => e.message).join('; ')}`;
         }
 
-        return formatModelMapOutput(config, configPath);
+        return formatModelMapOutput(config, configPath, globalConfigPath);
       }
     }
   },
 };
 
-function formatModelMapOutput(config: ModelMapConfig, configPath: string | null): string {
+function formatModelMapOutput(
+  config: ModelMapConfig,
+  configPath: string | null,
+  globalConfigPath: string | null = null
+): string {
   const lines: string[] = ['__MODELMAP_SHOW__'];
-  lines.push(`path|${configPath || 'unknown'}`);
+  if (globalConfigPath) {
+    lines.push(`globalPath|${globalConfigPath}`);
+  }
+  if (configPath) {
+    lines.push(`projectPath|${configPath}`);
+  }
+  if (!globalConfigPath && !configPath) {
+    lines.push(`path|unknown`);
+  }
   lines.push(`version|${config.version}`);
 
   // Models
