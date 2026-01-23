@@ -17,6 +17,8 @@ import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { format as formatUtil } from 'util';
+import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
+import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -321,6 +323,7 @@ import { attachInkTranscriptWriter } from './ui/ink/transcript.js';
 import {
   loadWorkspaceConfig,
   loadLocalConfig,
+  loadGlobalConfig,
   validateConfig,
   mergeConfig,
   getCustomDangerousPatterns,
@@ -562,6 +565,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
   console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
   console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
+  console.log(chalk.dim('  ESC                    - Interrupt current AI processing and return to prompt'));
   console.log();
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
@@ -577,7 +581,8 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /refactor <file>   - Suggest refactoring improvements'));
   console.log(chalk.dim('  /fix <file> <issue>- Fix a bug or issue'));
   console.log(chalk.dim('  /test <file>       - Generate tests'));
-  console.log(chalk.dim('  /review <file>     - Code review'));
+  console.log(chalk.dim('  /review <file>     - Code review for a local file'));
+  console.log(chalk.dim('  /review-pr <num>   - Review a GitHub pull request'));
   console.log(chalk.dim('  /doc <file>        - Generate documentation'));
   console.log(chalk.dim('  /optimize <file>   - Optimize for performance'));
 
@@ -2672,6 +2677,19 @@ async function main() {
     );
   }
 
+  // Load global configuration (~/.codi/config.json)
+  const { config: globalConfig, configPath: globalConfigPath } = loadGlobalConfig();
+  if (globalConfig && globalConfigPath) {
+    console.log(chalk.dim(`Global config: ${globalConfigPath}`));
+    const warnings = validateConfig(globalConfig);
+    if (warnings.length > 0) {
+      console.log(chalk.yellow('Global config warnings:'));
+      for (const w of warnings) {
+        console.log(chalk.yellow(`  - ${w}`));
+      }
+    }
+  }
+
   // Load workspace configuration
   const { config: workspaceConfig, configPath } = loadWorkspaceConfig();
   if (workspaceConfig && configPath) {
@@ -2735,7 +2753,8 @@ async function main() {
       summarizeModel: options.summarizeModel,
       maxContextTokens: contextWindowTokens,
     },
-    localConfig
+    localConfig,
+    globalConfig
   );
 
   // Register tools and commands
@@ -3229,6 +3248,7 @@ Begin by analyzing the query and planning your research approach.`;
   let inkUiPromise: Promise<void> | null = null;
   let inkSubmitHandler: ((input: string) => Promise<void>) | null = null;
   const pendingInkInputs: string[] = [];
+  const interruptHandler = getInterruptHandler();
   const handleInkSubmit = async (input: string) => {
     if (inkSubmitHandler) {
       await inkSubmitHandler(input);
@@ -3303,9 +3323,21 @@ Begin by analyzing the query and planning your research approach.`;
       rl?.close();
     };
 
+    // Initialize interrupt handler for ESC key cancellation
+    interruptHandler.initialize(rl);
+    interruptHandler.setCallback(() => {
+      console.log(chalk.yellow('\n\n🚫 Interrupted!'));
+      console.log(chalk.dim('Press Ctrl+C to exit or continue typing...\n'));
+      spinner.stop();
+      isStreaming = false;
+      resetPrompt();
+      promptUser();
+    });
+
     // Track if readline is closed (for piped input)
     rl.on('close', () => {
       rlClosed = true;
+      destroyInterruptHandler();
       handleExit();
       process.exit(0);
     });
@@ -3968,11 +4000,53 @@ Begin by analyzing the query and planning your research approach.`;
           break;
         }
         case 'checkpoint_list': {
-          // Checkpoints are recorded in events.jsonl - emit guidance
+          const checkpoints = agent.listCheckpoints();
           getDebugBridge().emit('command_response', {
             commandId: cmd.id,
             type: 'checkpoint_list',
-            data: { message: 'Checkpoints are recorded in events.jsonl as checkpoint events' },
+            data: { checkpoints },
+          });
+          break;
+        }
+        // Phase 5: Time travel commands
+        case 'rewind': {
+          const checkpointId = cmd.data.checkpointId as string;
+          const success = agent.rewind(checkpointId);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'rewind',
+            data: { checkpointId, success },
+          });
+          break;
+        }
+        case 'branch_create': {
+          const cpId = cmd.data.checkpointId as string;
+          const branchName = cmd.data.name as string;
+          const success = agent.createBranch(cpId, branchName);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'branch_create',
+            data: { checkpointId: cpId, name: branchName, success },
+          });
+          break;
+        }
+        case 'branch_switch': {
+          const branchName = cmd.data.name as string;
+          const success = agent.switchBranch(branchName);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'branch_switch',
+            data: { name: branchName, success },
+          });
+          break;
+        }
+        case 'branch_list': {
+          const branches = agent.listBranches();
+          const currentBranch = agent.getCurrentBranch();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'branch_list',
+            data: { branches, currentBranch },
           });
           break;
         }
@@ -4049,6 +4123,24 @@ Begin by analyzing the query and planning your research approach.`;
         resetPrompt();
         promptUser();
         return;
+      }
+
+      // Parse and check all commands in the chain for permission
+      const commands = parseCommandChain(shellCommand);
+      if (commands.length > 1) {
+        if (!rl) {
+          console.log(chalk.yellow('Chained commands require confirmation in classic mode.'));
+          resetPrompt();
+          promptUser();
+          return;
+        }
+        const allowed = await requestPermissionForChainedCommands(rl, commands);
+        if (!allowed) {
+          console.log(chalk.yellow('Command execution cancelled.'));
+          resetPrompt();
+          promptUser();
+          return;
+        }
       }
 
       // Execute command with inherited stdio for real-time output
@@ -4784,22 +4876,42 @@ Begin by analyzing the query and planning your research approach.`;
     currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
     const assistantMessageId = currentAssistantMessageId;
 
+    // Mark the start of agent processing for interrupt detection
+    interruptHandler.startProcessing();
+    
     try {
+      // Check if user pressed ESC before we started processing
+      if (interruptHandler.wasInterrupted()) {
+        console.log(chalk.yellow('\n⚠️ Operation cancelled'));
+        resetPrompt();
+        promptUser();
+        return;
+      }
+      
       const startTime = Date.now();
+      
       await agent.chat(trimmed);
+      
       if (isReasoningStreaming) {
         console.log(chalk.dim.italic('\n---\n'));
         isReasoningStreaming = false;
       }
       if (!useInkUi) {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(chalk.dim(`\n(${elapsed}s)`));
+        // Check if operation was interrupted during processing
+        if (interruptHandler.wasInterrupted()) {
+          console.log(chalk.dim('\n⚠️ Operation interrupted'));
+        } else {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(chalk.dim(`\n(${elapsed}s)`));
+        }
       }
       autoSaveSession(commandContext, agent);
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
     } finally {
+      // Always mark processing as complete
+      interruptHandler.endProcessing();
       const finalizedId = assistantMessageId ?? currentAssistantMessageId;
       if (finalizedId) {
         inkController?.completeAssistantMessage(finalizedId);
@@ -4876,7 +4988,8 @@ Begin by analyzing the query and planning your research approach.`;
       chalk.cyan('!<command>') + chalk.dim(' to run shell directly, ') +
       chalk.cyan('?topic') + chalk.dim(' for help, ') +
       chalk.cyan('/help') + chalk.dim(' for commands, ') +
-      chalk.cyan('/exit') + chalk.dim(' to quit.\n')
+      chalk.cyan('/exit') + chalk.dim(' to quit, ') +
+      chalk.cyan('ESC') + chalk.dim(' to interrupt.\n')
   );
   promptUser();
 }
@@ -4901,6 +5014,9 @@ process.on('unhandledRejection', (reason) => {
 const gracefulShutdown = (signal: string) => {
   console.log(chalk.dim(`\nReceived ${signal}, shutting down gracefully...`));
   disableBracketedPaste();
+
+  // Cleanup interrupt handler
+  destroyInterruptHandler();
 
   // Set a timeout to force exit if cleanup takes too long
   const forceExitTimeout = setTimeout(() => {

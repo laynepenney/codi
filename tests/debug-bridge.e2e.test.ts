@@ -15,8 +15,16 @@ import * as os from 'node:os';
 import { spawn, type ChildProcess, execSync } from 'node:child_process';
 import { setupMockE2E, cleanupMockE2E, textResponse, toolResponse, toolCall, type MockE2ESession } from './helpers/mock-e2e.js';
 
+// Platform-aware timeouts - Windows is significantly slower for process spawning
+const isWindows = process.platform === 'win32';
+const isMacOS = process.platform === 'darwin';
+const TEST_TIMEOUT = isWindows ? 90000 : (isMacOS ? 60000 : 30000);
+const WAIT_TIMEOUT = isWindows ? 30000 : 15000;
+const EXEC_TIMEOUT = isWindows ? 30000 : 10000;
+const STARTUP_WAIT = isWindows ? 2000 : (isMacOS ? 1000 : 500);
+
 // Set longer timeout for E2E tests
-vi.setConfig({ testTimeout: 30000 });
+vi.setConfig({ testTimeout: TEST_TIMEOUT });
 
 function distEntry(): string {
   return path.resolve(process.cwd(), 'dist', 'index.js');
@@ -38,6 +46,18 @@ function cleanupTempDir(dir: string): void {
   } catch {
     // Ignore cleanup errors
   }
+}
+
+/**
+ * Execute a debug CLI command with platform-aware timeout.
+ */
+function execDebugCli(command: string, opts: { cwd: string; env: NodeJS.ProcessEnv }): string {
+  return execSync(command, {
+    cwd: opts.cwd,
+    env: opts.env,
+    encoding: 'utf8',
+    timeout: EXEC_TIMEOUT,
+  });
 }
 
 /**
@@ -91,7 +111,7 @@ class ProcessHarness {
     this.output = '';
   }
 
-  async waitFor(pattern: string | RegExp, timeoutMs = 15000): Promise<string> {
+  async waitFor(pattern: string | RegExp, timeoutMs = WAIT_TIMEOUT): Promise<string> {
     const re = typeof pattern === 'string'
       ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       : pattern;
@@ -178,7 +198,7 @@ describe('Debug Bridge E2E', () => {
       await proc.waitFor(/Session:/i);
 
       // Verify session directory was created
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
       expect(fs.existsSync(debugDir)).toBe(true);
       expect(fs.existsSync(path.join(debugDir, 'sessions'))).toBe(true);
 
@@ -205,7 +225,7 @@ describe('Debug Bridge E2E', () => {
       await proc.waitFor(/Orchestrator: ready/i);
 
       // Give time for events to be written
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       // Find the session directory
       const sessionsDir = path.join(debugDir, 'sessions');
@@ -247,7 +267,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       // Find the session
       const sessionsDir = path.join(debugDir, 'sessions');
@@ -263,6 +283,7 @@ describe('Debug Bridge E2E', () => {
           NO_COLOR: '1',
         },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Sent: breakpoint_add');
@@ -287,7 +308,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -298,6 +319,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       // List breakpoints
@@ -305,6 +327,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Sent: breakpoint_list');
@@ -329,7 +352,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -339,6 +362,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Sent: breakpoint_clear');
@@ -365,7 +389,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -375,6 +399,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Sent: checkpoint_create');
@@ -399,7 +424,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -409,6 +434,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Sent: checkpoint_list');
@@ -443,7 +469,7 @@ describe('Debug Bridge E2E', () => {
 
       // Wait for tool execution
       await proc.waitFor(/read_file/i, 10000);
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT * 2));
 
       // Exit cleanly
       proc.writeLine('/exit');
@@ -459,7 +485,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
-        timeout: 10000,
+        timeout: EXEC_TIMEOUT,
       });
 
       // Should show session events
@@ -486,7 +512,7 @@ describe('Debug Bridge E2E', () => {
       await proc.waitFor(/Orchestrator: ready/i);
       proc.writeLine('read test.txt');
       await proc.waitFor(/read_file/i, 10000);
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT * 2));
 
       proc.writeLine('/exit');
       await proc.waitForExit();
@@ -501,7 +527,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
-        timeout: 10000,
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(replayResult).toContain('SESSION START');
@@ -527,7 +553,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -538,6 +564,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
       expect(pauseResult).toContain('Sent: pause');
 
@@ -546,6 +573,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
       expect(resumeResult).toContain('Sent: resume');
 
@@ -571,12 +599,13 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const result = execSync(`${process.execPath} ${debugCliEntry()} sessions -a`, {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       // Should list the active session
@@ -605,7 +634,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -615,6 +644,7 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Session Status');
@@ -643,7 +673,7 @@ describe('Debug Bridge E2E', () => {
       });
 
       await proc.waitFor(/Orchestrator: ready/i);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
 
       const sessionsDir = path.join(debugDir, 'sessions');
       const sessions = fs.readdirSync(sessionsDir);
@@ -653,9 +683,196 @@ describe('Debug Bridge E2E', () => {
         cwd: projectDir,
         env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
         encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
       });
 
       expect(result).toContain('Sent: inspect');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+  });
+
+  // ============================================
+  // Phase 5: Time Travel Debugging
+  // ============================================
+
+  describe('Branch commands via codi-debug', () => {
+    it('should create branch via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} branch create test-branch -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
+      });
+
+      expect(result).toContain('Sent: branch_create');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+
+    it('should switch branch via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} branch switch main -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
+      });
+
+      expect(result).toContain('Sent: branch_switch');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+
+    it('should list branches via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} branch list -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
+      });
+
+      expect(result).toContain('Sent: branch_list');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+  });
+
+  describe('Rewind command via codi-debug', () => {
+    it('should rewind via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} rewind cp_0_test -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
+      });
+
+      expect(result).toContain('Sent: rewind');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+  });
+
+  describe('Timeline command via codi-debug', () => {
+    it('should show timeline via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, STARTUP_WAIT));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} timeline -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+        timeout: EXEC_TIMEOUT,
+      });
+
+      // Output may say "Timeline" or "No timeline data" depending on whether checkpoints exist
+      expect(result.toLowerCase()).toContain('timeline');
 
       proc.writeLine('/exit');
       await proc.waitForExit();

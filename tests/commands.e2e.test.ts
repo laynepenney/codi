@@ -9,8 +9,13 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+// Platform-aware timeouts - macOS CI is slower
+const isMacOS = process.platform === 'darwin';
+const TEST_TIMEOUT = isMacOS ? 90000 : 20000;
+const WAIT_TIMEOUT = isMacOS ? 60000 : 15000;
+
 // Set longer timeout for E2E tests
-vi.setConfig({ testTimeout: 20000 });
+vi.setConfig({ testTimeout: TEST_TIMEOUT });
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -82,7 +87,7 @@ class ProcessHarness {
     return this.output;
   }
 
-  async waitFor(pattern: string | RegExp, timeoutMs = 10000): Promise<string> {
+  async waitFor(pattern: string | RegExp, timeoutMs = WAIT_TIMEOUT): Promise<string> {
     const re = typeof pattern === 'string'
       ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       : pattern;

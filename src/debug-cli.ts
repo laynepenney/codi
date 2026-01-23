@@ -227,6 +227,16 @@ function formatEvent(event: DebugEvent): string {
       return `${seq} ${chalk.green.bold('CHECKPOINT')} ${event.data.id}${cpLabel} iteration=${event.data.iteration} messages=${event.data.messageCount}`;
     }
 
+    // Phase 5: Time travel events
+    case 'rewind':
+      return `${seq} ${chalk.yellow.bold('REWIND')} to ${event.data.checkpointId} iteration=${event.data.iteration} messages=${event.data.messageCount}`;
+
+    case 'branch_created':
+      return `${seq} ${chalk.cyan.bold('BRANCH CREATED')} "${event.data.name}" from ${event.data.forkPoint} (parent: ${event.data.parentBranch})`;
+
+    case 'branch_switched':
+      return `${seq} ${chalk.cyan.bold('BRANCH SWITCHED')} to "${event.data.branch}" at iteration ${event.data.iteration}`;
+
     default:
       return `${seq} ${chalk.gray(event.type)} ${JSON.stringify(event.data)}`;
   }
@@ -749,6 +759,127 @@ program
  */
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============================================
+// Phase 5: Time Travel
+// ============================================
+
+// Rewind command
+program
+  .command('rewind <checkpoint>')
+  .description('Rewind to a checkpoint (destructive - loses subsequent state)')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((checkpoint, opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    console.log(chalk.yellow('Warning: This will discard all state after the checkpoint.'));
+    sendCommand(sessionDir, 'rewind', { checkpointId: checkpoint });
+  });
+
+// Branch command group
+const branchCmd = new Command('branch')
+  .alias('br')
+  .description('Manage branches for time-travel debugging');
+
+branchCmd
+  .command('create <name>')
+  .description('Create a branch from a checkpoint')
+  .option('--from <checkpoint>', 'Checkpoint to branch from (default: latest)')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((name, opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'branch_create', {
+      name,
+      checkpointId: opts.from,
+    });
+  });
+
+branchCmd
+  .command('switch <name>')
+  .description('Switch to a branch')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((name, opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'branch_switch', { name });
+  });
+
+branchCmd
+  .command('list')
+  .alias('ls')
+  .description('List all branches')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'branch_list', {});
+    console.log(chalk.gray('Watch events to see the response.'));
+  });
+
+program.addCommand(branchCmd);
+
+// Timeline command
+program
+  .command('timeline')
+  .description('Show conversation timeline with checkpoints and branches')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+
+    const timelineFile = join(sessionDir, 'timeline.json');
+
+    if (!existsSync(timelineFile)) {
+      console.log(chalk.dim('No timeline data. Create checkpoints to build timeline.'));
+      return;
+    }
+
+    try {
+      const timeline = JSON.parse(readFileSync(timelineFile, 'utf8'));
+      printTimeline(timeline);
+    } catch (err) {
+      console.error(chalk.red('Failed to read timeline:'), err);
+    }
+  });
+
+/**
+ * Print timeline visualization.
+ */
+function printTimeline(timeline: { branches: Array<{ name: string; current: boolean; forkPoint?: string; checkpoints: string[] }> }): void {
+  console.log(chalk.bold('\nConversation Timeline\n'));
+
+  for (const branch of timeline.branches) {
+    const marker = branch.current ? chalk.green('●') : chalk.dim('○');
+    const name = branch.current ? chalk.green.bold(branch.name) : branch.name;
+
+    console.log(`${marker} ${name}`);
+
+    if (branch.forkPoint) {
+      console.log(chalk.dim(`  └── forked from ${branch.forkPoint}`));
+    }
+
+    for (const cpId of branch.checkpoints) {
+      console.log(chalk.cyan(`  ├── ${cpId}`));
+    }
+    console.log();
+  }
 }
 
 // Parse and execute

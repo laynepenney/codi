@@ -2,8 +2,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { AGENT_CONFIG } from './constants.js';
+
+/**
+ * Configuration file names (checked in order).
+ */
+const CONFIG_FILES = ['.codi.json', '.codi/config.json', 'codi.config.json'];
+const LOCAL_CONFIG_FILE = '.codi.local.json';
+
+/**
+ * Global config directory and file.
+ */
+const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.codi');
+const GLOBAL_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, 'config.json');
 
 /**
  * Workspace configuration for Codi.
@@ -252,15 +265,38 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   },
 };
 
-/** Config file names to search for, in order of priority */
-const CONFIG_FILES = [
-  '.codi.json',
-  '.codi/config.json',
-  'codi.config.json',
-];
+/**
+ * Find and load global configuration from ~/.codi/config.json.
+ * This applies to all projects unless overridden by project-specific config.
+ * @param overrideDir - Optional directory override for testing
+ */
+export function loadGlobalConfig(overrideDir?: string): {
+  config: WorkspaceConfig | null;
+  configPath: string | null;
+} {
+  const configPath = overrideDir
+    ? path.join(overrideDir, 'config.json')
+    : GLOBAL_CONFIG_FILE;
 
-/** Local config file for user-specific approvals (gitignored) */
-const LOCAL_CONFIG_FILE = '.codi.local.json';
+  if (fs.existsSync(configPath)) {
+    try {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(content) as WorkspaceConfig;
+      return { config, configPath };
+    } catch (error) {
+      console.warn(`Warning: Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
+      return { config: null, configPath };
+    }
+  }
+  return { config: null, configPath: null };
+}
+
+/**
+ * Get global config directory path.
+ */
+export function getGlobalConfigDir(): string {
+  return GLOBAL_CONFIG_DIR;
+}
 
 /**
  * Find and load workspace configuration from the current directory.
@@ -373,7 +409,7 @@ export function validateConfig(config: WorkspaceConfig): string[] {
 
 /**
  * Merge workspace config with CLI options and local config.
- * Priority: CLI options > local config (approvals only) > workspace config
+ * Priority: CLI options > local config (approvals only) > workspace config > global config
  */
 export function mergeConfig(
   workspaceConfig: WorkspaceConfig | null,
@@ -389,11 +425,43 @@ export function mergeConfig(
     summarizeModel?: string;
     maxContextTokens?: number;
   },
-  localConfig: WorkspaceConfig | null = null
+  localConfig: WorkspaceConfig | null = null,
+  globalConfig: WorkspaceConfig | null = null
 ): ResolvedConfig {
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
 
-  // Apply workspace config
+  // Apply global config (lowest priority, baseline for all projects)
+  if (globalConfig) {
+    if (globalConfig.provider) config.provider = globalConfig.provider;
+    if (globalConfig.model) config.model = globalConfig.model;
+    if (globalConfig.baseUrl) config.baseUrl = globalConfig.baseUrl;
+    if (globalConfig.endpointId) config.endpointId = globalConfig.endpointId;
+    if (globalConfig.autoApprove) config.autoApprove = globalConfig.autoApprove;
+    if (globalConfig.approvedPatterns) config.approvedPatterns = [...globalConfig.approvedPatterns];
+    if (globalConfig.approvedCategories) config.approvedCategories = [...globalConfig.approvedCategories];
+    if (globalConfig.approvedPathPatterns) config.approvedPathPatterns = [...globalConfig.approvedPathPatterns];
+    if (globalConfig.approvedPathCategories) config.approvedPathCategories = [...globalConfig.approvedPathCategories];
+    if (globalConfig.dangerousPatterns) config.dangerousPatterns = globalConfig.dangerousPatterns;
+    if (globalConfig.systemPromptAdditions) config.systemPromptAdditions = globalConfig.systemPromptAdditions;
+    if (globalConfig.noTools) config.noTools = globalConfig.noTools;
+    if (globalConfig.extractToolsFromText !== undefined) config.extractToolsFromText = globalConfig.extractToolsFromText;
+    if (globalConfig.defaultSession) config.defaultSession = globalConfig.defaultSession;
+    if (globalConfig.commandAliases) config.commandAliases = globalConfig.commandAliases;
+    if (globalConfig.projectContext) config.projectContext = globalConfig.projectContext;
+    if (globalConfig.enableCompression !== undefined) config.enableCompression = globalConfig.enableCompression;
+    if (globalConfig.maxContextTokens !== undefined && Number.isFinite(globalConfig.maxContextTokens)) {
+      config.maxContextTokens = globalConfig.maxContextTokens;
+    }
+    if (globalConfig.cleanHallucinatedTraces !== undefined) {
+      config.cleanHallucinatedTraces = globalConfig.cleanHallucinatedTraces;
+    }
+    if (globalConfig.models?.summarize?.provider) config.summarizeProvider = globalConfig.models.summarize.provider;
+    if (globalConfig.models?.summarize?.model) config.summarizeModel = globalConfig.models.summarize.model;
+    if (globalConfig.tools?.disabled) config.toolsConfig.disabled = globalConfig.tools.disabled;
+    if (globalConfig.tools?.defaults) config.toolsConfig.defaults = globalConfig.tools.defaults;
+  }
+
+  // Apply workspace config (overrides global)
   if (workspaceConfig) {
     if (workspaceConfig.provider) config.provider = workspaceConfig.provider;
     if (workspaceConfig.model) config.model = workspaceConfig.model;
@@ -419,16 +487,17 @@ export function mergeConfig(
     if (workspaceConfig.cleanHallucinatedTraces !== undefined) {
       config.cleanHallucinatedTraces = workspaceConfig.cleanHallucinatedTraces;
     }
-    // Summarize model from workspace config
     if (workspaceConfig.models?.summarize?.provider) config.summarizeProvider = workspaceConfig.models.summarize.provider;
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
-    // Per-tool configuration
     if (workspaceConfig.tools?.disabled) config.toolsConfig.disabled = workspaceConfig.tools.disabled;
     if (workspaceConfig.tools?.defaults) config.toolsConfig.defaults = workspaceConfig.tools.defaults;
   }
 
   // Merge local config approvals (adds to workspace config approvals)
   if (localConfig) {
+    if (localConfig.autoApprove) {
+      config.autoApprove = [...new Set([...config.autoApprove, ...localConfig.autoApprove])];
+    }
     if (localConfig.approvedPatterns) {
       config.approvedPatterns = [...config.approvedPatterns, ...localConfig.approvedPatterns];
     }
