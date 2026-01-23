@@ -1598,9 +1598,15 @@ function handleModelMapOutput(output: string): void {
   }
 
   if (firstLine.startsWith('__MODELMAP_INIT__|')) {
-    const path = firstLine.slice('__MODELMAP_INIT__|'.length);
-    console.log(chalk.green(`\nCreated model map: ${path}`));
-    console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    const parts = firstLine.slice('__MODELMAP_INIT__|'.length).split('|');
+    const filePath = parts[0];
+    const scope = parts[1] || 'project';
+    console.log(chalk.green(`\nCreated ${scope} model map: ${filePath}`));
+    if (scope === 'global') {
+      console.log(chalk.dim('Global models can be used in any project with /switch <name>'));
+    } else {
+      console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    }
     return;
   }
 
@@ -1621,6 +1627,12 @@ function handleModelMapOutput(output: string): void {
       const type = parts[0];
 
       switch (type) {
+        case 'globalPath':
+          console.log(chalk.dim(`Global: ${parts[1]}`));
+          break;
+        case 'projectPath':
+          console.log(chalk.dim(`Project: ${parts[1]}`));
+          break;
         case 'path':
           console.log(chalk.dim(`File: ${parts[1]}`));
           break;
