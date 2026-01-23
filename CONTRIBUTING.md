@@ -92,6 +92,8 @@ This adds the amazing feature for user productivity.
 Wingman: Codi <codi@layne.pro>"
 ```
 
+According to Git conventions, trailers should be placed at the end of the commit message body, after a blank line.
+
 #### Collaborative Work (Co-authored-by)
 
 When multiple people (humans or AI) contribute to a commit, use `Co-authored-by:` trailers:
@@ -126,7 +128,6 @@ Implementation:
 - Modified direct shell handler to check for chained commands
 
 Wingman: Codi <codi@layne.pro>
-
 ---
 
 fix: correct clearMessageTokenCache documentation
@@ -136,7 +137,6 @@ Actually only clears message token cache.
 
 Co-authored-by: Sarah <sarah@example.com>
 Wingman: Codi <codi@layne.pro>
-
 ---
 
 docs: update CODI.md with Codi agent capabilities
@@ -146,6 +146,8 @@ context awareness features for AI coding assistants.
 
 Wingman: Codi <codi@layne.pro>"
 ```
+
+For more information about Codi's capabilities as your AI coding assistant, see [CLAUDE.md](./CLAUDE.md).
 
 ### Adding a Tool
 
