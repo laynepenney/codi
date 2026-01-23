@@ -37,7 +37,7 @@ export class SessionSelector {
   private options: Required<SessionSelectionOptions>;
   private selectedIndex: number = 0;
   private keypressHandler: ((chunk: Buffer, key: any) => void) | null = null;
-  private renderedLines = 0;
+  private renderedRows = 0;
 
   constructor(rl: ReadlineInterface, sessions: SessionInfo[], options?: SessionSelectionOptions) {
     this.rl = rl;
@@ -258,9 +258,9 @@ export class SessionSelector {
    * Render the current selection state
    */
   private renderSelection(): void {
-    if (this.renderedLines > 0) {
+    if (this.renderedRows > 0) {
       cursorTo(process.stdout, 0);
-      moveCursor(process.stdout, 0, -this.renderedLines);
+      moveCursor(process.stdout, 0, -this.renderedRows);
       clearScreenDown(process.stdout);
     }
 
@@ -280,7 +280,8 @@ export class SessionSelector {
     lines.push(chalk.cyan('> '));
 
     process.stdout.write(`${lines.join('\n')}\n`);
-    this.renderedLines = lines.length;
+    const columns = Math.max(1, process.stdout.columns ?? 80);
+    this.renderedRows = countDisplayRows(lines, columns) + 1;
   }
 
   /**
@@ -298,11 +299,11 @@ export class SessionSelector {
       this.keypressHandler = null;
     }
 
-    if (this.renderedLines > 0) {
+    if (this.renderedRows > 0) {
       cursorTo(process.stdout, 0);
-      moveCursor(process.stdout, 0, -this.renderedLines);
+      moveCursor(process.stdout, 0, -this.renderedRows);
       clearScreenDown(process.stdout);
-      this.renderedLines = 0;
+      this.renderedRows = 0;
     }
   }
 
@@ -312,6 +313,21 @@ export class SessionSelector {
   private formatSessionInfo(session: SessionInfo): string {
     return formatSessionInfo(session);
   }
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function countDisplayRows(lines: string[], columns: number): number {
+  let rows = 0;
+  const width = Math.max(1, columns);
+  for (const line of lines) {
+    const plain = stripAnsi(line);
+    const length = plain.length;
+    rows += Math.max(1, Math.ceil(length / width));
+  }
+  return rows;
 }
 
 /**
