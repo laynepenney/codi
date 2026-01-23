@@ -814,6 +814,72 @@ function promptConfirmationWithSuggestions(
   });
 }
 
+/**
+ * Parse a command string to extract individual commands from pipes and logical operators.
+ * Returns an array of individual command strings.
+ */
+function parseCommandChain(command: string): string[] {
+  // Split on pipes and logical operators (&&, ||)
+  // This regex splits on |, &&, or || while preserving the separators
+  const parts = command.split(/(\s*\|\s*|\s+&&\s+|\s+\|\|\s+)/);
+  
+  const commands: string[] = [];
+  let currentCommand = '';
+  
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part === '|' || part === '&&' || part === '||') {
+      // Found a separator, push the current command and start a new one
+      if (currentCommand.trim()) {
+        commands.push(currentCommand.trim());
+      }
+      currentCommand = '';
+    } else if (part.trim()) {
+      // Part of a command - only add non-separators
+      if (part !== '|' && part !== '&&' && part !== '||') {
+        currentCommand += (currentCommand ? ' ' : '') + part.trim();
+      }
+    }
+  }
+  
+  // Don't forget the last command
+  if (currentCommand.trim()) {
+    commands.push(currentCommand.trim());
+  }
+  
+  return commands;
+}
+
+/**
+ * Request permission for chained commands.
+ * Shows each command and asks for approval.
+ */
+async function requestPermissionForChainedCommands(
+  rl: ReturnType<typeof createInterface>,
+  commands: string[]
+): Promise<boolean> {
+  console.log(chalk.yellow('\n⚠️  Chained command detected. Please review each command:\n'));
+  
+  for (let i = 0; i < commands.length; i++) {
+    const cmd = commands[i];
+    console.log(chalk.dim(`  ${i + 1}. ${cmd}`));
+  }
+  
+  console.log(chalk.yellow('\nApprove execution of all commands? [y/N/abort] '));
+  const answer = await new Promise<string>((resolve) => {
+    rl.question('', (input: string) => resolve(input));
+  });
+  
+  const lower = answer.toLowerCase().trim();
+  if (lower === 'y' || lower === 'yes') {
+    return true;
+  } else if (lower === 'a' || lower === 'abort') {
+    throw new Error('Command execution aborted by user');
+  } else {
+    return false;
+  }
+}
+
 function normalizeSessionProjectPath(value: string | undefined): string | null {
   if (!value) return null;
   try {
@@ -3414,6 +3480,18 @@ Begin by analyzing the query and planning your research approach.`;
         resetPrompt();
         rl.prompt();
         return;
+      }
+
+      // Parse and check all commands in the chain for permission
+      const commands = parseCommandChain(shellCommand);
+      if (commands.length > 1) {
+        const allowed = await requestPermissionForChainedCommands(rl, commands);
+        if (!allowed) {
+          console.log(chalk.yellow('Command execution cancelled.'));
+          resetPrompt();
+          rl.prompt();
+          return;
+        }
       }
 
       // Execute command with inherited stdio for real-time output
