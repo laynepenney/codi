@@ -44,6 +44,7 @@ import {
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
 import type { AuditLogger } from './audit.js';
+import { getDebugBridge, isDebugBridgeEnabled } from './debug-bridge.js';
 import {
   checkCommandApproval,
   getApprovalSuggestions,
@@ -539,14 +540,27 @@ ${contextToSummarize}`,
       );
 
       this.conversationSummary = summaryResponse.content;
+      const messagesBefore = this.messages.length;
       this.messages = applySelection(this.messages, selection);
 
       const newTokens = countMessageTokens(this.messages);
       logger.debug(`Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
+
+      // Debug bridge: context compaction
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().contextCompaction(totalTokens, newTokens, messagesBefore, this.messages.length);
+      }
     } catch (error) {
       // If summarization fails, fall back to simple selection without summary
       logger.debug(`Summarization failed, using selection only: ${error}`);
+      const messagesBefore = this.messages.length;
       this.messages = applySelection(this.messages, selection);
+
+      // Debug bridge: context compaction (fallback)
+      if (isDebugBridgeEnabled()) {
+        const newTokens = countMessageTokens(this.messages);
+        getDebugBridge().contextCompaction(totalTokens, newTokens, messagesBefore, this.messages.length);
+      }
     }
   }
 
@@ -733,6 +747,16 @@ ${contextToSummarize}`,
         systemContext
       );
 
+      // Debug bridge: API request
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().apiRequest(
+          chatProvider.getName(),
+          chatProvider.getModel(),
+          messagesToSend.length,
+          !!tools
+        );
+      }
+
       // Call the model with streaming (using native system prompt support)
       const apiStartTime = Date.now();
       let streamedChars = 0;
@@ -795,6 +819,17 @@ ${contextToSummarize}`,
         Date.now() - apiStartTime,
         response.rawResponse
       );
+
+      // Debug bridge: API response
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().apiResponse(
+          response.stopReason,
+          response.usage?.inputTokens || 0,
+          response.usage?.outputTokens || 0,
+          Date.now() - apiStartTime,
+          response.toolCalls.length
+        );
+      }
 
       // Record usage for cost tracking
       if (response.usage) {
@@ -1170,13 +1205,19 @@ ${contextToSummarize}`,
             for (const toolCall of batch.calls) {
               this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
               updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
+              // Debug bridge: tool call start
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().toolCallStart(toolCall.name, toolCall.input, toolCall.id);
+              }
             }
 
             // Execute all in parallel with concurrency limit (max 8 concurrent)
+            const parallelStartTime = Date.now();
             const parallelResults = await executeWithConcurrencyLimit(
               batch.calls,
               (toolCall) => this.toolRegistry.execute(toolCall)
             ) as Awaited<ReturnType<typeof this.toolRegistry.execute>>[];
+            const parallelDuration = Date.now() - parallelStartTime;
 
             // Process results
             for (let i = 0; i < parallelResults.length; i++) {
@@ -1184,6 +1225,13 @@ ${contextToSummarize}`,
               const toolCall = batch.calls[i];
               toolResults.push(result);
               if (result.is_error) hasError = true;
+
+              // Debug bridge: tool call end and result
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().toolCallEnd(toolCall.name, toolCall.id, parallelDuration, !!result.is_error);
+                getDebugBridge().toolResult(toolCall.name, toolCall.id, result.content, !!result.is_error);
+              }
+
               this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
             }
           } else {
@@ -1192,9 +1240,23 @@ ${contextToSummarize}`,
               this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
               updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
 
+              // Debug bridge: tool call start
+              const toolStartTime = Date.now();
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().toolCallStart(toolCall.name, toolCall.input, toolCall.id);
+              }
+
               const result = await this.toolRegistry.execute(toolCall);
               toolResults.push(result);
               if (result.is_error) hasError = true;
+
+              // Debug bridge: tool call end and result
+              if (isDebugBridgeEnabled()) {
+                const durationMs = Date.now() - toolStartTime;
+                getDebugBridge().toolCallEnd(toolCall.name, toolCall.id, durationMs, !!result.is_error);
+                getDebugBridge().toolResult(toolCall.name, toolCall.id, result.content, !!result.is_error);
+              }
+
               this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
             }
           }
