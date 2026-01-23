@@ -3002,6 +3002,9 @@ Begin by analyzing the query and planning your research approach.`;
         commandContext.sessionState.currentName = name;
       }
     },
+    selectSession: inkController
+      ? (sessions, prompt) => inkController.requestSessionSelection(sessions, prompt)
+      : undefined,
     openFilesManager, // Add OpenFilesManager to command context
   };
 

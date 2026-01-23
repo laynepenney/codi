@@ -3,6 +3,7 @@
 
 import type { Agent } from '../agent.js';
 import type { OpenFilesManager } from '../open-files.js';
+import type { SessionInfo } from '../session.js';
 
 export interface Command {
   name: string;
@@ -37,6 +38,8 @@ export interface CommandContext {
   sessionState?: SessionState;
   /** Callback to update session name after save/load */
   setSessionName?: (name: string | null) => void;
+  /** Optional session selector for UI-driven session selection */
+  selectSession?: (sessions: SessionInfo[], prompt?: string) => Promise<SessionInfo | null>;
   /** OpenFilesManager for tracking working set */
   openFilesManager?: OpenFilesManager;
 }

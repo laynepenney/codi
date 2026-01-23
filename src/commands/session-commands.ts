@@ -82,10 +82,20 @@ export const loadCommand: Command = {
 
     const name = args.trim();
     if (!name) {
-      // List recent sessions if no name provided
       const sessions = listSessions().slice(0, 10);
       if (sessions.length === 0) {
         return '__SESSION_LIST_EMPTY__';
+      }
+      if (context.selectSession) {
+        const selection = await context.selectSession(sessions, 'Select a session to load:');
+        if (!selection) {
+          return null;
+        }
+        const session = loadSession(selection.name);
+        if (!session) {
+          return `__SESSION_NOT_FOUND__:${selection.name}`;
+        }
+        return applyLoadedSession(session, context);
       }
 
       let list = '__SESSION_LIST__:';
@@ -95,15 +105,27 @@ export const loadCommand: Command = {
       return list;
     }
 
-    // Try exact match first
     let session = loadSession(name);
-
-    // If not found, try to find by pattern
     if (!session) {
       const matches = findSessions(name);
       if (matches.length === 1) {
         session = loadSession(matches[0].name);
       } else if (matches.length > 1) {
+        if (context.selectSession) {
+          const selection = await context.selectSession(
+            matches,
+            `Multiple sessions match "${name}":`
+          );
+          if (!selection) {
+            return null;
+          }
+          const selectedSession = loadSession(selection.name);
+          if (!selectedSession) {
+            return `__SESSION_NOT_FOUND__:${selection.name}`;
+          }
+          return applyLoadedSession(selectedSession, context);
+        }
+
         let list = `__SESSION_MULTIPLE__:${name}:`;
         for (const info of matches.slice(0, 5)) {
           list += `\n${formatSessionInfo(info)}`;
@@ -116,28 +138,29 @@ export const loadCommand: Command = {
       return `__SESSION_NOT_FOUND__:${name}`;
     }
 
-    // Load the session into the agent
-    context.agent.loadSession(session.messages, session.conversationSummary);
-    
-    // Restore working set if it exists in the session
-    if (session.openFilesState && context.openFilesManager) {
-      const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
-      // Update the existing manager with restored state by clearing and repopulating
-      context.openFilesManager.clear();
-      const restoredState = restoredManager.toJSON();
-      if (restoredState.files) {
-        for (const [filePath, meta] of Object.entries(restoredState.files)) {
-          context.openFilesManager.open(filePath, { pinned: meta.pinned });
-        }
-      }
-    }
-    
-    currentSessionName = session.name;
-    context.setSessionName?.(session.name);
-
-    return `__SESSION_LOADED__:${session.name}:${session.messages.length}:${session.conversationSummary ? 'yes' : 'no'}`;
+    return applyLoadedSession(session, context);
   },
 };
+
+function applyLoadedSession(session: Session, context: CommandContext): string {
+  context.agent?.loadSession(session.messages, session.conversationSummary);
+
+  if (session.openFilesState && context.openFilesManager) {
+    const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
+    context.openFilesManager.clear();
+    const restoredState = restoredManager.toJSON();
+    if (restoredState.files) {
+      for (const [filePath, meta] of Object.entries(restoredState.files)) {
+        context.openFilesManager.open(filePath, { pinned: meta.pinned });
+      }
+    }
+  }
+
+  currentSessionName = session.name;
+  context.setSessionName?.(session.name);
+
+  return `__SESSION_LOADED__:${session.name}:${session.messages.length}:${session.conversationSummary ? 'yes' : 'no'}`;
+}
 
 export const sessionsCommand: Command = {
   name: 'sessions',
