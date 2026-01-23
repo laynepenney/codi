@@ -225,8 +225,9 @@ export class DebugBridge {
       if (existsSync(CURRENT_LINK)) {
         unlinkSync(CURRENT_LINK);
       }
-      // Create symlink to current session
-      symlinkSync(this.sessionDir, CURRENT_LINK);
+      // Create relative symlink to current session (sessions/<session-id>)
+      const relativeTarget = join('sessions', this.sessionId);
+      symlinkSync(relativeTarget, CURRENT_LINK);
     } catch {
       // Symlinks may fail on Windows or due to permissions, ignore
     }
