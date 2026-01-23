@@ -718,6 +718,23 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
   return display;
 }
 
+function formatConfirmationDetail(confirmation: ToolConfirmation): string | null {
+  const input = confirmation.input as Record<string, unknown>;
+  const command = typeof input.command === 'string' ? input.command : null;
+  if (command) {
+    return `command: ${command}`;
+  }
+  const filePath = typeof input.file_path === 'string' ? input.file_path : null;
+  if (filePath) {
+    return `file: ${filePath}`;
+  }
+  const path = typeof input.path === 'string' ? input.path : null;
+  if (path) {
+    return `path: ${path}`;
+  }
+  return null;
+}
+
 function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
@@ -3230,6 +3247,31 @@ Begin by analyzing the query and planning your research approach.`;
       orchestrator.on('workerLog', (workerId, log) => {
         inkController.addWorkerLog(workerId, log);
       });
+      orchestrator.on('readerStarted', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          inkController.updateReader(state);
+        }
+      });
+      orchestrator.on('readerStatus', (_readerId, state) => {
+        inkController.updateReader(state);
+      });
+      orchestrator.on('readerCompleted', (readerId, result) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          inkController.updateReader(state);
+        }
+        inkController.updateReaderResult(result);
+      });
+      orchestrator.on('readerFailed', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          inkController.updateReader(state);
+        }
+      });
+      orchestrator.on('readerLog', (readerId, log) => {
+        inkController.addReaderLog(readerId, log);
+      });
     } else if (workerStatusUI) {
       orchestrator.on('workerStarted', (workerId) => {
         const state = orchestrator.getWorker(workerId);
@@ -3271,6 +3313,31 @@ Begin by analyzing the query and planning your research approach.`;
       orchestrator.on('workerLog', (workerId, log) => {
         workerStatusUI.updateWorkerLog(workerId, log);
       });
+      orchestrator.on('readerStarted', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          workerStatusUI.updateReaderState(state);
+        }
+      });
+      orchestrator.on('readerStatus', (_readerId, state) => {
+        workerStatusUI.updateReaderState(state);
+      });
+      orchestrator.on('readerCompleted', (readerId, result) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          workerStatusUI.updateReaderState(state);
+        }
+        workerStatusUI.updateReaderResult(result);
+      });
+      orchestrator.on('readerFailed', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          workerStatusUI.updateReaderState(state);
+        }
+      });
+      orchestrator.on('readerLog', (readerId, log) => {
+        workerStatusUI.updateReaderLog(readerId, log);
+      });
     }
     console.log(chalk.dim('Orchestrator: ready'));
   } catch (err) {
@@ -3304,6 +3371,8 @@ Begin by analyzing the query and planning your research approach.`;
         spinner.stop();
         if (useInkUi && inkController) {
           inkController.setStatus({ activity: 'responding', activityDetail: null });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('responding', null);
         }
       }
       if (useInkUi && inkController) {
@@ -3320,6 +3389,8 @@ Begin by analyzing the query and planning your research approach.`;
       spinner.stop();
       if (useInkUi && inkController) {
         inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('thinking', null);
       }
       if (!useInkUi) {
         console.log(chalk.dim.italic('\n💭 Thinking...'));
@@ -3333,6 +3404,8 @@ Begin by analyzing the query and planning your research approach.`;
         spinner.stop();
         if (useInkUi && inkController) {
           inkController.setStatus({ activity: 'thinking', activityDetail: null });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('thinking', null);
         }
         if (!useInkUi) {
           console.log(chalk.dim.italic('\n💭 Thinking...'));
@@ -3366,6 +3439,8 @@ Begin by analyzing the query and planning your research approach.`;
 
       if (useInkUi && inkController) {
         inkController.setStatus({ activity: 'tool', activityDetail: name });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('tool', name);
       }
 
       // Start spinner for tool execution
@@ -3404,6 +3479,8 @@ Begin by analyzing the query and planning your research approach.`;
       }
       if (useInkUi && inkController) {
         inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('thinking', null);
       }
     },
     onConfirm: async (confirmation) => {
@@ -3417,48 +3494,61 @@ Begin by analyzing the query and planning your research approach.`;
         return result;
       }
 
-      console.log('\n' + formatConfirmation(confirmation));
+      workerStatusUI?.setAgentActivity('confirm', confirmation.toolName);
+      const confirmationDetail = formatConfirmationDetail(confirmation);
+      workerStatusUI?.setConfirmation({
+        source: 'agent',
+        toolName: confirmation.toolName,
+        detail: confirmationDetail ?? undefined,
+      });
 
-      // File tools that support path-based approval
-      const FILE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file']);
+      try {
+        console.log('\n' + formatConfirmation(confirmation));
 
-      // Use extended prompt for bash commands or file tools with suggestions
-      const hasApprovalSuggestions = confirmation.approvalSuggestions &&
-        (confirmation.toolName === 'bash' || FILE_TOOLS.has(confirmation.toolName));
+        // File tools that support path-based approval
+        const FILE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file']);
 
-      if (hasApprovalSuggestions) {
-        const result = await promptConfirmationWithSuggestions(rl!, confirmation);
+        // Use extended prompt for bash commands or file tools with suggestions
+        const hasApprovalSuggestions = confirmation.approvalSuggestions &&
+          (confirmation.toolName === 'bash' || FILE_TOOLS.has(confirmation.toolName));
 
-        // Show feedback when pattern/category is saved
-        if (typeof result === 'object') {
-          if (result.type === 'approve_pattern') {
-            if (FILE_TOOLS.has(confirmation.toolName)) {
-              console.log(chalk.green(`\nSaved path pattern: ${result.pattern}`));
-            } else {
-              console.log(chalk.green(`\nSaved pattern: ${result.pattern}`));
-            }
-          } else if (result.type === 'approve_category') {
-            const cat = confirmation.approvalSuggestions!.matchedCategories.find(
-              (c) => c.id === result.categoryId
-            );
-            if (FILE_TOOLS.has(confirmation.toolName)) {
-              console.log(chalk.green(`\nSaved path category: ${cat?.name || result.categoryId}`));
-            } else {
-              console.log(chalk.green(`\nSaved category: ${cat?.name || result.categoryId}`));
+        if (hasApprovalSuggestions) {
+          const result = await promptConfirmationWithSuggestions(rl!, confirmation);
+
+          // Show feedback when pattern/category is saved
+          if (typeof result === 'object') {
+            if (result.type === 'approve_pattern') {
+              if (FILE_TOOLS.has(confirmation.toolName)) {
+                console.log(chalk.green(`\nSaved path pattern: ${result.pattern}`));
+              } else {
+                console.log(chalk.green(`\nSaved pattern: ${result.pattern}`));
+              }
+            } else if (result.type === 'approve_category') {
+              const cat = confirmation.approvalSuggestions!.matchedCategories.find(
+                (c) => c.id === result.categoryId
+              );
+              if (FILE_TOOLS.has(confirmation.toolName)) {
+                console.log(chalk.green(`\nSaved path category: ${cat?.name || result.categoryId}`));
+              } else {
+                console.log(chalk.green(`\nSaved category: ${cat?.name || result.categoryId}`));
+              }
             }
           }
+
+          return result;
         }
 
+        // Standard confirmation for other tools
+        const promptText = confirmation.isDangerous
+          ? chalk.red.bold('Approve? [y/N/abort] ')
+          : chalk.yellow('Approve? [y/N/abort] ');
+
+        const result = await promptConfirmation(rl!, promptText);
         return result;
+      } finally {
+        workerStatusUI?.setConfirmation(null);
+        workerStatusUI?.setAgentActivity('thinking', null);
       }
-
-      // Standard confirmation for other tools
-      const promptText = confirmation.isDangerous
-        ? chalk.red.bold('Approve? [y/N/abort] ')
-        : chalk.yellow('Approve? [y/N/abort] ');
-
-      const result = await promptConfirmation(rl!, promptText);
-      return result;
     },
   });
 
@@ -4217,6 +4307,8 @@ Begin by analyzing the query and planning your research approach.`;
               spinner.thinking();
               if (useInkUi && inkController) {
                 inkController.setStatus({ activity: 'thinking', activityDetail: null });
+              } else if (workerStatusUI) {
+                workerStatusUI.setAgentActivity('thinking', null);
               }
               currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
               const assistantMessageId = currentAssistantMessageId;
@@ -4230,6 +4322,8 @@ Begin by analyzing the query and planning your research approach.`;
                 }
                 if (useInkUi && inkController) {
                   inkController.setStatus({ activity: 'idle', activityDetail: null });
+                } else if (workerStatusUI) {
+                  workerStatusUI.setAgentActivity('idle', null);
                 }
                 currentAssistantMessageId = null;
               }
@@ -4265,6 +4359,8 @@ Begin by analyzing the query and planning your research approach.`;
     spinner.thinking();
     if (useInkUi && inkController) {
       inkController.setStatus({ activity: 'thinking', activityDetail: null });
+    } else if (workerStatusUI) {
+      workerStatusUI.setAgentActivity('thinking', null);
     }
     currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
     const assistantMessageId = currentAssistantMessageId;
@@ -4291,6 +4387,8 @@ Begin by analyzing the query and planning your research approach.`;
       }
       if (useInkUi && inkController) {
         inkController.setStatus({ activity: 'idle', activityDetail: null });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('idle', null);
       }
       currentAssistantMessageId = null;
     }

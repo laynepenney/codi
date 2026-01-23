@@ -1,21 +1,22 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Box, Text, useApp, useInput, useStdout } from 'ink';
+import { Box, Static, Text, useApp, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ConfirmationResult } from '../../agent.js';
-import type { WorkerResult, WorkerState } from '../../orchestrate/types.js';
+import type { ReaderResult, ReaderState, WorkerResult, WorkerState } from '../../orchestrate/types.js';
 import type {
   InkUiController,
   UiConfirmationRequest,
   UiMessage,
+  UiReaderLog,
   UiStatus,
   UiWorkerLog,
 } from './controller.js';
 
-type FocusTarget = 'input' | 'workers' | 'scroll';
+type FocusTarget = 'input' | 'activity';
 
 type LogTone = 'label' | 'body' | 'spacer';
 
@@ -23,6 +24,24 @@ interface LogLine {
   text: string;
   kind?: UiMessage['kind'];
   tone?: LogTone;
+}
+
+interface ActivityLine {
+  text: string;
+  color?: string;
+  dim?: boolean;
+}
+
+interface TreeNode {
+  label: string;
+  color?: string;
+  dim?: boolean;
+  children?: TreeNode[];
+}
+
+interface StaticBlock {
+  id: string;
+  lines: LogLine[];
 }
 
 export interface InkAppProps {
@@ -35,6 +54,10 @@ export interface InkAppProps {
 
 const MAX_LOG_BUFFER_LINES = 500;
 const MAX_HISTORY_ENTRIES = 1000;
+const MIN_LIVE_OUTPUT_LINES = 3;
+const LIVE_OUTPUT_FRACTION = 0.2;
+const MAX_LIVE_OUTPUT_LINES = 10;
+const MAX_LIVE_OUTPUT_FRACTION = 0.35;
 
 const STATUS_LABELS: Record<string, string> = {
   starting: 'STARTING',
@@ -47,7 +70,16 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'CANCELLED',
 };
 
-const SPINNER_FRAMES = ['-', '\\', '|', '/'];
+const STATUS_COLORS: Record<string, string> = {
+  starting: 'yellow',
+  idle: 'blue',
+  thinking: 'cyan',
+  tool_call: 'magenta',
+  waiting_permission: 'yellow',
+  complete: 'green',
+  failed: 'red',
+  cancelled: 'gray',
+};
 
 const MESSAGE_LABELS: Record<UiMessage['kind'], string> = {
   user: 'You',
@@ -66,16 +98,19 @@ const MESSAGE_COLORS = {
 export function InkApp({ controller, onSubmit, onExit, history, completer }: InkAppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [staticBlocks, setStaticBlocks] = useState<StaticBlock[]>([]);
   const [workers, setWorkers] = useState<Map<string, WorkerState>>(new Map());
   const [workerLogs, setWorkerLogs] = useState<Map<string, string[]>>(new Map());
   const [workerResults, setWorkerResults] = useState<Map<string, WorkerResult>>(new Map());
+  const [readers, setReaders] = useState<Map<string, ReaderState>>(new Map());
+  const [readerLogs, setReaderLogs] = useState<Map<string, string[]>>(new Map());
+  const [readerResults, setReaderResults] = useState<Map<string, ReaderResult>>(new Map());
   const [status, setStatus] = useState<UiStatus>(() => controller.getStatus());
   const [focus, setFocus] = useState<FocusTarget>('input');
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [showWorkerLogs, setShowWorkerLogs] = useState(true);
-  const [workerScrollOffset, setWorkerScrollOffset] = useState(0);
-  const [logScrollOffset, setLogScrollOffset] = useState(0);
+  const [showWorkerDetails, setShowWorkerDetails] = useState(true);
+  const [activityScrollOffset, setActivityScrollOffset] = useState(0);
   const [confirmation, setConfirmation] = useState<UiConfirmationRequest | null>(null);
   const [confirmIndex, setConfirmIndex] = useState(0);
   const [inputValue, setInputValue] = useState('');
@@ -87,25 +122,25 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const liveAssistantIdRef = useRef<string | null>(null);
   const liveAssistantRef = useRef<string>('');
   const workersRef = useRef<Map<string, WorkerState>>(new Map());
-  const [spinnerIndex, setSpinnerIndex] = useState(0);
+  const staticBlockCounter = useRef(0);
 
   const contentWidth = Math.max(20, (stdout.columns ?? 80) - 2);
+  const maxLiveLines = useMemo(() => {
+    const rows = stdout.rows ?? 24;
+    const target = Math.floor(rows * LIVE_OUTPUT_FRACTION);
+    const maxByRows = Math.max(MIN_LIVE_OUTPUT_LINES, Math.floor(rows * MAX_LIVE_OUTPUT_FRACTION));
+    const maxLines = Math.min(MAX_LIVE_OUTPUT_LINES, maxByRows);
+    return clamp(target, MIN_LIVE_OUTPUT_LINES, maxLines);
+  }, [stdout.rows]);
 
-  const appendMessageBlock = (lines: LogLine[]) => {
+  const appendStaticBlock = (lines: LogLine[]) => {
     if (lines.length === 0) return;
-    setLogLines((prev) => {
-      const next = [...prev];
-      const addSpacer = next.length > 0;
-      if (addSpacer) {
-        next.push({ text: '', tone: 'spacer' });
-      }
-      next.push(...lines);
-      const added = lines.length + (addSpacer ? 1 : 0);
-      if (added > 0) {
-        setLogScrollOffset((offset) => (offset > 0 ? offset + added : 0));
-      }
-      return next;
-    });
+    const nextLines = [...lines];
+    if (nextLines[nextLines.length - 1]?.text !== '') {
+      nextLines.push({ text: '', tone: 'spacer' });
+    }
+    const id = `b${++staticBlockCounter.current}`;
+    setStaticBlocks((prev) => [...prev, { id, lines: nextLines }]);
   };
 
   useEffect(() => {
@@ -113,7 +148,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       const width = Math.max(20, (stdout.columns ?? 80) - 2);
       if (message.kind === 'assistant') {
         if (message.text && message.text.trim()) {
-          appendMessageBlock(formatMessageBlock(message, width, workersRef.current));
+          appendStaticBlock(formatMessageBlock(message, width, workersRef.current));
           liveAssistantIdRef.current = null;
           liveAssistantRef.current = '';
           setLiveAssistant('');
@@ -124,7 +159,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
         }
         return;
       }
-      appendMessageBlock(formatMessageBlock(message, width, workersRef.current));
+      appendStaticBlock(formatMessageBlock(message, width, workersRef.current));
     };
 
     const onMessageChunk = ({ id, chunk }: { id: string; chunk: string }) => {
@@ -144,7 +179,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       const text = liveAssistantRef.current;
       if (text.trim()) {
         const width = Math.max(20, (stdout.columns ?? 80) - 2);
-        appendMessageBlock(
+        appendStaticBlock(
           formatMessageBlock(
             {
               id,
@@ -192,6 +227,34 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       });
     };
 
+    const onReader = (state: ReaderState) => {
+      setReaders((prev) => {
+        const next = new Map(prev);
+        next.set(state.config.id, state);
+        return next;
+      });
+    };
+
+    const onReaderLog = (entry: UiReaderLog) => {
+      const lines = entry.content.split('\n').filter((line) => line.length > 0);
+      if (lines.length === 0) return;
+      setReaderLogs((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(entry.readerId) ?? [];
+        const combined = existing.concat(lines);
+        next.set(entry.readerId, combined.slice(-MAX_LOG_BUFFER_LINES));
+        return next;
+      });
+    };
+
+    const onReaderResult = (result: ReaderResult) => {
+      setReaderResults((prev) => {
+        const next = new Map(prev);
+        next.set(result.readerId, result);
+        return next;
+      });
+    };
+
     const onStatus = (nextStatus: UiStatus) => {
       setStatus(nextStatus);
     };
@@ -212,6 +275,9 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     controller.on('worker', onWorker);
     controller.on('workerLog', onWorkerLog);
     controller.on('workerResult', onWorkerResult);
+    controller.on('reader', onReader);
+    controller.on('readerLog', onReaderLog);
+    controller.on('readerResult', onReaderResult);
     controller.on('status', onStatus);
     controller.on('confirmation', onConfirmation);
     controller.on('exit', onExitRequest);
@@ -228,6 +294,9 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       controller.off('worker', onWorker);
       controller.off('workerLog', onWorkerLog);
       controller.off('workerResult', onWorkerResult);
+      controller.off('reader', onReader);
+      controller.off('readerLog', onReaderLog);
+      controller.off('readerResult', onReaderResult);
       controller.off('status', onStatus);
       controller.off('confirmation', onConfirmation);
       controller.off('exit', onExitRequest);
@@ -242,6 +311,14 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     });
   }, [workers]);
 
+  const readerList = useMemo(() => {
+    return Array.from(readers.values()).sort((a, b) => {
+      const aTime = a.startedAt?.getTime?.() ?? 0;
+      const bTime = b.startedAt?.getTime?.() ?? 0;
+      return aTime - bTime;
+    });
+  }, [readers]);
+
   useEffect(() => {
     if (!selectedWorkerId && workerList.length > 0) {
       setSelectedWorkerId(workerList[0].config.id);
@@ -253,20 +330,10 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   }, [selectedWorkerId, workerList, workers]);
 
   useEffect(() => {
-    setWorkerScrollOffset(0);
+    setActivityScrollOffset(0);
+    setShowWorkerDetails(true);
   }, [selectedWorkerId, showWorkerLogs]);
 
-  useEffect(() => {
-    const active = status.activity && status.activity !== 'idle';
-    if (!active) {
-      setSpinnerIndex(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setSpinnerIndex((prev) => (prev + 1) % SPINNER_FRAMES.length);
-    }, 120);
-    return () => clearInterval(timer);
-  }, [status.activity]);
 
   const confirmationOptions = useMemo(() => {
     if (!confirmation) return [];
@@ -351,13 +418,8 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       return;
     }
 
-    if (key.ctrl && inputKey === 'g') {
-      setFocus((prev) => (prev === 'scroll' ? 'input' : 'scroll'));
-      return;
-    }
-
     if ((key.shift && key.tab) || (key.ctrl && input.toLowerCase() === 'w')) {
-      setFocus((prev) => (prev === 'input' ? 'workers' : 'input'));
+      setFocus((prev) => (prev === 'input' ? 'activity' : 'input'));
       return;
     }
 
@@ -392,73 +454,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       return;
     }
 
-    if (focus === 'scroll') {
-      const scrollPageUp =
-        key.pageUp || (key.ctrl && inputKey === 'u') || (key.ctrl && inputKey === 'b');
-      const scrollPageDown =
-        key.pageDown || (key.ctrl && inputKey === 'd') || (key.ctrl && inputKey === 'f');
-      const scrollLineUp = key.upArrow || (key.ctrl && inputKey === 'k');
-      const scrollLineDown = key.downArrow || (key.ctrl && inputKey === 'j');
-
-      if (scrollPageUp || scrollPageDown || scrollLineUp || scrollLineDown) {
-        const step = transcriptPanel.scrollStep;
-        const maxStart = transcriptPanel.maxStart;
-        if (maxStart > 0) {
-          let delta = 0;
-          if (scrollPageUp) delta = step;
-          else if (scrollPageDown) delta = -step;
-          else if (scrollLineUp) delta = 1;
-          else if (scrollLineDown) delta = -1;
-          if (delta !== 0) {
-            setLogScrollOffset((prev) => clamp(prev + delta, 0, maxStart));
-          }
-        }
-        return;
-      }
-      if (key.ctrl && inputKey === 'e') {
-        setLogScrollOffset(0);
-        return;
-      }
-      if (key.ctrl && inputKey === 'a') {
-        setLogScrollOffset(transcriptPanel.maxStart);
-        return;
-      }
-      if (key.escape || key.return) {
-        setFocus('input');
-        return;
-      }
-      return;
-    }
-
     if (focus === 'input') {
-      const scrollPageUp =
-        key.pageUp ||
-        (key.ctrl && inputKey === 'u') ||
-        (key.ctrl && inputKey === 'b') ||
-        (key.meta && key.upArrow);
-      const scrollPageDown =
-        key.pageDown ||
-        (key.ctrl && inputKey === 'd') ||
-        (key.ctrl && inputKey === 'f') ||
-        (key.meta && key.downArrow);
-      const scrollLineUp = (key.shift && key.upArrow) || (key.ctrl && inputKey === 'k');
-      const scrollLineDown = (key.shift && key.downArrow) || (key.ctrl && inputKey === 'j');
-
-      if (scrollPageUp || scrollPageDown || scrollLineUp || scrollLineDown) {
-        const step = transcriptPanel.scrollStep;
-        const maxStart = transcriptPanel.maxStart;
-        if (maxStart > 0) {
-          let delta = 0;
-          if (scrollPageUp) delta = step;
-          else if (scrollPageDown) delta = -step;
-          else if (scrollLineUp) delta = 1;
-          else if (scrollLineDown) delta = -1;
-          if (delta !== 0) {
-            setLogScrollOffset((prev) => clamp(prev + delta, 0, maxStart));
-          }
-        }
-        return;
-      }
       if (key.upArrow) {
         handleHistoryUp();
         return;
@@ -473,20 +469,17 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       }
     }
 
-    if (focus === 'workers') {
+    if (focus === 'activity') {
       if (
         key.pageUp ||
         key.pageDown ||
         (key.ctrl && (input.toLowerCase() === 'u' || input.toLowerCase() === 'd'))
       ) {
-        const step = workerPanel.scrollStep || 3;
-        const maxStart = workerPanel.maxStart;
+        const step = activityPanel.scrollStep || 3;
+        const maxStart = activityPanel.maxStart;
         if (maxStart > 0) {
-          const delta = (key.pageUp || (key.ctrl && input.toLowerCase() === 'u')) ? step : -step;
-          setWorkerScrollOffset((prev) => {
-            const next = showWorkerLogs ? prev + delta : prev - delta;
-            return clamp(next, 0, maxStart);
-          });
+          const delta = (key.pageUp || (key.ctrl && input.toLowerCase() === 'u')) ? -step : step;
+          setActivityScrollOffset((prev) => clamp(prev + delta, 0, maxStart));
         }
         return;
       }
@@ -506,6 +499,18 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
         }
         return;
       }
+      if (key.leftArrow) {
+        setShowWorkerDetails(false);
+        return;
+      }
+      if (key.rightArrow) {
+        setShowWorkerDetails(true);
+        return;
+      }
+      if (key.return) {
+        setShowWorkerDetails((prev) => !prev);
+        return;
+      }
       if (input.toLowerCase() === 'l') {
         setShowWorkerLogs((prev) => !prev);
         return;
@@ -521,7 +526,6 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     }
   });
 
-  const selectedWorker = selectedWorkerId ? workers.get(selectedWorkerId) : undefined;
   const liveAssistantLines = useMemo((): LogLine[] => {
     if (!liveAssistant.trim()) return [];
     const block = formatMessageBlock(
@@ -534,106 +538,190 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       contentWidth,
       workersRef.current
     );
-    const lastLine = logLines[logLines.length - 1];
-    if (lastLine && lastLine.text !== '') {
-      return [{ text: '', tone: 'spacer' }, ...block];
-    }
-    return block;
-  }, [liveAssistant, contentWidth, logLines]);
+    return truncateLiveBlock(block, maxLiveLines);
+  }, [liveAssistant, contentWidth, maxLiveLines]);
 
   const workerCount = workerList.length;
+  const readerCount = readerList.length;
 
-  const workerPanel = useMemo(() => {
-    const lines: string[] = [];
-    if (workerList.length === 0) {
-      lines.push('Workers: (none)');
+  const activityPanel = useMemo(() => {
+    const hasWorkers = workerList.length > 0;
+    const hasReaders = readerList.length > 0;
+    const hasActivity = status.activity && status.activity !== 'idle';
+    const hasConfirmation = Boolean(confirmation);
+
+    if (!hasWorkers && !hasReaders && !hasActivity && !hasConfirmation) {
       return {
-        lines,
+        lines: [] as ActivityLine[],
         maxStart: 0,
         scrollStep: 0,
+        total: 0,
       };
     }
-    lines.push('Workers');
-    for (const worker of workerList) {
-      const statusLabel = STATUS_LABELS[worker.status] || worker.status.toUpperCase();
-      const name = worker.config.branch || worker.config.id;
-      const prefix = worker.config.id === selectedWorkerId ? '>' : ' ';
-      const detail =
-        worker.statusMessage ||
-        (worker.currentTool ? `tool: ${worker.currentTool}` : '') ||
-        (worker.progress !== undefined ? `progress: ${worker.progress}%` : '');
-      const line = detail
-        ? `${prefix} ${name} [${statusLabel}] - ${detail}`
-        : `${prefix} ${name} [${statusLabel}]`;
-      lines.push(truncate(line, contentWidth));
-    }
-    lines.push('');
 
-    if (!selectedWorker) {
-      lines.push('(select a worker)');
-      return {
-        lines,
-        maxStart: 0,
-        scrollStep: 0,
-      };
+    const nodes: TreeNode[] = [];
+    const detailMax = Math.max(24, contentWidth - 10);
+    const activityLabel = formatActivity(status);
+    const active = status.activity && status.activity !== 'idle';
+    const spinner = active ? '* ' : '';
+    const agentColor =
+      status.activity === 'confirm' ? 'yellow' : status.activity === 'tool' ? 'magenta' : 'cyan';
+
+    const agentChildren: TreeNode[] = [];
+    if (status.activity === 'tool' && status.activityDetail) {
+      agentChildren.push({ label: `Tool: ${status.activityDetail}`, dim: true });
     }
-    const name = selectedWorker.config.branch || selectedWorker.config.id;
-    const statusLabel = STATUS_LABELS[selectedWorker.status] || selectedWorker.status.toUpperCase();
-    lines.push(truncate(`Worker: ${name}`, contentWidth));
-    lines.push(truncate(`Status: ${statusLabel}`, contentWidth));
-    if (selectedWorker.statusMessage) {
-      lines.push(truncate(`Note: ${selectedWorker.statusMessage}`, contentWidth));
-    }
-    if (selectedWorker.config.task) {
-      lines.push(truncate(`Task: ${selectedWorker.config.task}`, contentWidth));
-    }
-    if (selectedWorker.progress !== undefined) {
-      lines.push(truncate(`Progress: ${selectedWorker.progress}%`, contentWidth));
-    }
-    if (selectedWorker.currentTool) {
-      lines.push(truncate(`Tool: ${selectedWorker.currentTool}`, contentWidth));
+    if (status.activity === 'confirm' && status.activityDetail) {
+      agentChildren.push({ label: `Confirm: ${status.activityDetail}`, dim: true });
     }
 
-    const result = workerResults.get(selectedWorker.config.id);
-    const logs = workerLogs.get(selectedWorker.config.id) ?? [];
+    nodes.push({
+      label: `${spinner}Agent: ${activityLabel}`.trimEnd(),
+      color: active ? agentColor : 'gray',
+      dim: !active,
+      children: agentChildren,
+    });
 
-    lines.push('');
-    const bodyLines = showWorkerLogs
-      ? (logs.length > 0 ? logs : ['(no logs yet)'])
-      : (result?.response ? result.response.split('\n') : ['(no result yet)']);
-    const wrapped = wrapLines(bodyLines, contentWidth - 4);
-    const maxBodyLines = Math.max(6, Math.min(18, Math.floor((stdout.rows ?? 30) / 2)));
-    const maxStart = Math.max(0, wrapped.length - maxBodyLines);
-    const scrollStep = Math.max(3, Math.floor(maxBodyLines / 2));
-    const offset = clamp(workerScrollOffset, 0, maxStart);
-    const start = showWorkerLogs ? Math.max(0, maxStart - offset) : offset;
-    const end = Math.min(wrapped.length, start + maxBodyLines);
-    const rangeLabel = wrapped.length > 0 ? `${start + 1}-${end} of ${wrapped.length}` : '0';
-    lines.push(`${showWorkerLogs ? 'Logs' : 'Result'} (${rangeLabel})`);
-    const slice = wrapped.slice(start, end);
-    for (const line of slice) {
-      lines.push(line ? `  ${line}` : '');
+    if (hasConfirmation && confirmation) {
+      const source =
+        confirmation.source === 'worker' ? `Worker ${confirmation.workerId ?? ''}` : 'Agent';
+      const confirmChildren: TreeNode[] = [
+        { label: `Source: ${source}`, dim: true },
+        { label: formatConfirmationTarget(confirmation), dim: true },
+      ];
+      nodes.push({
+        label: `Confirm: ${confirmation.confirmation.toolName}`,
+        color: 'yellow',
+        children: confirmChildren,
+      });
     }
+
+    if (hasWorkers) {
+      const workerNodes: TreeNode[] = workerList.map((worker) => {
+        const statusLabel = STATUS_LABELS[worker.status] || worker.status.toUpperCase();
+        const statusColor = STATUS_COLORS[worker.status] ?? undefined;
+        const name = worker.config.branch || worker.config.id;
+        const isSelected = worker.config.id === selectedWorkerId;
+        const detail = truncate(
+          normalizeInline(
+            worker.statusMessage ||
+              (worker.currentTool ? `tool: ${worker.currentTool}` : '') ||
+              (worker.progress !== undefined ? `progress: ${worker.progress}%` : '')
+          ),
+          detailMax
+        );
+        const label = detail
+          ? `${isSelected ? '> ' : ''}${name} [${statusLabel}] - ${detail}`
+          : `${isSelected ? '> ' : ''}${name} [${statusLabel}]`;
+
+        const children: TreeNode[] = [];
+        if (isSelected && showWorkerDetails) {
+          if (worker.config.task) {
+            children.push({ label: `task: ${normalizeInline(worker.config.task)}`, dim: true });
+          }
+          if (worker.error) {
+            children.push({ label: `error: ${worker.error}`, color: 'red' });
+          }
+          if (showWorkerLogs) {
+            const logs = workerLogs.get(worker.config.id) ?? [];
+            const lastLog = logs.length > 0 ? normalizeInline(logs[logs.length - 1] ?? '') : '';
+            if (lastLog) {
+              children.push({ label: `last: ${lastLog}`, dim: true });
+            }
+          } else {
+            const result = workerResults.get(worker.config.id);
+            const snippet = result?.response ? firstNonEmptyLine(result.response) : null;
+            if (snippet) {
+              children.push({ label: `result: ${normalizeInline(snippet)}`, dim: true });
+            }
+          }
+        }
+
+        return {
+          label,
+          color: statusColor,
+          children,
+        };
+      });
+
+      nodes.push({
+        label: `Workers (${workerList.length})`,
+        children: workerNodes,
+      });
+    }
+
+    if (hasReaders) {
+      const readerNodes: TreeNode[] = readerList.map((reader) => {
+        const statusLabel = STATUS_LABELS[reader.status] || reader.status.toUpperCase();
+        const statusColor = STATUS_COLORS[reader.status] ?? undefined;
+        const name = `reader:${reader.config.id.slice(-5)}`;
+        const logs = readerLogs.get(reader.config.id) ?? [];
+        const lastLog = logs.length > 0 ? normalizeInline(logs[logs.length - 1] ?? '') : '';
+        const result = readerResults.get(reader.config.id);
+        const snippet = result?.response ? firstNonEmptyLine(result.response) : null;
+        const errorDetail = reader.error ? `error: ${reader.error}` : '';
+        const detail = truncate(
+          normalizeInline(
+            showWorkerLogs
+              ? (errorDetail || lastLog || (reader.currentTool ? `tool: ${reader.currentTool}` : ''))
+              : (errorDetail || snippet || lastLog || (reader.currentTool ? `tool: ${reader.currentTool}` : ''))
+          ),
+          detailMax
+        );
+        const label = detail
+          ? `${name} [${statusLabel}] - ${detail}`
+          : `${name} [${statusLabel}]`;
+
+        return {
+          label,
+          color: statusColor,
+        };
+      });
+
+      nodes.push({
+        label: `Readers (${readerList.length})`,
+        children: readerNodes,
+      });
+    }
+
+    const allLines: ActivityLine[] = [
+      { text: 'Activity', dim: true },
+      ...renderTree(nodes, contentWidth),
+    ];
+
+    const maxHeight = Math.max(3, Math.min(allLines.length, Math.floor((stdout.rows ?? 24) / 3)));
+    const maxStart = Math.max(0, allLines.length - maxHeight);
+    const offset = clamp(activityScrollOffset, 0, maxStart);
+    const start = offset;
+    const end = Math.min(allLines.length, start + maxHeight);
+    const scrollStep = Math.max(2, Math.floor(maxHeight / 2));
+
     return {
-      lines,
+      lines: allLines.slice(start, end),
       maxStart,
       scrollStep,
+      total: allLines.length,
     };
   }, [
     workerList,
-    selectedWorker,
-    selectedWorkerId,
     workerLogs,
     workerResults,
+    selectedWorkerId,
     showWorkerLogs,
+    showWorkerDetails,
+    readerList,
+    readerLogs,
+    readerResults,
+    status,
+    confirmation,
     contentWidth,
     stdout.rows,
-    workerScrollOffset,
+    activityScrollOffset,
   ]);
 
   useEffect(() => {
-    setWorkerScrollOffset((prev) => clamp(prev, 0, workerPanel.maxStart));
-  }, [workerPanel.maxStart]);
+    setActivityScrollOffset((prev) => clamp(prev, 0, activityPanel.maxStart));
+  }, [activityPanel.maxStart]);
 
   const confirmationLines = useMemo(() => {
     if (!confirmation) return [];
@@ -664,98 +752,42 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     const modelLabel = status.provider && status.model ? `${status.provider}/${status.model}` : 'unknown';
     const activityLabel = formatActivity(status);
     const active = status.activity && status.activity !== 'idle';
-    const spinner = active ? `${SPINNER_FRAMES[spinnerIndex]} ` : '';
+    const spinner = active ? '* ' : '';
     const activityLine = `${spinner}${activityLabel}`.trimEnd();
 
-    const infoParts = [`Session ${session}`, `Model ${modelLabel}`, `Workers ${workerCount}`];
-    if (focus === 'workers') {
-      infoParts.push('Focus workers');
-    } else if (focus === 'scroll') {
-      infoParts.push('Focus scroll');
+    const infoParts = [
+      `Session ${session}`,
+      `Model ${modelLabel}`,
+      `Workers ${workerCount}`,
+      `Readers ${readerCount}`,
+    ];
+    if (focus === 'activity') {
+      infoParts.push('Focus activity');
     }
     const infoLine = infoParts.join(' | ');
     const combined = `${activityLine} | ${infoLine}`;
 
     const baseLines = combined.length <= contentWidth ? [combined] : [activityLine, infoLine];
     return wrapDisplayLines(baseLines, contentWidth);
-  }, [status, focus, contentWidth, workerCount, spinnerIndex]);
-
-  const estimatedTranscriptCapacity = useMemo(() => {
-    const rows = stdout.rows ?? 24;
-    const inputHeight = 1;
-    const workerHeight = focus === 'workers' ? workerPanel.lines.length : 0;
-    const confirmationHeight = confirmationLines.length;
-    const reserved = statusLines.length + inputHeight + workerHeight + confirmationHeight;
-    return Math.max(1, rows - reserved);
-  }, [stdout.rows, statusLines.length, focus, workerPanel.lines.length, confirmationLines.length]);
-
-  const canScrollTranscript = useMemo(() => {
-    const totalLines = logLines.length + liveAssistantLines.length;
-    return totalLines > estimatedTranscriptCapacity;
-  }, [logLines.length, liveAssistantLines.length, estimatedTranscriptCapacity]);
+  }, [status, focus, contentWidth, workerCount, readerCount]);
 
   const hintLine = useMemo(() => {
     if (confirmation) {
       return 'Confirm: Up/Down, Enter, y=approve, n=deny, a=abort';
     }
-    if (focus === 'workers') {
-      return 'Workers: Up/Down select | PgUp/PgDn or Ctrl+U/Ctrl+D scroll | L logs/result | Esc back';
-    }
-    if (focus === 'scroll') {
-      return 'Scroll mode: Up/Down line | PgUp/PgDn page | Ctrl+A/Ctrl+E | Esc back';
+    if (focus === 'activity') {
+      return 'Activity: Up/Down select | Left/Right or Enter expand | PgUp/PgDn scroll | L log/result | Esc back';
     }
     if (completionHint) {
       return completionHint;
     }
-    if (canScrollTranscript || logScrollOffset > 0) {
-      return 'Scroll: Ctrl+G (arrows)';
-    }
     return null;
-  }, [confirmation, focus, completionHint, canScrollTranscript, logScrollOffset]);
+  }, [confirmation, focus, completionHint]);
 
   const hintLines = useMemo(() => {
     if (!hintLine) return [];
     return wrapDisplayLines([hintLine], contentWidth);
   }, [hintLine, contentWidth]);
-
-  const transcriptPanel = useMemo(() => {
-    const rows = stdout.rows ?? 24;
-    const statusHeight = statusLines.length;
-    const hintHeight = hintLines.length;
-    const inputHeight = 1;
-    const workerHeight = focus === 'workers' ? workerPanel.lines.length : 0;
-    const confirmationHeight = confirmationLines.length;
-    const reserved = statusHeight + hintHeight + inputHeight + workerHeight + confirmationHeight;
-    const available = Math.max(1, rows - reserved);
-    const fullLines = logScrollOffset === 0 ? [...logLines, ...liveAssistantLines] : logLines;
-    const maxStart = Math.max(0, fullLines.length - available);
-    const offset = clamp(logScrollOffset, 0, maxStart);
-    const start = Math.max(0, fullLines.length - available - offset);
-    const end = Math.min(fullLines.length, start + available);
-    const scrollStep = Math.max(3, Math.floor(available / 2));
-    return {
-      lines: fullLines.slice(start, end),
-      maxStart,
-      scrollStep,
-      start,
-      end,
-      total: fullLines.length,
-    };
-  }, [
-    stdout.rows,
-    statusLines.length,
-    hintLines.length,
-    focus,
-    workerPanel.lines.length,
-    confirmationLines.length,
-    logLines,
-    liveAssistantLines,
-    logScrollOffset,
-  ]);
-
-  useEffect(() => {
-    setLogScrollOffset((prev) => clamp(prev, 0, transcriptPanel.maxStart));
-  }, [transcriptPanel.maxStart]);
 
   const handleSubmit = async (submitted?: string) => {
     const trimmed = (submitted ?? inputValue).trim();
@@ -774,21 +806,40 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
 
   return (
     <Box flexDirection="column">
-      <Box flexDirection="column">
-        {transcriptPanel.lines.map((line, index) => (
-          <Text
-            key={`log-${index}`}
-            color={line.tone === 'label' && line.kind ? MESSAGE_COLORS[line.kind] : undefined}
-            dimColor={line.tone === 'label'}
-          >
-            {line.text || ' '}
-          </Text>
-        ))}
-      </Box>
-      {focus === 'workers' && (
+      <Static items={staticBlocks}>
+        {(block) => (
+          <Box key={block.id} flexDirection="column">
+            {block.lines.map((line, index) => (
+              <Text
+                key={`${block.id}-${index}`}
+                color={line.tone === 'label' && line.kind ? MESSAGE_COLORS[line.kind] : undefined}
+                dimColor={line.tone === 'label'}
+              >
+                {line.text || ' '}
+              </Text>
+            ))}
+          </Box>
+        )}
+      </Static>
+      {liveAssistantLines.length > 0 && (
         <Box flexDirection="column">
-          {workerPanel.lines.map((line, index) => (
-            <Text key={`workers-${index}`}>{line}</Text>
+          {liveAssistantLines.map((line, index) => (
+            <Text
+              key={`live-${index}`}
+              color={line.tone === 'label' && line.kind ? MESSAGE_COLORS[line.kind] : undefined}
+              dimColor={line.tone === 'label'}
+            >
+              {line.text || ' '}
+            </Text>
+          ))}
+        </Box>
+      )}
+      {activityPanel.lines.length > 0 && (
+        <Box flexDirection="column">
+          {activityPanel.lines.map((line, index) => (
+            <Text key={`activity-${index}`} color={line.color} dimColor={line.dim}>
+              {line.text || ' '}
+            </Text>
           ))}
         </Box>
       )}
@@ -927,6 +978,17 @@ function wrapDisplayLines(lines: string[], width: number): string[] {
   return wrapped;
 }
 
+function truncateLiveBlock(lines: LogLine[], maxLines: number): LogLine[] {
+  if (lines.length <= maxLines) return lines;
+  if (maxLines <= 1) return lines.slice(0, 1);
+  if (maxLines === 2) return [lines[0], lines[lines.length - 1]];
+  const label = lines[0];
+  const tailCount = Math.max(1, maxLines - 2);
+  const tail = lines.slice(-tailCount);
+  const ellipsis: LogLine = { text: '  ...', kind: label.kind, tone: 'body' };
+  return [label, ellipsis, ...tail];
+}
+
 function wrapParagraph(text: string, width: number): string[] {
   if (width <= 0) return [''];
   const words = text.split(/\s+/);
@@ -979,14 +1041,6 @@ function splitLongWord(word: string, width: number): string[] {
   return lines;
 }
 
-function wrapLines(lines: string[], width: number): string[] {
-  const wrapped: string[] = [];
-  for (const line of lines) {
-    wrapped.push(...wrapParagraph(line, width));
-  }
-  return wrapped;
-}
-
 function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 3)}...`;
@@ -1011,4 +1065,45 @@ function commonPrefix(values: string[]): string {
     if (!prefix) return '';
   }
   return prefix;
+}
+
+function normalizeInline(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function firstNonEmptyLine(text: string): string | null {
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function wrapWithPrefix(prefix: string, text: string, width: number): string[] {
+  const available = Math.max(1, width - prefix.length);
+  const wrapped = wrapParagraph(text, available);
+  if (wrapped.length === 0) {
+    return [prefix.trimEnd()];
+  }
+  return wrapped.map((line, index) =>
+    index === 0 ? `${prefix}${line}` : `${' '.repeat(prefix.length)}${line}`
+  );
+}
+
+function renderTree(nodes: TreeNode[], width: number, prefix = ''): ActivityLine[] {
+  const lines: ActivityLine[] = [];
+  nodes.forEach((node, index) => {
+    const isLast = index === nodes.length - 1;
+    const branch = isLast ? '`- ' : '|- ';
+    const linePrefix = `${prefix}${branch}`;
+    const wrapped = wrapWithPrefix(linePrefix, node.label, width);
+    for (const line of wrapped) {
+      lines.push({ text: line, color: node.color, dim: node.dim });
+    }
+    if (node.children && node.children.length > 0) {
+      const childPrefix = `${prefix}${isLast ? '   ' : '|  '}`;
+      lines.push(...renderTree(node.children, width, childPrefix));
+    }
+  });
+  return lines;
 }

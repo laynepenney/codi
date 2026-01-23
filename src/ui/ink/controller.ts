@@ -4,7 +4,7 @@
 import { EventEmitter } from 'events';
 
 import type { ToolConfirmation, ConfirmationResult } from '../../agent.js';
-import type { WorkerState, WorkerResult } from '../../orchestrate/types.js';
+import type { WorkerState, WorkerResult, ReaderState, ReaderResult } from '../../orchestrate/types.js';
 import type { LogMessage } from '../../orchestrate/ipc/protocol.js';
 
 export type UiMessageKind = 'user' | 'assistant' | 'system' | 'worker';
@@ -20,6 +20,14 @@ export interface UiMessage {
 export interface UiWorkerLog {
   id: string;
   workerId: string;
+  level: LogMessage['level'];
+  content: string;
+  timestamp: number;
+}
+
+export interface UiReaderLog {
+  id: string;
+  readerId: string;
   level: LogMessage['level'];
   content: string;
   timestamp: number;
@@ -90,12 +98,31 @@ export class InkUiController extends EventEmitter {
     this.emit('workerLog', entry);
   }
 
+  addReaderLog(readerId: string, log: LogMessage): void {
+    const entry: UiReaderLog = {
+      id: `r${++this.logCounter}`,
+      readerId,
+      level: log.level,
+      content: log.content,
+      timestamp: Date.now(),
+    };
+    this.emit('readerLog', entry);
+  }
+
   updateWorker(state: WorkerState): void {
     this.emit('worker', state);
   }
 
   updateWorkerResult(result: WorkerResult): void {
     this.emit('workerResult', result);
+  }
+
+  updateReader(state: ReaderState): void {
+    this.emit('reader', state);
+  }
+
+  updateReaderResult(result: ReaderResult): void {
+    this.emit('readerResult', result);
   }
 
   setStatus(status: UiStatus): void {
@@ -155,6 +182,9 @@ export interface InkUiControllerEvents {
   worker: (state: WorkerState) => void;
   workerLog: (entry: UiWorkerLog) => void;
   workerResult: (result: WorkerResult) => void;
+  reader: (state: ReaderState) => void;
+  readerLog: (entry: UiReaderLog) => void;
+  readerResult: (result: ReaderResult) => void;
   status: (status: UiStatus) => void;
   confirmation: (request: UiConfirmationRequest | null) => void;
   exit: () => void;

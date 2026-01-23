@@ -20,8 +20,13 @@ import { EventEmitter } from 'events';
  * Child processes need the compiled .js file since they run with node directly.
  */
 function resolveCodiPath(inputPath: string): string {
-  // If it's a .ts file, convert to the compiled .js equivalent
+  // If it's a .ts file, prefer source in dev unless explicitly forced to dist.
   if (inputPath.endsWith('.ts')) {
+    const preferSource = process.env.CODI_USE_DIST !== '1';
+    if (preferSource) {
+      return inputPath;
+    }
+
     // Convert src/index.ts -> dist/index.js
     const compiledPath = inputPath
       .replace(/\/src\//, '/dist/')
@@ -96,6 +101,8 @@ export interface OrchestratorEvents {
   readerCompleted: (readerId: string, result: ReaderResult) => void;
   /** Reader failed */
   readerFailed: (readerId: string, error: string) => void;
+  /** Reader log message */
+  readerLog: (readerId: string, log: LogMessage) => void;
 }
 
 /**
@@ -486,7 +493,8 @@ export class Orchestrator extends EventEmitter {
     }
     // Note: scope is not a CLI flag - it should be included in the query itself
 
-    const proc = spawn('node', [this.config.codiPath, ...args], {
+    const { command, args: childArgs } = this.resolveChildCommand(args);
+    const proc = spawn(command, childArgs, {
       cwd: this.config.repoRoot, // Run in main repo, not a worktree
       env: {
         ...process.env,
@@ -500,19 +508,41 @@ export class Orchestrator extends EventEmitter {
 
     this.processes.set(readerId, proc);
 
-    // Handle stdout (for debugging)
+    // Handle stdout/stderr for debugging or failures (readers report via IPC)
+    const showReaderStdout = process.env.CODI_READER_STDIO === '1';
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+
     proc.stdout?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.log(chalk.dim(`[reader:${readerId.slice(-5)}] ${text}`));
+      stdoutBuffer += data.toString();
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop() || '';
+      if (!showReaderStdout) {
+        return;
+      }
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(readerId, createMessage<LogMessage>('log', {
+          childId: readerId,
+          level: 'info',
+          content: text,
+        }));
       }
     });
 
-    // Handle stderr
     proc.stderr?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.error(chalk.red(`[reader:${readerId.slice(-5)}] ${text}`));
+      stderrBuffer += data.toString();
+      const lines = stderrBuffer.split('\n');
+      stderrBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(readerId, createMessage<LogMessage>('log', {
+          childId: readerId,
+          level: 'error',
+          content: text,
+        }));
       }
     });
 
@@ -908,6 +938,13 @@ export class Orchestrator extends EventEmitter {
     }
 
     const readerState = this.readers.get(childId);
+    if (readerState) {
+      this.appendLog(childId, log);
+      if (this.listenerCount('readerLog') > 0) {
+        this.emit('readerLog', childId, log);
+        return;
+      }
+    }
     const prefix = workerState
       ? `[${workerState.config.branch}]`
       : readerState

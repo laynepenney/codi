@@ -1,6 +1,22 @@
-import { Interface as ReadlineInterface } from 'readline';
+import { clearScreenDown, cursorTo, emitKeypressEvents, Interface as ReadlineInterface, moveCursor } from 'readline';
 import { SessionInfo, formatSessionInfo } from './session.js';
 import chalk from 'chalk';
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function countRenderedRows(lines: string[], columns: number): number {
+  if (lines.length === 0) return 0;
+  const width = Math.max(1, columns);
+  let rows = 0;
+  for (const line of lines) {
+    const plain = stripAnsi(line);
+    const len = plain.length;
+    rows += Math.max(1, Math.ceil(len / width));
+  }
+  return rows;
+}
 
 /**
  * Options for session selection
@@ -31,6 +47,7 @@ export class SessionSelector {
   private options: Required<SessionSelectionOptions>;
   private selectedIndex: number = 0;
   private keypressHandler: ((chunk: Buffer, key: any) => void) | null = null;
+  private renderedRows = 0;
 
   constructor(rl: ReadlineInterface, sessions: SessionInfo[], options?: SessionSelectionOptions) {
     this.rl = rl;
@@ -106,6 +123,10 @@ export class SessionSelector {
         return;
       }
 
+      const stdin = process.stdin as NodeJS.ReadStream & { isRaw?: boolean };
+      const wasRaw = Boolean(stdin.isRaw);
+      const wasStdinPaused = typeof stdin.isPaused === 'function' ? stdin.isPaused() : false;
+
       // Save current readline state
       const input = (this.rl as { input?: NodeJS.ReadableStream }).input;
       const wasPaused = typeof input?.isPaused === 'function' ? input.isPaused() : false;
@@ -114,20 +135,12 @@ export class SessionSelector {
       }
 
       // Enable raw mode to capture individual key presses
+      emitKeypressEvents(process.stdin);
       process.stdin.setRawMode(true);
       process.stdin.resume();
 
-      console.log(chalk.bold(`\n${this.options.promptMessage}`));
-
       // Render initial selection
       this.renderSelection();
-
-      // Show help text
-      console.log(chalk.dim('\n(Use ↑↓ arrow keys to navigate, Enter to select, Esc/q to cancel)'));
-      console.log(chalk.dim('(Or type a number 1-9 to jump to that session)'));
-      
-      // Prompt for input
-      process.stdout.write(chalk.cyan('> '));
 
       // Handle keypress events
       const handleKeypress = (chunk: Buffer, key: any) => {
@@ -139,22 +152,23 @@ export class SessionSelector {
         if (key.name === 'up') {
           this.selectedIndex = this.selectedIndex > 0 ? this.selectedIndex - 1 : this.sessions.length - 1;
           this.renderSelection();
-          process.stdout.write(chalk.cyan('> '));
           return;
         }
 
         if (key.name === 'down') {
           this.selectedIndex = this.selectedIndex < this.sessions.length - 1 ? this.selectedIndex + 1 : 0;
           this.renderSelection();
-          process.stdout.write(chalk.cyan('> '));
           return;
         }
 
         // Handle Enter to select
         if (key.name === 'return' || key.name === 'enter') {
-          this.cleanup();
+          this.cleanup(wasRaw);
           if (!wasPaused && this.rl.resume) {
             this.rl.resume();
+          }
+          if (!wasStdinPaused) {
+            process.stdin.resume();
           }
           process.stdout.write('\n');
           resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
@@ -163,9 +177,12 @@ export class SessionSelector {
 
         // Handle Escape or 'q' to cancel
         if (key.name === 'escape' || (key.name === 'q' && !key.ctrl)) {
-          this.cleanup();
+          this.cleanup(wasRaw);
           if (!wasPaused && this.rl.resume) {
             this.rl.resume();
+          }
+          if (!wasStdinPaused) {
+            process.stdin.resume();
           }
           process.stdout.write('\n');
           resolve({ session: null, cancelled: true });
@@ -174,9 +191,12 @@ export class SessionSelector {
 
         // Handle Ctrl+C to cancel
         if (key.name === 'c' && key.ctrl) {
-          this.cleanup();
+          this.cleanup(wasRaw);
           if (!wasPaused && this.rl.resume) {
             this.rl.resume();
+          }
+          if (!wasStdinPaused) {
+            process.stdin.resume();
           }
           process.stdout.write('\n');
           resolve({ session: null, cancelled: true });
@@ -187,9 +207,12 @@ export class SessionSelector {
         if (key.name && /^\d$/.test(key.name)) {
           const num = Number.parseInt(key.name, 10);
           if (num >= 1 && num <= this.sessions.length) {
-            this.cleanup();
+            this.cleanup(wasRaw);
             if (!wasPaused && this.rl.resume) {
               this.rl.resume();
+            }
+            if (!wasStdinPaused) {
+              process.stdin.resume();
             }
             process.stdout.write('\n');
             resolve({ session: this.sessions[num - 1] || null, cancelled: false });
@@ -210,36 +233,57 @@ export class SessionSelector {
    * Render the current selection state
    */
   private renderSelection(): void {
-    // Move cursor up to overwrite previous selection
-    process.stdout.write('\x1B[u'); // Restore cursor position
-    process.stdout.write('\x1B[J'); // Clear from cursor to end of screen
-    
-    // Display sessions with selection indicator
-    this.sessions.forEach((session, index) => {
+    if (this.renderedRows > 0) {
+      cursorTo(process.stdout, 0);
+      if (this.renderedRows > 1) {
+        moveCursor(process.stdout, 0, -(this.renderedRows - 1));
+      }
+      clearScreenDown(process.stdout);
+    }
+
+    const lines: string[] = [];
+    lines.push('');
+    lines.push(chalk.bold(this.options.promptMessage));
+    for (const [index, session] of this.sessions.entries()) {
       const prefix = index === this.selectedIndex ? chalk.green('▶ ') : '  ';
-      console.log(prefix + (index === this.selectedIndex ? chalk.bold(this.formatSessionInfo(session)) : chalk.dim(this.formatSessionInfo(session))));
-    });
-    
-    // Save cursor position for next render
-    process.stdout.write('\x1B[s'); // Save cursor position
+      const label = index === this.selectedIndex
+        ? chalk.bold(this.formatSessionInfo(session))
+        : chalk.dim(this.formatSessionInfo(session));
+      lines.push(prefix + label);
+    }
+    lines.push('');
+    lines.push(chalk.dim('(Use ↑↓ arrow keys to navigate, Enter to select, Esc/q to cancel)'));
+    lines.push(chalk.dim('(Or type a number 1-9 to jump to that session)'));
+    lines.push(chalk.cyan('> '));
+
+    process.stdout.write(lines.join('\n'));
+    const columns = Math.max(20, process.stdout.columns || 80);
+    this.renderedRows = countRenderedRows(lines, columns);
   }
 
   /**
    * Cleanup resources and restore state
    */
-  private cleanup(): void {
-    // Disable raw mode
-    process.stdin.setRawMode(false);
-    process.stdin.pause();
+  private cleanup(wasRaw: boolean): void {
+    // Restore raw mode
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(wasRaw);
+    }
 
     // Remove keypress listener if it exists
     if (this.keypressHandler) {
       process.stdin.removeListener('keypress', this.keypressHandler);
       this.keypressHandler = null;
     }
-    
-    // Clear any saved cursor positions
-    process.stdout.write('\x1B[u\x1B[J'); // Restore cursor and clear
+
+    if (this.renderedRows > 0) {
+      cursorTo(process.stdout, 0);
+      if (this.renderedRows > 1) {
+        moveCursor(process.stdout, 0, -(this.renderedRows - 1));
+      }
+      clearScreenDown(process.stdout);
+      this.renderedRows = 0;
+    }
   }
 
   /**
