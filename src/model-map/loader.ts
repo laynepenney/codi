@@ -723,3 +723,91 @@ export function initModelMap(
 export function getGlobalConfigDir(): string {
   return GLOBAL_CONFIG_DIR;
 }
+
+/**
+ * Add a model to an existing model map file.
+ * Creates the file if it doesn't exist.
+ *
+ * @param name Model alias name
+ * @param provider Provider type (anthropic, openai, ollama, etc.)
+ * @param model Model ID
+ * @param description Optional description
+ * @param global If true, adds to global config (~/.codi/models.yaml)
+ * @param cwd Working directory for project config
+ */
+export function addModelToMap(
+  name: string,
+  provider: string,
+  model: string,
+  description?: string,
+  global: boolean = false,
+  cwd: string = process.cwd()
+): { success: boolean; path: string; error?: string } {
+  const targetDir = global ? GLOBAL_CONFIG_DIR : cwd;
+  const fileName = global ? GLOBAL_MODEL_MAP_FILE : MODEL_MAP_FILE;
+  const configPath = path.join(targetDir, fileName);
+
+  // Ensure directory exists for global config
+  if (global && !fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (error) {
+      return {
+        success: false,
+        path: configPath,
+        error: `Failed to create directory: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  // Load existing config or create new one
+  let config: ModelMapConfig;
+  if (fs.existsSync(configPath)) {
+    try {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      config = yaml.load(content) as ModelMapConfig;
+      if (!config.models) config.models = {};
+    } catch (error) {
+      return {
+        success: false,
+        path: configPath,
+        error: `Failed to parse existing config: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  } else {
+    // Create minimal config
+    config = {
+      version: '1',
+      models: {},
+    };
+  }
+
+  // Check if model already exists
+  if (config.models[name]) {
+    return {
+      success: false,
+      path: configPath,
+      error: `Model "${name}" already exists. Use a different name or edit the file directly.`,
+    };
+  }
+
+  // Add the model
+  config.models[name] = {
+    provider,
+    model,
+    ...(description && { description }),
+  };
+
+  // Write back
+  try {
+    const yamlContent = yaml.dump(config, { lineWidth: 100, noRefs: true });
+    fs.writeFileSync(configPath, yamlContent);
+    return { success: true, path: configPath };
+  } catch (error) {
+    return {
+      success: false,
+      path: configPath,
+      error: `Failed to write config: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
