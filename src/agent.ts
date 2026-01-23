@@ -7,7 +7,7 @@ import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 import { recordUsage } from './usage.js';
 import { AGENT_CONFIG, TOOL_CATEGORIES, CONTEXT_OPTIMIZATION, type DangerousPattern } from './constants.js';
-import { computeContextConfig, FIXED_CONFIG, type ComputedContextConfig } from './context-config.js';
+import { computeContextConfig, computeScaledContextConfig, FIXED_CONFIG, type ComputedContextConfig } from './context-config.js';
 import type { ModelMap } from './model-map/index.js';
 import {
   compressContext,
@@ -1669,6 +1669,9 @@ ${contextToSummarize}`,
       }
     }
 
+    // Compute scaled config based on effective limit
+    const scaledConfig = computeScaledContextConfig(this.contextConfig, this.maxContextTokens);
+
     return {
       tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,
       messageTokens,
@@ -1677,9 +1680,9 @@ ${contextToSummarize}`,
       maxTokens: this.maxContextTokens,
       contextWindow: this.provider.getContextWindow(),
       effectiveLimit: this.maxContextTokens, // Always use the configured maxContextTokens
-      outputReserve: this.contextConfig.maxOutputTokens,
-      safetyBuffer: this.contextConfig.safetyBuffer,
-      tierName: this.contextConfig.tierName,
+      outputReserve: scaledConfig.maxOutputTokens,
+      safetyBuffer: scaledConfig.safetyBuffer,
+      tierName: scaledConfig.tierName,
       messages: this.messages.length,
       userMessages,
       assistantMessages,
