@@ -17,6 +17,7 @@ import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { promptSessionSelection } from './session-selection.js';
+import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
 import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
@@ -252,6 +253,7 @@ async function resolveFileList(
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
+import { shutdownAllRateLimiters } from './providers/rate-limiter.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
 import { detectProject, formatProjectContext, loadContextFile } from './context.js';
 import { OpenFilesManager } from './open-files.js';
@@ -328,6 +330,7 @@ import { spinner } from './spinner.js';
 import { logger, parseLogLevel, LogLevel } from './logger.js';
 import { MCPClientManager, startMCPServer } from './mcp/index.js';
 import { AuditLogger, initAuditLogger, getAuditLogger } from './audit.js';
+import { initDebugBridge, getDebugBridge, isDebugBridgeEnabled } from './debug-bridge.js';
 
 // CLI setup
 program
@@ -352,6 +355,7 @@ program
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
   .option('--no-mcp', 'Disable MCP server connections (ignore mcpServers in config)')
   .option('--audit', 'Enable audit logging (writes to ~/.codi/audit/)')
+  .option('--debug-bridge', 'Enable debug bridge for live debugging (writes to ~/.codi/debug/)')
   // Non-interactive mode options
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
@@ -541,6 +545,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
   console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
   console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
+  console.log(chalk.dim('  ESC                    - Interrupt current AI processing and return to prompt'));
   console.log();
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
@@ -556,7 +561,8 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /refactor <file>   - Suggest refactoring improvements'));
   console.log(chalk.dim('  /fix <file> <issue>- Fix a bug or issue'));
   console.log(chalk.dim('  /test <file>       - Generate tests'));
-  console.log(chalk.dim('  /review <file>     - Code review'));
+  console.log(chalk.dim('  /review <file>     - Code review for a local file'));
+  console.log(chalk.dim('  /review-pr <num>   - Review a GitHub pull request'));
   console.log(chalk.dim('  /doc <file>        - Generate documentation'));
   console.log(chalk.dim('  /optimize <file>   - Optimize for performance'));
 
@@ -1597,10 +1603,27 @@ function handleModelMapOutput(output: string): void {
     return;
   }
 
+  if (firstLine.startsWith('__MODELMAP_ADD__|')) {
+    const parts = firstLine.slice('__MODELMAP_ADD__|'.length).split('|');
+    const [name, provider, model, filePath, scope] = parts;
+    console.log(chalk.green(`\nAdded model "${name}" to ${scope} config`));
+    console.log(chalk.dim(`  Provider: ${provider}`));
+    console.log(chalk.dim(`  Model: ${model}`));
+    console.log(chalk.dim(`  File: ${filePath}`));
+    console.log(chalk.cyan(`\nUse with: /switch ${name}`));
+    return;
+  }
+
   if (firstLine.startsWith('__MODELMAP_INIT__|')) {
-    const path = firstLine.slice('__MODELMAP_INIT__|'.length);
-    console.log(chalk.green(`\nCreated model map: ${path}`));
-    console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    const parts = firstLine.slice('__MODELMAP_INIT__|'.length).split('|');
+    const filePath = parts[0];
+    const scope = parts[1] || 'project';
+    console.log(chalk.green(`\nCreated ${scope} model map: ${filePath}`));
+    if (scope === 'global') {
+      console.log(chalk.dim('Global models can be used in any project with /switch <name>'));
+    } else {
+      console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    }
     return;
   }
 
@@ -1621,6 +1644,12 @@ function handleModelMapOutput(output: string): void {
       const type = parts[0];
 
       switch (type) {
+        case 'globalPath':
+          console.log(chalk.dim(`Global: ${parts[1]}`));
+          break;
+        case 'projectPath':
+          console.log(chalk.dim(`Project: ${parts[1]}`));
+          break;
         case 'path':
           console.log(chalk.dim(`File: ${parts[1]}`));
           break;
@@ -2453,6 +2482,12 @@ async function main() {
   const auditEnabled = options.audit || process.env.CODI_AUDIT === 'true';
   const auditLogger = initAuditLogger(auditEnabled);
 
+  // Initialize debug bridge (--debug-bridge flag or CODI_DEBUG_BRIDGE env var)
+  const debugBridgeEnabled = options.debugBridge || process.env.CODI_DEBUG_BRIDGE === 'true';
+  if (debugBridgeEnabled) {
+    initDebugBridge();
+  }
+
   console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
@@ -2716,6 +2751,11 @@ async function main() {
     auditLogger.sessionStart(provider.getName(), provider.getModel(), process.cwd(), process.argv.slice(2));
   }
 
+  // Emit debug bridge session start
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().sessionStart(provider.getName(), provider.getModel());
+  }
+
   // Create secondary provider for summarization if configured
   let secondaryProvider = null;
   if (resolvedConfig.summarizeProvider || resolvedConfig.summarizeModel) {
@@ -2915,8 +2955,32 @@ Begin by analyzing the query and planning your research approach.`;
 
   // Track if readline is closed (for piped input)
   let rlClosed = false;
+  
+  // Initialize interrupt handler for ESC key cancellation
+  const interruptHandler = getInterruptHandler();
+  interruptHandler.initialize(rl);
+  interruptHandler.setCallback(() => {
+    // Show interruption message
+    console.log(chalk.yellow('\n\n🚫 Interrupted!'));
+    console.log(chalk.dim('Press Ctrl+C to exit or continue typing...\n'));
+    
+    // Stop any active spinner
+    spinner.stop();
+    
+    // Clear any ongoing streaming state
+    isStreaming = false;
+    
+    // Reset to prompt
+    resetPrompt();
+    rl.prompt();
+  });
+  
   rl.on('close', () => {
     rlClosed = true;
+    
+    // Cleanup interrupt handler
+    destroyInterruptHandler();
+    
     // Don't exit here if in non-interactive mode - runNonInteractive handles its own cleanup
     if (options.prompt) {
       return;
@@ -2941,6 +3005,8 @@ Begin by analyzing the query and planning your research approach.`;
     if (symbolIndex) {
       symbolIndex.close();
     }
+    // Shutdown all rate limiters
+    shutdownAllRateLimiters();
     console.log(chalk.dim('\nGoodbye!'));
     process.exit(0);
   });
@@ -3361,6 +3427,113 @@ Begin by analyzing the query and planning your research approach.`;
   }
 
   // =========================================================================
+  // DEBUG BRIDGE COMMAND HANDLER (Phase 2)
+  // =========================================================================
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().startCommandWatcher(async (cmd) => {
+      switch (cmd.type) {
+        case 'pause':
+          agent.setDebugPaused(true);
+          break;
+        case 'resume':
+          agent.setDebugPaused(false);
+          break;
+        case 'step':
+          agent.setDebugStep();
+          break;
+        case 'inspect': {
+          const what = cmd.data.what as 'messages' | 'context' | 'tools' | 'all' | undefined;
+          const snapshot = agent.getStateSnapshot(what ?? 'all');
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'inspect',
+            data: snapshot,
+          });
+          break;
+        }
+        case 'inject_message': {
+          const role = cmd.data.role as 'user' | 'assistant';
+          const content = cmd.data.content as string;
+          if (role && content) {
+            agent.injectMessage(role, content);
+            getDebugBridge().emit('command_response', {
+              commandId: cmd.id,
+              type: 'inject_message',
+              success: true,
+            });
+          }
+          break;
+        }
+        // Phase 4: Breakpoint commands
+        case 'breakpoint_add': {
+          const bpType = cmd.data.type as 'tool' | 'iteration' | 'pattern' | 'error';
+          const condition = cmd.data.condition as string | number | undefined;
+          const bpId = agent.addBreakpoint(bpType, condition);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_add',
+            data: { id: bpId, bpType, condition },
+          });
+          break;
+        }
+        case 'breakpoint_remove': {
+          const bpId = cmd.data.id as string;
+          const removed = agent.removeBreakpoint(bpId);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_remove',
+            data: { id: bpId, removed },
+          });
+          break;
+        }
+        case 'breakpoint_clear': {
+          agent.clearBreakpoints();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_clear',
+            data: { cleared: true },
+          });
+          break;
+        }
+        case 'breakpoint_list': {
+          const breakpoints = agent.listBreakpoints();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_list',
+            data: { breakpoints },
+          });
+          break;
+        }
+        // Phase 4: Checkpoint commands
+        case 'checkpoint_create': {
+          const label = cmd.data.label as string | undefined;
+          const checkpoint = agent.createCheckpoint(label);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'checkpoint_create',
+            data: checkpoint,
+          });
+          break;
+        }
+        case 'checkpoint_list': {
+          // Checkpoints are recorded in events.jsonl - emit guidance
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'checkpoint_list',
+            data: { message: 'Checkpoints are recorded in events.jsonl as checkpoint events' },
+          });
+          break;
+        }
+        default:
+          getDebugBridge().emit('error', {
+            message: `Unknown command type: ${cmd.type}`,
+            context: 'command_handler',
+          });
+      }
+    });
+  }
+
+  // =========================================================================
   // NON-INTERACTIVE MODE - Run single prompt and exit without readline
   // =========================================================================
   if (options.prompt) {
@@ -3391,6 +3564,12 @@ Begin by analyzing the query and planning your research approach.`;
 
     // Audit log user input
     auditLogger.userInput(trimmed);
+
+    // Debug bridge user input
+    if (isDebugBridgeEnabled()) {
+      const isCommand = trimmed.startsWith('/') || trimmed.startsWith('!');
+      getDebugBridge().userInput(trimmed, isCommand);
+    }
 
     // Set appropriate prompt for prefix commands
     if (trimmed.startsWith('!')) {
@@ -3493,6 +3672,10 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.dim('\nGoodbye!'));
       // Log session end
       auditLogger.sessionEnd();
+      // Shutdown debug bridge
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().shutdown();
+      }
       // Cleanup MCP connections
       if (mcpManager) {
         await mcpManager.disconnectAll();
@@ -3527,7 +3710,7 @@ Begin by analyzing the query and planning your research approach.`;
 
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
-      const usedPercent = Math.min(100, (info.tokens / info.contextWindow) * 100);
+      const usedPercent = (info.tokens / info.contextWindow) * 100; // Removed Math.min(100, ...) to show actual overage
       const budgetPercent = (info.maxTokens / info.contextWindow) * 100;
 
       console.log(chalk.bold('\n📊 Context Status'));
@@ -3541,7 +3724,9 @@ Begin by analyzing the query and planning your research approach.`;
                   chalk.yellow('█'.repeat(Math.max(0, usedWidth - budgetWidth))) +
                   chalk.dim('░'.repeat(Math.max(0, barWidth - usedWidth)));
 
-      console.log(`\n  ${bar} ${usedPercent.toFixed(1)}%`);
+      // Color based on usage level
+      const percentColor = usedPercent >= 100 ? chalk.redBright : (usedPercent >= 75 ? chalk.yellow : chalk.green);
+      console.log(`\n  ${bar} ${percentColor(usedPercent.toFixed(1) + '%')}`);
       console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.contextWindow)} tokens`));
 
       // Token breakdown
@@ -4082,19 +4267,42 @@ Begin by analyzing the query and planning your research approach.`;
     isStreaming = false;
     spinner.thinking();
 
+    // Mark the start of agent processing for interrupt detection
+    interruptHandler.startProcessing();
+    
     try {
+      // Check if user pressed ESC before we started processing
+      if (interruptHandler.wasInterrupted()) {
+        console.log(chalk.yellow('\n⚠️ Operation cancelled'));
+        resetPrompt();
+        rl.prompt();
+        return;
+      }
+      
       const startTime = Date.now();
+      
       await agent.chat(trimmed);
+      
       if (isReasoningStreaming) {
         console.log(chalk.dim.italic('\n---\n'));
         isReasoningStreaming = false;
       }
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.dim(`\n(${elapsed}s)`));
+      
+      // Check if operation was interrupted during processing
+      if (interruptHandler.wasInterrupted()) {
+        console.log(chalk.dim('\n⚠️ Operation interrupted'));
+      } else {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(chalk.dim(`\n(${elapsed}s)`));
+      }
+      
       autoSaveSession(commandContext, agent);
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
+    } finally {
+      // Always mark processing as complete
+      interruptHandler.endProcessing();
     }
 
     rl.prompt();
@@ -4146,7 +4354,8 @@ Begin by analyzing the query and planning your research approach.`;
       chalk.cyan('!<command>') + chalk.dim(' to run shell directly, ') +
       chalk.cyan('?topic') + chalk.dim(' for help, ') +
       chalk.cyan('/help') + chalk.dim(' for commands, ') +
-      chalk.cyan('/exit') + chalk.dim(' to quit.\n')
+      chalk.cyan('/exit') + chalk.dim(' to quit, ') +
+      chalk.cyan('ESC') + chalk.dim(' to interrupt.\n')
   );
   rl.prompt();
 }
@@ -4172,18 +4381,37 @@ const gracefulShutdown = (signal: string) => {
   console.log(chalk.dim(`\nReceived ${signal}, shutting down gracefully...`));
   disableBracketedPaste();
 
+  // Cleanup interrupt handler
+  destroyInterruptHandler();
+
+  // Set a timeout to force exit if cleanup takes too long
+  const forceExitTimeout = setTimeout(() => {
+    console.error(chalk.yellow('\nForce exiting after cleanup timeout'));
+    process.exit(1);
+  }, 5000);
+  forceExitTimeout.unref(); // Don't prevent exit if cleanup finishes
+
   // Close symbol index database to prevent corruption
   const symbolIndex = getSymbolIndexService();
   if (symbolIndex) {
     symbolIndex.close();
   }
 
-  // Cleanup orchestrator
+  // Shutdown all rate limiters (clears intervals and rejects pending)
+  shutdownAllRateLimiters();
+
+  // Shutdown debug bridge (writes session_end event)
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().shutdown();
+  }
+
+  // Cleanup orchestrator (stops IPC server, cleans up worktrees)
   const orch = getOrchestratorInstance();
   if (orch) {
     orch.stop().catch(() => {});
   }
 
+  clearTimeout(forceExitTimeout);
   process.exit(0);
 };
 

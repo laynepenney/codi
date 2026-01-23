@@ -81,7 +81,15 @@ Run parallel AI agents in isolated git worktrees with permission routing back to
 
 ## Installation
 
-### Requirements
+### Via npm (Recommended)
+
+```bash
+npm install -g codi-cli
+```
+
+### From Source
+
+**Requirements:**
 - Node.js `>=22 <23`
 - pnpm (via Corepack)
 
@@ -101,15 +109,59 @@ pnpm run build
 pnpm link --global
 ```
 
+### Platform Notes
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+- Use PowerShell or Windows Terminal (not cmd.exe)
+- Git Bash works but may have readline issues
+- WSL2 recommended for best experience
+- Path separator differences are handled automatically
+
+**Known limitations:**
+- PTY-based tests are skipped
+- Some bash commands may need Windows equivalents
+
+</details>
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+Works out of the box. For Ollama local models:
+```bash
+brew install ollama
+ollama serve  # In a separate terminal
+ollama pull llama3.2
+```
+
+</details>
+
+<details>
+<summary><strong>Linux</strong></summary>
+
+Works out of the box. Ensure Node.js 22+ is installed:
+```bash
+# Using nvm
+nvm install 22
+nvm use 22
+```
+
+</details>
+
 ---
 
 ## Quick Start
 
-### With Claude API
+### With Claude API (Anthropic)
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
 codi
 ```
+
+**Get your API key:** [console.anthropic.com](https://console.anthropic.com/)
+
+**Available models:** `claude-sonnet-4-20250514` (default), `claude-3-5-haiku-latest`, `claude-opus-4-20250514`
 
 ### With OpenAI API
 ```bash
@@ -117,12 +169,24 @@ export OPENAI_API_KEY="your-key-here"
 codi --provider openai
 ```
 
+**Get your API key:** [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+**Available models:** `gpt-4o` (default), `gpt-4o-mini`, `o1-preview`, `o1-mini`
+
 ### With Ollama (Local/Free)
 ```bash
-# Install Ollama from https://ollama.ai
+# 1. Install Ollama from https://ollama.ai
+# 2. Start the server (runs on localhost:11434)
+ollama serve
+
+# 3. Pull a model (in another terminal)
 ollama pull llama3.2
+
+# 4. Run Codi
 codi --provider ollama --model llama3.2
 ```
+
+**Recommended models:** `llama3.2` (fast), `deepseek-coder` (code), `qwen2.5-coder` (code)
 
 ### With Ollama Cloud (Hosted)
 ```bash
@@ -136,11 +200,15 @@ export OLLAMA_API_KEY="your-api-key"
 codi --provider ollama-cloud --model llama3.2
 ```
 
+**Get your API key:** [ollama.com/settings/keys](https://ollama.com/settings/keys)
+
 ### With RunPod Serverless
 ```bash
 export RUNPOD_API_KEY="your-key-here"
 codi --provider runpod --endpoint-id your-endpoint-id
 ```
+
+**Get your API key:** [runpod.io/console/user/settings](https://runpod.io/console/user/settings)
 
 ---
 
@@ -177,6 +245,26 @@ These options are used internally when spawning worker agents:
 | `--socket-path <path>` | IPC socket path for permission routing |
 | `--child-id <id>` | Unique worker identifier |
 | `--child-task <task>` | Task description for the worker |
+
+---
+
+## Keyboard Shortcuts
+
+Codi supports several keyboard shortcuts for efficient interaction:
+
+| Shortcut | Description |
+|----------|-------------|
+| **ESC** | Interrupt current AI processing and return to prompt |
+| **Ctrl+C** | Submit current line without starting a new one |
+| **Ctrl+C (twice quickly)** | Force quit Codi |
+| **↑/↓** | Navigate command history |
+| **Tab** | Tab completion for files and commands |
+
+**ESI Interrupt Feature:** Press ESC at any time during AI processing to cancel and return to the prompt. This is useful for:
+- Long-running tool calls (e.g., test suites)
+- Mistaken commands with large operations
+- Infinite loops or stuck operations
+- Quick iterations without waiting for completion
 
 ---
 
@@ -679,6 +767,102 @@ codi/
 7. Open a Pull Request
 
 See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as CLAUDE.md for AI assistant compatibility).
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>API Key Issues</strong></summary>
+
+**"API key not found"**
+- Ensure the environment variable is set: `echo $ANTHROPIC_API_KEY`
+- Check for typos in the variable name
+- For persistent setup, add to your shell profile (`~/.bashrc`, `~/.zshrc`)
+
+**"Invalid API key"**
+- Verify the key at your provider's dashboard
+- Check for leading/trailing whitespace: `export ANTHROPIC_API_KEY="$(echo $ANTHROPIC_API_KEY | xargs)"`
+- Ensure the key has proper permissions (some providers have read-only keys)
+
+</details>
+
+<details>
+<summary><strong>Ollama Issues</strong></summary>
+
+**"Connection refused" or "ECONNREFUSED"**
+- Ensure Ollama is running: `ollama serve`
+- Check it's on the right port: `curl http://localhost:11434/api/tags`
+- If using a different host: `export OLLAMA_HOST=http://your-host:11434`
+
+**"Model not found"**
+- Pull the model first: `ollama pull llama3.2`
+- List available models: `ollama list`
+- Model names are case-sensitive
+
+**Slow responses**
+- First request downloads the model (can take minutes)
+- Use smaller models for faster responses: `llama3.2` vs `llama3.1:70b`
+- Check available RAM (models load into memory)
+
+</details>
+
+<details>
+<summary><strong>Node.js Issues</strong></summary>
+
+**"Unsupported engine" or version errors**
+- Codi requires Node.js 22+
+- Check version: `node --version`
+- Install via nvm: `nvm install 22 && nvm use 22`
+
+**pnpm not found**
+- Enable corepack: `corepack enable`
+- Or install directly: `npm install -g pnpm`
+
+</details>
+
+<details>
+<summary><strong>Permission Issues</strong></summary>
+
+**File permission denied**
+- Codi runs with your user permissions
+- Check file ownership: `ls -la file`
+- Don't run as root/sudo
+
+**Tool confirmation keeps appearing**
+- Add trusted tools to config: `"autoApprove": ["read_file", "glob"]`
+- Use `-y` flag to auto-approve all (use with caution)
+
+</details>
+
+<details>
+<summary><strong>Memory/Performance Issues</strong></summary>
+
+**High memory usage in long sessions**
+- Use `/compact summarize` to reduce context size
+- Sessions auto-compact when approaching token limits
+- Restart codi for a fresh context
+
+**Slow responses**
+- Check your API rate limits
+- Use a faster model (Haiku vs Opus)
+- Enable compression: `codi --compress`
+
+</details>
+
+<details>
+<summary><strong>Git/Worktree Issues</strong></summary>
+
+**"fatal: not a git repository"**
+- Initialize git: `git init`
+- Multi-agent features require a git repo
+
+**Worktree conflicts**
+- List worktrees: `git worktree list`
+- Clean up: `/worktrees cleanup`
+- Manual cleanup: `git worktree remove <path>`
+
+</details>
 
 ---
 

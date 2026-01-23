@@ -33,3 +33,6 @@ coverage/
 .claude/
 *.code-review
 .codi.local.json
+
+# Temporary files
+.tmp/

@@ -1,6 +1,6 @@
 {
   "name": "codi",
-  "version": "0.14.1",
+  "version": "0.16.0",
   "description": "Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models",
   "author": "Layne Penney",
   "license": "AGPL-3.0-or-later",
@@ -18,7 +18,17 @@
     "node": ">=22 <23"
   },
   "bin": {
-    "codi": "dist/index.js"
+    "codi": "dist/index.js",
+    "codi-debug": "dist/debug-cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",

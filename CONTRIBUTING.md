@@ -80,6 +80,75 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `test:` - Adding or updating tests
 - `chore:` - Maintenance tasks
 
+#### Commit Message Format
+
+Every commit should include a `Wingman:` trailer to track Codi's assistance:
+
+```bash
+git commit -m "feat: add amazing feature
+
+This adds the amazing feature for user productivity.
+
+Wingman: Codi <codi@layne.pro>"
+```
+
+According to Git conventions, trailers should be placed at the end of the commit message body, after a blank line.
+
+#### Collaborative Work (Co-authored-by)
+
+When multiple people (humans or AI) contribute to a commit, use `Co-authored-by:` trailers:
+
+```bash
+git commit -m "feat: authentication system
+
+Implement OAuth2 authentication with Google and GitHub providers.
+
+Co-authored-by: Alice <alice@example.com>
+Co-authored-by: Bob <bob@example.com>
+Co-authored-by: Codi <codi@layne.pro>
+Wingman: Codi <codi@layne.pro>"
+```
+
+Best practices for multi-author commits:
+- Order: Human collaborators first, then AI assistants
+- Format: `Co-authored-by: Name <email>`
+- Required: Always include `Wingman: Codi <codi@layne.pro>` if Codi assisted
+
+#### Example Commit Messages
+
+```
+feat: add bash command chaining permission check
+
+Address security concern where !echo "?" | pnpm dev --quiet only asked
+permission for "echo" but should also ask for "pnpm".
+
+Implementation:
+- Added parseCommandChain() to extract individual commands
+- Added requestPermissionForChainedCommands() to prompt user
+- Modified direct shell handler to check for chained commands
+
+Wingman: Codi <codi@layne.pro>
+---
+
+fix: correct clearMessageTokenCache documentation
+
+The function description incorrectly stated it clears all caches.
+Actually only clears message token cache.
+
+Co-authored-by: Sarah <sarah@example.com>
+Wingman: Codi <codi@layne.pro>
+---
+
+docs: update CODI.md with Codi agent capabilities
+
+Add comprehensive section explaining direct tool access and
+context awareness features for AI coding assistants.
+
+Wingman: Codi <codi@layne.pro>"
+```
+
+For more information about Codi's capabilities as your AI coding assistant, see [CLAUDE.md](./CLAUDE.md).
+
 ### Adding a Tool
 
 ```typescript

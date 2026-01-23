@@ -9,6 +9,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { homedir } from 'os';
 import yaml from 'js-yaml';
 import type {
   ModelMapConfig,
@@ -25,6 +26,15 @@ const MODEL_MAP_FILE = 'codi-models.yaml';
 
 /** Alternative config file name */
 const MODEL_MAP_FILE_ALT = 'codi-models.yml';
+
+/** Global config directory */
+const GLOBAL_CONFIG_DIR = path.join(homedir(), '.codi');
+
+/** Global config file name */
+const GLOBAL_MODEL_MAP_FILE = 'models.yaml';
+
+/** Alternative global config file name */
+const GLOBAL_MODEL_MAP_FILE_ALT = 'models.yml';
 
 /**
  * Validation error for model map configuration.
@@ -49,19 +59,29 @@ export interface ValidationResult {
 }
 
 /**
- * Load model map configuration from a directory.
- * Searches for codi-models.yaml or codi-models.yml
+ * Extended result with global config path information.
  */
-export function loadModelMap(cwd: string = process.cwd()): {
+export interface ModelMapLoadResult {
   config: ModelMapConfig | null;
-  configPath: string | null;
+  configPath: string | null;       // Project config path (if exists)
+  globalConfigPath: string | null; // Global config path (if exists)
   error?: string;
-} {
+}
+
+/**
+ * Load a single model map configuration from a directory.
+ * Internal helper that checks for yaml/yml variants.
+ */
+function loadSingleModelMap(
+  dir: string,
+  primaryFile: string,
+  altFile: string
+): { config: ModelMapConfig | null; configPath: string | null; error?: string } {
   // Try primary name first
-  let configPath = path.join(cwd, MODEL_MAP_FILE);
+  let configPath = path.join(dir, primaryFile);
   if (!fs.existsSync(configPath)) {
     // Try alternative name
-    configPath = path.join(cwd, MODEL_MAP_FILE_ALT);
+    configPath = path.join(dir, altFile);
     if (!fs.existsSync(configPath)) {
       return { config: null, configPath: null };
     }
@@ -85,6 +105,113 @@ export function loadModelMap(cwd: string = process.cwd()): {
     const message = error instanceof Error ? error.message : String(error);
     return { config: null, configPath, error: `Failed to parse ${configPath}: ${message}` };
   }
+}
+
+/**
+ * Deep merge two objects (right overrides left).
+ * Used for merging model-roles which are nested objects.
+ */
+function deepMergeObjects<T extends Record<string, unknown>>(
+  left: T | undefined,
+  right: T | undefined
+): T {
+  if (!left) return (right || {}) as T;
+  if (!right) return left;
+
+  const result = { ...left } as T;
+  for (const key of Object.keys(right)) {
+    const leftVal = left[key];
+    const rightVal = right[key];
+
+    if (
+      typeof leftVal === 'object' &&
+      leftVal !== null &&
+      !Array.isArray(leftVal) &&
+      typeof rightVal === 'object' &&
+      rightVal !== null &&
+      !Array.isArray(rightVal)
+    ) {
+      // Deep merge nested objects
+      (result as Record<string, unknown>)[key] = deepMergeObjects(
+        leftVal as Record<string, unknown>,
+        rightVal as Record<string, unknown>
+      );
+    } else {
+      // Override
+      (result as Record<string, unknown>)[key] = rightVal;
+    }
+  }
+  return result;
+}
+
+/**
+ * Merge two model map configs (project overrides global).
+ */
+function mergeModelMapConfigs(
+  globalConfig: ModelMapConfig | null,
+  projectConfig: ModelMapConfig | null
+): ModelMapConfig | null {
+  if (!globalConfig && !projectConfig) return null;
+  if (!globalConfig) return projectConfig;
+  if (!projectConfig) return globalConfig;
+
+  return {
+    version: projectConfig.version || globalConfig.version,
+    models: { ...globalConfig.models, ...projectConfig.models },
+    'model-roles': deepMergeObjects(globalConfig['model-roles'], projectConfig['model-roles']),
+    tasks: { ...globalConfig.tasks, ...projectConfig.tasks },
+    commands: { ...globalConfig.commands, ...projectConfig.commands },
+    fallbacks: { ...globalConfig.fallbacks, ...projectConfig.fallbacks },
+    pipelines: { ...globalConfig.pipelines, ...projectConfig.pipelines },
+  };
+}
+
+/**
+ * Load model map configuration from global and/or project directory.
+ * Global config (~/.codi/models.yaml) is loaded first, then project config
+ * (codi-models.yaml) overrides global settings.
+ *
+ * @param cwd Working directory for project config (default: process.cwd())
+ * @returns Merged config with paths for both global and project configs
+ */
+export function loadModelMap(cwd: string = process.cwd()): ModelMapLoadResult {
+  // Load global config (if exists)
+  const globalResult = loadSingleModelMap(
+    GLOBAL_CONFIG_DIR,
+    GLOBAL_MODEL_MAP_FILE,
+    GLOBAL_MODEL_MAP_FILE_ALT
+  );
+
+  // Load project config (if exists)
+  const projectResult = loadSingleModelMap(cwd, MODEL_MAP_FILE, MODEL_MAP_FILE_ALT);
+
+  // Collect errors
+  const errors: string[] = [];
+  if (globalResult.error) errors.push(globalResult.error);
+  if (projectResult.error) errors.push(projectResult.error);
+
+  // Merge configs (project overrides global)
+  const merged = mergeModelMapConfigs(globalResult.config, projectResult.config);
+
+  return {
+    config: merged,
+    configPath: projectResult.configPath,
+    globalConfigPath: globalResult.configPath,
+    error: errors.length > 0 ? errors.join('; ') : undefined,
+  };
+}
+
+/**
+ * Load model map from project directory only (no global).
+ * Backwards-compatible version of loadModelMap.
+ * @deprecated Use loadModelMap() which supports global configs
+ */
+export function loadProjectModelMap(cwd: string = process.cwd()): {
+  config: ModelMapConfig | null;
+  configPath: string | null;
+  error?: string;
+} {
+  return loadSingleModelMap(cwd, MODEL_MAP_FILE, MODEL_MAP_FILE_ALT);
 }
 
 /**
@@ -524,41 +651,163 @@ export function getExampleModelMap(): string {
 }
 
 /**
- * Initialize a new codi-models.yaml file.
+ * Initialize a new model map file.
+ *
+ * @param cwd Directory to create the file in (default: process.cwd())
+ * @param global If true, creates in ~/.codi/ instead of cwd
  */
-export function initModelMap(cwd: string = process.cwd()): {
+export function initModelMap(
+  cwd: string = process.cwd(),
+  global: boolean = false
+): {
   success: boolean;
   path: string;
+  isGlobal: boolean;
   error?: string;
 } {
-  const configPath = path.join(cwd, MODEL_MAP_FILE);
+  const targetDir = global ? GLOBAL_CONFIG_DIR : cwd;
+  const fileName = global ? GLOBAL_MODEL_MAP_FILE : MODEL_MAP_FILE;
+  const altFileName = global ? GLOBAL_MODEL_MAP_FILE_ALT : MODEL_MAP_FILE_ALT;
+  const configPath = path.join(targetDir, fileName);
+
+  // Ensure directory exists for global config
+  if (global && !fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (error) {
+      return {
+        success: false,
+        path: configPath,
+        isGlobal: global,
+        error: `Failed to create directory: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
 
   if (fs.existsSync(configPath)) {
     return {
       success: false,
       path: configPath,
+      isGlobal: global,
       error: 'Model map file already exists',
     };
   }
 
   // Also check alternate name
-  const altPath = path.join(cwd, MODEL_MAP_FILE_ALT);
+  const altPath = path.join(targetDir, altFileName);
   if (fs.existsSync(altPath)) {
     return {
       success: false,
       path: altPath,
+      isGlobal: global,
       error: 'Model map file already exists',
     };
   }
 
   try {
     fs.writeFileSync(configPath, getExampleModelMap());
+    return { success: true, path: configPath, isGlobal: global };
+  } catch (error) {
+    return {
+      success: false,
+      path: configPath,
+      isGlobal: global,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Get the global config directory path.
+ */
+export function getGlobalConfigDir(): string {
+  return GLOBAL_CONFIG_DIR;
+}
+
+/**
+ * Add a model to an existing model map file.
+ * Creates the file if it doesn't exist.
+ *
+ * @param name Model alias name
+ * @param provider Provider type (anthropic, openai, ollama, etc.)
+ * @param model Model ID
+ * @param description Optional description
+ * @param global If true, adds to global config (~/.codi/models.yaml)
+ * @param cwd Working directory for project config
+ */
+export function addModelToMap(
+  name: string,
+  provider: string,
+  model: string,
+  description?: string,
+  global: boolean = false,
+  cwd: string = process.cwd()
+): { success: boolean; path: string; error?: string } {
+  const targetDir = global ? GLOBAL_CONFIG_DIR : cwd;
+  const fileName = global ? GLOBAL_MODEL_MAP_FILE : MODEL_MAP_FILE;
+  const configPath = path.join(targetDir, fileName);
+
+  // Ensure directory exists for global config
+  if (global && !fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (error) {
+      return {
+        success: false,
+        path: configPath,
+        error: `Failed to create directory: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  // Load existing config or create new one
+  let config: ModelMapConfig;
+  if (fs.existsSync(configPath)) {
+    try {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      config = yaml.load(content) as ModelMapConfig;
+      if (!config.models) config.models = {};
+    } catch (error) {
+      return {
+        success: false,
+        path: configPath,
+        error: `Failed to parse existing config: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  } else {
+    // Create minimal config
+    config = {
+      version: '1',
+      models: {},
+    };
+  }
+
+  // Check if model already exists
+  if (config.models[name]) {
+    return {
+      success: false,
+      path: configPath,
+      error: `Model "${name}" already exists. Use a different name or edit the file directly.`,
+    };
+  }
+
+  // Add the model
+  config.models[name] = {
+    provider,
+    model,
+    ...(description && { description }),
+  };
+
+  // Write back
+  try {
+    const yamlContent = yaml.dump(config, { lineWidth: 100, noRefs: true });
+    fs.writeFileSync(configPath, yamlContent);
     return { success: true, path: configPath };
   } catch (error) {
     return {
       success: false,
       path: configPath,
-      error: error instanceof Error ? error.message : String(error),
+      error: `Failed to write config: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }

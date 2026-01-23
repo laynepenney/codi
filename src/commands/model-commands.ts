@@ -14,7 +14,9 @@ import {
   loadModelMap,
   validateModelMap,
   initModelMapFile,
+  addModelToMap,
   getExampleModelMap,
+  getGlobalConfigDir,
   type ModelMapConfig,
 } from '../model-map/index.js';
 
@@ -265,34 +267,75 @@ export const modelMapCommand: Command = {
   name: 'modelmap',
   aliases: ['mm', 'models-map'],
   description: 'Show and manage model map configuration (codi-models.yaml)',
-  usage: '/modelmap [init|show|example]',
+  usage: '/modelmap [add|init|show|example] [--global]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
-    const trimmed = args.trim().toLowerCase();
+    const trimmed = args.trim();
+    const trimmedLower = trimmed.toLowerCase();
 
     // Handle help flag locally without API call
-    if (trimmed === '-h' || trimmed === '--help') {
-      console.log('\nUsage: /modelmap [init|show|example]');
-      console.log('\nShow and manage model map configuration (codi-models.yaml).');
+    if (trimmedLower === '-h' || trimmedLower === '--help') {
+      console.log('\nUsage: /modelmap [action] [options]');
+      console.log('\nShow and manage model map configuration.');
+      console.log('\nConfig locations:');
+      console.log(`  Global:  ${getGlobalConfigDir()}/models.yaml`);
+      console.log('  Project: ./codi-models.yaml');
       console.log('\nActions:');
-      console.log('  show      Show current model map configuration (default)');
-      console.log('  init      Create a new codi-models.yaml file');
-      console.log('  example   Show example configuration');
+      console.log('  show                    Show current model map configuration (default)');
+      console.log('  add <name> <provider> <model> [description]  Add a model alias');
+      console.log('  init                    Create a new codi-models.yaml in current directory');
+      console.log('  example                 Show example configuration');
+      console.log('\nFlags:');
+      console.log('  --global                Apply to global config (~/.codi/models.yaml)');
       console.log('\nExamples:');
-      console.log('  /modelmap          Show current configuration');
-      console.log('  /modelmap init     Create codi-models.yaml');
-      console.log('  /modelmap example  Show example YAML');
+      console.log('  /modelmap                           Show current configuration');
+      console.log('  /modelmap add coder ollama-cloud qwen3-coder:480b-cloud');
+      console.log('  /modelmap add --global fast anthropic claude-3-5-haiku-latest');
+      console.log('  /modelmap init                      Create project codi-models.yaml');
+      console.log('  /modelmap init --global             Create global ~/.codi/models.yaml');
+      console.log('\nGlobal models can be used in any project with /switch <name>');
       console.log();
       return null;
     }
 
-    const action = trimmed || 'show';
+    // Parse action and flags
+    const parts = trimmed.split(/\s+/).filter(p => p);
+    const isGlobal = parts.includes('--global');
+    // Remove --global from parts for easier parsing
+    const filteredParts = parts.filter(p => p.toLowerCase() !== '--global');
+    const action = (filteredParts[0] || 'show').toLowerCase();
 
     switch (action) {
-      case 'init': {
-        const result = initModelMapFile(process.cwd());
+      case 'add': {
+        // Parse: add <name> <provider> <model> [description...]
+        const name = filteredParts[1];
+        const provider = filteredParts[2];
+        const model = filteredParts[3];
+        const description = filteredParts.slice(4).join(' ') || undefined;
+
+        if (!name || !provider || !model) {
+          return '__MODELMAP_ERROR__|Usage: /modelmap add <name> <provider> <model> [description]';
+        }
+
+        // Validate provider
+        const validProviders = ['anthropic', 'openai', 'ollama', 'ollama-cloud', 'runpod'];
+        if (!validProviders.includes(provider.toLowerCase())) {
+          return `__MODELMAP_ERROR__|Invalid provider "${provider}". Valid: ${validProviders.join(', ')}`;
+        }
+
+        const result = addModelToMap(name, provider.toLowerCase(), model, description, isGlobal);
         if (result.success) {
-          return `__MODELMAP_INIT__|${result.path}`;
+          const scope = isGlobal ? 'global' : 'project';
+          return `__MODELMAP_ADD__|${name}|${provider}|${model}|${result.path}|${scope}`;
+        }
+        return `__MODELMAP_ERROR__|${result.error}`;
+      }
+
+      case 'init': {
+        const result = initModelMapFile(process.cwd(), isGlobal);
+        if (result.success) {
+          const scope = result.isGlobal ? 'global' : 'project';
+          return `__MODELMAP_INIT__|${result.path}|${scope}`;
         }
         return `__MODELMAP_ERROR__|${result.error}`;
       }
@@ -310,11 +353,11 @@ export const modelMapCommand: Command = {
 
         if (modelMap) {
           // Model map is loaded, show its configuration
-          return formatModelMapOutput(modelMap.config, modelMap.configPath);
+          return formatModelMapOutput(modelMap.config, modelMap.configPath, modelMap.globalConfigPath);
         }
 
         // Try to load from disk
-        const { config, configPath, error } = loadModelMap(process.cwd());
+        const { config, configPath, globalConfigPath, error } = loadModelMap(process.cwd());
         if (error) {
           return `__MODELMAP_ERROR__|${error}`;
         }
@@ -328,15 +371,27 @@ export const modelMapCommand: Command = {
           return `__MODELMAP_INVALID__|${validation.errors.map(e => e.message).join('; ')}`;
         }
 
-        return formatModelMapOutput(config, configPath);
+        return formatModelMapOutput(config, configPath, globalConfigPath);
       }
     }
   },
 };
 
-function formatModelMapOutput(config: ModelMapConfig, configPath: string | null): string {
+function formatModelMapOutput(
+  config: ModelMapConfig,
+  configPath: string | null,
+  globalConfigPath: string | null = null
+): string {
   const lines: string[] = ['__MODELMAP_SHOW__'];
-  lines.push(`path|${configPath || 'unknown'}`);
+  if (globalConfigPath) {
+    lines.push(`globalPath|${globalConfigPath}`);
+  }
+  if (configPath) {
+    lines.push(`projectPath|${configPath}`);
+  }
+  if (!globalConfigPath && !configPath) {
+    lines.push(`path|unknown`);
+  }
   lines.push(`version|${config.version}`);
 
   // Models
