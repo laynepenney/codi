@@ -7,6 +7,7 @@ import {
   commitAlias,
   branchAlias,
   prAlias,
+  reviewPrAlias,
   registerGitCommands,
 } from '../src/commands/git-commands';
 import { getCommand, getAllCommands } from '../src/commands/index';
@@ -36,6 +37,7 @@ describe('Git Commands', () => {
       expect(names).toContain('commit');
       expect(names).toContain('branch');
       expect(names).toContain('pr');
+      expect(names).toContain('review-pr');
     });
 
     it('registers aliases correctly', () => {
@@ -43,6 +45,7 @@ describe('Git Commands', () => {
       expect(getCommand('ci')).toBe(getCommand('commit'));
       expect(getCommand('br')).toBe(getCommand('branch'));
       expect(getCommand('pull-request')).toBe(getCommand('pr'));
+      expect(getCommand('review-pull-request')).toBe(getCommand('review-pr'));
     });
   });
 
@@ -336,6 +339,76 @@ describe('Git Commands', () => {
       const result = await gitCommand.execute('rebase main', mockContext);
       expect(result).toContain('force push');
       expect(result).toContain('--force-with-lease');
+    });
+  });
+  describe('git review-pr', () => {
+    it('includes review-pr in subcommands', () => {
+      expect(gitCommand.subcommands).toContain('review-pr');
+    });
+
+    it('shows available PRs when no number specified', async () => {
+      const result = await gitCommand.execute('review-pr', mockContext);
+      expect(result).toContain('gh pr list');
+      expect(result).toContain('available pull requests');
+      expect(result).toContain('PR numbers');
+      expect(result).toContain('PR titles');
+    });
+
+    it('includes review criteria when listing PRs', async () => {
+      const result = await gitCommand.execute('review-pr', mockContext);
+      expect(result).toContain('Code Quality');
+      expect(result).toContain('Functionality');
+      expect(result).toContain('Potential Issues');
+      expect(result).toContain('Testing');
+      expect(result).toContain('Documentation');
+    });
+
+    it('generates review prompt for PR without repo', async () => {
+      const result = await gitCommand.execute('review-pr 42', mockContext);
+      expect(result).toContain('gh pr view 42');
+      expect(result).toContain('gh pr diff 42');
+      expect(result).toContain('gh pr checks 42');
+      expect(result).toContain('gh pr comment list --number 42');
+      expect(result).toContain('#42');
+    });
+
+    it('generates review prompt for PR with repo', async () => {
+      const result = await gitCommand.execute('review-pr 42 owner/repo', mockContext);
+      expect(result).toContain('gh pr view 42 -R owner/repo');
+      expect(result).toContain('gh pr diff 42 -R owner/repo');
+      expect(result).toContain('in owner/repo');
+    });
+
+    it('includes specific line references in review', async () => {
+      const result = await gitCommand.execute('review-pr 123', mockContext);
+      expect(result).toContain('specific line references');
+      expect(result).toContain('actionable suggestions');
+    });
+
+    it('handles review-pull-request alias', async () => {
+      const result = await gitCommand.execute('review-pull-request 99', mockContext);
+      expect(result).toContain('gh pr view 99');
+      expect(result).toContain('#99');
+    });
+  });
+
+  describe('reviewPrAlias', () => {
+    it('has correct metadata', () => {
+      expect(reviewPrAlias.name).toBe('review-pr');
+      expect(reviewPrAlias.aliases).toContain('review-pull-request');
+      expect(reviewPrAlias.usage).toBe('/review-pr <pr-number> [repo]');
+    });
+
+    it('generates same output as git review-pr', async () => {
+      const aliasResult = await reviewPrAlias.execute('42', mockContext);
+      const gitResult = await gitCommand.execute('review-pr 42', mockContext);
+      expect(aliasResult).toBe(gitResult);
+    });
+
+    it('generates list prompt same as git review-pr', async () => {
+      const aliasResult = await reviewPrAlias.execute('', mockContext);
+      const gitResult = await gitCommand.execute('review-pr', mockContext);
+      expect(aliasResult).toBe(gitResult);
     });
   });
 });

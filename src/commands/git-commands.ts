@@ -206,6 +206,68 @@ After generating the description:
 3. Or provide a link to create it on GitHub web`;
 }
 
+function reviewPrPrompt(args: string, _context: CommandContext): string {
+  const parts = args.trim().split(/\s+/);
+  const prNumber = parts[0];
+  const repo = parts[1] || '';
+
+  if (!prNumber) {
+    return `First, let me show you the available pull requests.
+
+Run: \`gh pr list${repo ? ' -R ' + repo : ''}\`
+
+This will show:
+- PR numbers
+- PR titles
+- Status (open/closed)
+- Author
+- Creation date
+
+After showing the list, ask me which PR number I'd like to review, then proceed with the review using that PR number.
+
+When I provide a PR number, run these commands to gather information:
+
+1. Get PR details:
+   \`gh pr view <number>${repo ? ' -R ' + repo : ''}\`
+
+2. Get PR diff:
+   \`gh pr diff <number>${repo ? ' -R ' + repo : ''}\`
+
+3. Get PR checks/status:
+   \`gh pr checks <number>${repo ? ' -R ' + repo : ''}\`
+
+4. Get PR comments:
+   \`gh pr comment list --number <number>${repo ? ' -R ' + repo : ''}\`
+
+Then provide a thorough review evaluating:
+1. **Code Quality**: Clarity, maintainability, best practices
+2. **Functionality**: Does it solve the intended problem?
+3. **Potential Issues**: Bugs, security vulnerabilities, performance concerns
+4. **Testing**: Are tests adequate and do they cover edge cases?
+5. **Documentation**: Is the code properly documented?
+
+Provide actionable feedback with specific suggestions for improvement.`;
+  }
+
+  return `Help me review GitHub PR #${prNumber}${repo ? ' in ' + repo : ''}.
+
+Steps:
+1. Run: \`gh pr view ${prNumber}${repo ? ' -R ' + repo : ''}\`
+2. Run: \`gh pr diff ${prNumber}${repo ? ' -R ' + repo : ''}\`
+3. Run: \`gh pr checks ${prNumber}${repo ? ' -R ' + repo : ''}\`
+4. Run: \`gh pr comment list --number ${prNumber}${repo ? ' -R ' + repo : ''}\`
+
+Then provide a thorough review evaluating:
+1. **Code Quality**: Clarity, maintainability, best practices
+2. **Functionality**: Does it solve the intended problem?
+3. **Potential Issues**: Bugs, security vulnerabilities, performance concerns
+4. **Testing**: Are tests adequate and do they cover edge cases?
+5. **Documentation**: Is the code properly documented?
+
+Include specific line references and actionable suggestions for improvement.`;
+}
+
+
 function stashPrompt(args: string, _context: CommandContext): string {
   const parts = args.trim().split(/\s+/);
   const action = parts[0]?.toLowerCase() || 'save';
@@ -501,7 +563,7 @@ export const gitCommand: Command = {
   description: 'Git commands for version control',
   usage: '/git <action> [args]',
   taskType: 'fast',
-  subcommands: ['commit', 'branch', 'diff', 'pr', 'stash', 'log', 'status', 'undo', 'merge', 'rebase'],
+  subcommands: ['commit', 'branch', 'diff', 'pr', 'review-pr', 'stash', 'log', 'status', 'undo', 'merge', 'rebase'],
   execute: async (args: string, context: CommandContext): Promise<string> => {
     const parts = args.trim().split(/\s+/);
     const subcommand = parts[0]?.toLowerCase() || '';
@@ -522,6 +584,10 @@ export const gitCommand: Command = {
       case 'pr':
       case 'pull-request':
         return prPrompt(subArgs, context);
+
+      case 'review-pr':
+      case 'review-pull-request':
+        return reviewPrPrompt(subArgs, context);
 
       case 'stash':
         return stashPrompt(subArgs, context);
@@ -552,6 +618,7 @@ Available actions:
   /git branch [action] [name]  - Manage branches
   /git diff [target]           - Show differences
   /git pr [base]               - Create pull request
+  /git review-pr [number] [repo]- Review a GitHub pull request
   /git stash [action]          - Manage stashes
   /git log [target]            - Show history
   /git status                  - Show detailed status
@@ -597,6 +664,17 @@ export const prAlias: Command = {
     return prPrompt(args, context);
   },
 };
+export const reviewPrAlias: Command = {
+  name: 'review-pr',
+  aliases: ['review-pull-request'],
+  description: 'Review a GitHub pull request',
+  usage: '/review-pr <pr-number> [repo]',
+  taskType: 'fast',
+  execute: async (args: string, context: CommandContext): Promise<string> => {
+    return reviewPrPrompt(args, context);
+  },
+};
+
 
 export const logAlias: Command = {
   name: 'log',
@@ -616,5 +694,6 @@ export function registerGitCommands(): void {
   registerCommand(commitAlias);
   registerCommand(branchAlias);
   registerCommand(prAlias);
+  registerCommand(reviewPrAlias);
   registerCommand(logAlias);
 }

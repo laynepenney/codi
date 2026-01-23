@@ -558,7 +558,8 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /refactor <file>   - Suggest refactoring improvements'));
   console.log(chalk.dim('  /fix <file> <issue>- Fix a bug or issue'));
   console.log(chalk.dim('  /test <file>       - Generate tests'));
-  console.log(chalk.dim('  /review <file>     - Code review'));
+  console.log(chalk.dim('  /review <file>     - Code review for a local file'));
+  console.log(chalk.dim('  /review-pr <num>   - Review a GitHub pull request'));
   console.log(chalk.dim('  /doc <file>        - Generate documentation'));
   console.log(chalk.dim('  /optimize <file>   - Optimize for performance'));
 
