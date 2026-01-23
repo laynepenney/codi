@@ -902,4 +902,345 @@ describe('Debug CLI', () => {
       expect(parsed.data.count).toBe(5);
     });
   });
+
+  // ============================================
+  // Phase 4: New command types
+  // ============================================
+
+  describe('Phase 4 breakpoint commands', () => {
+    it('should format breakpoint_add command correctly', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_add',
+        id: 'bp_add_1',
+        data: { type: 'tool', condition: 'write_file' },
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_add');
+      expect(parsed.data.type).toBe('tool');
+      expect(parsed.data.condition).toBe('write_file');
+    });
+
+    it('should format breakpoint_add with iteration condition', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_add',
+        id: 'bp_add_2',
+        data: { type: 'iteration', condition: 10 },
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_add');
+      expect(parsed.data.type).toBe('iteration');
+      expect(parsed.data.condition).toBe(10);
+    });
+
+    it('should format breakpoint_add with pattern condition', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_add',
+        id: 'bp_add_3',
+        data: { type: 'pattern', condition: 'rm -rf' },
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_add');
+      expect(parsed.data.type).toBe('pattern');
+      expect(parsed.data.condition).toBe('rm -rf');
+    });
+
+    it('should format breakpoint_add with error type (no condition)', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_add',
+        id: 'bp_add_4',
+        data: { type: 'error' },
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_add');
+      expect(parsed.data.type).toBe('error');
+      expect(parsed.data.condition).toBeUndefined();
+    });
+
+    it('should format breakpoint_remove command correctly', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_remove',
+        id: 'bp_rm_1',
+        data: { id: 'bp_123_abc' },
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_remove');
+      expect(parsed.data.id).toBe('bp_123_abc');
+    });
+
+    it('should format breakpoint_clear command correctly', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_clear',
+        id: 'bp_clear_1',
+        data: {},
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_clear');
+    });
+
+    it('should format breakpoint_list command correctly', () => {
+      const cmd: DebugCommand = {
+        type: 'breakpoint_list',
+        id: 'bp_list_1',
+        data: {},
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_list');
+    });
+  });
+
+  describe('Phase 4 checkpoint commands', () => {
+    it('should format checkpoint_create command correctly', () => {
+      const cmd: DebugCommand = {
+        type: 'checkpoint_create',
+        id: 'cp_create_1',
+        data: {},
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('checkpoint_create');
+    });
+
+    it('should format checkpoint_create with label', () => {
+      const cmd: DebugCommand = {
+        type: 'checkpoint_create',
+        id: 'cp_create_2',
+        data: { label: 'before refactor' },
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('checkpoint_create');
+      expect(parsed.data.label).toBe('before refactor');
+    });
+
+    it('should format checkpoint_list command correctly', () => {
+      const cmd: DebugCommand = {
+        type: 'checkpoint_list',
+        id: 'cp_list_1',
+        data: {},
+      };
+
+      const commandsFile = join(sessionDir, 'commands.jsonl');
+      writeFileSync(commandsFile, JSON.stringify(cmd) + '\n');
+
+      const content = readFileSync(commandsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('checkpoint_list');
+    });
+  });
+
+  describe('Phase 4 event formatting', () => {
+    it('should format breakpoint_hit event', () => {
+      const event: DebugEvent = {
+        type: 'breakpoint_hit',
+        timestamp: new Date().toISOString(),
+        sessionId: testSessionId,
+        sequence: 1,
+        data: {
+          breakpoint: {
+            id: 'bp_123',
+            type: 'tool',
+            condition: 'write_file',
+            hitCount: 1,
+          },
+          context: {
+            type: 'tool_call',
+            toolName: 'write_file',
+            iteration: 5,
+          },
+        },
+      };
+
+      const eventsFile = join(sessionDir, 'events.jsonl');
+      writeFileSync(eventsFile, JSON.stringify(event) + '\n');
+
+      const content = readFileSync(eventsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('breakpoint_hit');
+      expect(parsed.data.breakpoint.id).toBe('bp_123');
+      expect(parsed.data.breakpoint.type).toBe('tool');
+      expect(parsed.data.context.toolName).toBe('write_file');
+    });
+
+    it('should format checkpoint event', () => {
+      const event: DebugEvent = {
+        type: 'checkpoint',
+        timestamp: new Date().toISOString(),
+        sessionId: testSessionId,
+        sequence: 2,
+        data: {
+          id: 'cp_5_123456789',
+          label: 'before refactor',
+          iteration: 5,
+          messageCount: 10,
+          tokenCount: 5000,
+        },
+      };
+
+      const eventsFile = join(sessionDir, 'events.jsonl');
+      writeFileSync(eventsFile, JSON.stringify(event) + '\n');
+
+      const content = readFileSync(eventsFile, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.type).toBe('checkpoint');
+      expect(parsed.data.id).toBe('cp_5_123456789');
+      expect(parsed.data.label).toBe('before refactor');
+      expect(parsed.data.iteration).toBe(5);
+      expect(parsed.data.messageCount).toBe(10);
+      expect(parsed.data.tokenCount).toBe(5000);
+    });
+  });
+
+  describe('Phase 4 replay functionality', () => {
+    it('should read events for replay', () => {
+      // Write several test events
+      const events: DebugEvent[] = [
+        {
+          type: 'session_start',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 0,
+          data: { provider: 'test', model: 'test-model' },
+        },
+        {
+          type: 'user_input',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 1,
+          data: { input: 'Hello' },
+        },
+        {
+          type: 'tool_call_start',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 2,
+          data: { name: 'read_file', input: { path: '/test.txt' }, toolId: 't1' },
+        },
+        {
+          type: 'checkpoint',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 3,
+          data: { id: 'cp_1', iteration: 1, messageCount: 2, tokenCount: 100 },
+        },
+        {
+          type: 'session_end',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 4,
+          data: { duration: 5000 },
+        },
+      ];
+
+      const eventsFile = join(sessionDir, 'events.jsonl');
+      writeFileSync(eventsFile, events.map(e => JSON.stringify(e)).join('\n') + '\n');
+
+      const content = readFileSync(eventsFile, 'utf8');
+      const lines = content.trim().split('\n');
+      const parsedEvents = lines.map(l => JSON.parse(l));
+
+      expect(parsedEvents.length).toBe(5);
+      expect(parsedEvents[0].type).toBe('session_start');
+      expect(parsedEvents[3].type).toBe('checkpoint');
+      expect(parsedEvents[4].type).toBe('session_end');
+    });
+
+    it('should filter events by type', () => {
+      const events: DebugEvent[] = [
+        {
+          type: 'session_start',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 0,
+          data: { provider: 'test', model: 'test-model' },
+        },
+        {
+          type: 'checkpoint',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 1,
+          data: { id: 'cp_1', iteration: 1, messageCount: 2, tokenCount: 100 },
+        },
+        {
+          type: 'breakpoint_hit',
+          timestamp: new Date().toISOString(),
+          sessionId: testSessionId,
+          sequence: 2,
+          data: {
+            breakpoint: { id: 'bp_1', type: 'tool', condition: 'write_file' },
+            context: { type: 'tool_call', toolName: 'write_file', iteration: 2 },
+          },
+        },
+      ];
+
+      const eventsFile = join(sessionDir, 'events.jsonl');
+      writeFileSync(eventsFile, events.map(e => JSON.stringify(e)).join('\n') + '\n');
+
+      const content = readFileSync(eventsFile, 'utf8');
+      const lines = content.trim().split('\n');
+      const parsedEvents = lines.map(l => JSON.parse(l) as DebugEvent);
+
+      // Filter for only checkpoint events
+      const checkpointEvents = parsedEvents.filter(e => e.type === 'checkpoint');
+      expect(checkpointEvents.length).toBe(1);
+
+      // Filter for only breakpoint_hit events
+      const breakpointEvents = parsedEvents.filter(e => e.type === 'breakpoint_hit');
+      expect(breakpointEvents.length).toBe(1);
+    });
+  });
 });
