@@ -88,7 +88,9 @@ export type DebugEventType =
   | 'paused'
   | 'resumed'
   | 'step_complete'
-  | 'command_response';
+  | 'command_response'
+  | 'breakpoint_hit'
+  | 'checkpoint';
 
 /**
  * Base debug event structure.
@@ -102,16 +104,23 @@ export interface DebugEvent {
 }
 
 /**
- * Command types that can be sent to Codi (Phase 2).
+ * Command types that can be sent to Codi (Phase 2+).
  */
 export type DebugCommandType =
   | 'inspect'
-  | 'breakpoint'
   | 'pause'
   | 'resume'
   | 'inject_message'
   | 'set_variable'
-  | 'step';
+  | 'step'
+  // Phase 4: Breakpoints
+  | 'breakpoint_add'
+  | 'breakpoint_remove'
+  | 'breakpoint_clear'
+  | 'breakpoint_list'
+  // Phase 4: Checkpoints
+  | 'checkpoint_create'
+  | 'checkpoint_list';
 
 /**
  * Command structure.
@@ -120,6 +129,45 @@ export interface DebugCommand {
   type: DebugCommandType;
   id: string;
   data: Record<string, unknown>;
+}
+
+/**
+ * Breakpoint types (Phase 4).
+ */
+export type BreakpointType = 'tool' | 'iteration' | 'pattern' | 'error';
+
+/**
+ * Breakpoint structure.
+ */
+export interface Breakpoint {
+  id: string;
+  type: BreakpointType;
+  condition?: string | number;
+  enabled: boolean;
+  hitCount: number;
+}
+
+/**
+ * Context for checking breakpoints.
+ */
+export interface BreakpointContext {
+  type: 'tool_call' | 'error' | 'iteration';
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  iteration: number;
+  error?: string;
+}
+
+/**
+ * Checkpoint structure (Phase 4).
+ */
+export interface Checkpoint {
+  id: string;
+  label?: string;
+  iteration: number;
+  timestamp: string;
+  messageCount: number;
+  tokenCount: number;
 }
 
 /**
@@ -525,6 +573,40 @@ export class DebugBridge {
     workingSetSize?: number;
   }): void {
     this.emit('state_snapshot', data);
+  }
+
+  /**
+   * Emit breakpoint hit event (Phase 4).
+   */
+  breakpointHit(breakpoint: Breakpoint, context: BreakpointContext): void {
+    this.emit('breakpoint_hit', {
+      breakpoint: {
+        id: breakpoint.id,
+        type: breakpoint.type,
+        condition: breakpoint.condition,
+        hitCount: breakpoint.hitCount,
+      },
+      context: {
+        type: context.type,
+        toolName: context.toolName,
+        iteration: context.iteration,
+        error: context.error,
+      },
+    });
+  }
+
+  /**
+   * Emit checkpoint event (Phase 4).
+   */
+  checkpoint(checkpoint: Checkpoint): void {
+    this.emit('checkpoint', {
+      id: checkpoint.id,
+      label: checkpoint.label,
+      iteration: checkpoint.iteration,
+      messageCount: checkpoint.messageCount,
+      tokenCount: checkpoint.tokenCount,
+      timestamp: checkpoint.timestamp,
+    });
   }
 
   /**

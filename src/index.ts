@@ -3436,6 +3436,66 @@ Begin by analyzing the query and planning your research approach.`;
           }
           break;
         }
+        // Phase 4: Breakpoint commands
+        case 'breakpoint_add': {
+          const bpType = cmd.data.type as 'tool' | 'iteration' | 'pattern' | 'error';
+          const condition = cmd.data.condition as string | number | undefined;
+          const bpId = agent.addBreakpoint(bpType, condition);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_add',
+            data: { id: bpId, bpType, condition },
+          });
+          break;
+        }
+        case 'breakpoint_remove': {
+          const bpId = cmd.data.id as string;
+          const removed = agent.removeBreakpoint(bpId);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_remove',
+            data: { id: bpId, removed },
+          });
+          break;
+        }
+        case 'breakpoint_clear': {
+          agent.clearBreakpoints();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_clear',
+            data: { cleared: true },
+          });
+          break;
+        }
+        case 'breakpoint_list': {
+          const breakpoints = agent.listBreakpoints();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_list',
+            data: { breakpoints },
+          });
+          break;
+        }
+        // Phase 4: Checkpoint commands
+        case 'checkpoint_create': {
+          const label = cmd.data.label as string | undefined;
+          const checkpoint = agent.createCheckpoint(label);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'checkpoint_create',
+            data: checkpoint,
+          });
+          break;
+        }
+        case 'checkpoint_list': {
+          // Checkpoints are recorded in events.jsonl - emit guidance
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'checkpoint_list',
+            data: { message: 'Checkpoints are recorded in events.jsonl as checkpoint events' },
+          });
+          break;
+        }
         default:
           getDebugBridge().emit('error', {
             message: `Unknown command type: ${cmd.type}`,

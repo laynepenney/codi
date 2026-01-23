@@ -844,6 +844,310 @@ describe('Debug Bridge', () => {
       }
     });
   });
+
+  // ============================================
+  // Phase 4: Breakpoints and Checkpoints
+  // ============================================
+
+  describe('Phase 4: Breakpoint events', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should emit breakpoint_hit event with tool breakpoint', () => {
+      const breakpoint = {
+        id: 'bp_123',
+        type: 'tool' as const,
+        condition: 'write_file',
+        enabled: true,
+        hitCount: 1,
+      };
+      const context = {
+        type: 'tool_call' as const,
+        toolName: 'write_file',
+        iteration: 5,
+      };
+
+      bridge.breakpointHit(breakpoint, context);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('breakpoint_hit');
+      expect(event.data.breakpoint.id).toBe('bp_123');
+      expect(event.data.breakpoint.type).toBe('tool');
+      expect(event.data.breakpoint.condition).toBe('write_file');
+      expect(event.data.context.toolName).toBe('write_file');
+      expect(event.data.context.iteration).toBe(5);
+    });
+
+    it('should emit breakpoint_hit event with iteration breakpoint', () => {
+      const breakpoint = {
+        id: 'bp_456',
+        type: 'iteration' as const,
+        condition: 10,
+        enabled: true,
+        hitCount: 1,
+      };
+      const context = {
+        type: 'iteration' as const,
+        iteration: 10,
+      };
+
+      bridge.breakpointHit(breakpoint, context);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('breakpoint_hit');
+      expect(event.data.breakpoint.type).toBe('iteration');
+      expect(event.data.breakpoint.condition).toBe(10);
+      expect(event.data.context.iteration).toBe(10);
+    });
+
+    it('should emit breakpoint_hit event with pattern breakpoint', () => {
+      const breakpoint = {
+        id: 'bp_789',
+        type: 'pattern' as const,
+        condition: 'rm -rf',
+        enabled: true,
+        hitCount: 1,
+      };
+      const context = {
+        type: 'tool_call' as const,
+        toolName: 'bash',
+        toolInput: { command: 'rm -rf /tmp/test' },
+        iteration: 3,
+      };
+
+      bridge.breakpointHit(breakpoint, context);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('breakpoint_hit');
+      expect(event.data.breakpoint.type).toBe('pattern');
+      expect(event.data.breakpoint.condition).toBe('rm -rf');
+    });
+
+    it('should emit breakpoint_hit event with error breakpoint', () => {
+      const breakpoint = {
+        id: 'bp_error',
+        type: 'error' as const,
+        enabled: true,
+        hitCount: 1,
+      };
+      const context = {
+        type: 'error' as const,
+        toolName: 'bash',
+        iteration: 7,
+        error: 'Command failed with exit code 1',
+      };
+
+      bridge.breakpointHit(breakpoint, context);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('breakpoint_hit');
+      expect(event.data.breakpoint.type).toBe('error');
+      expect(event.data.context.error).toBe('Command failed with exit code 1');
+    });
+  });
+
+  describe('Phase 4: Checkpoint events', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should emit checkpoint event', () => {
+      const checkpoint = {
+        id: 'cp_5_123456789',
+        iteration: 5,
+        timestamp: new Date().toISOString(),
+        messageCount: 10,
+        tokenCount: 5000,
+      };
+
+      bridge.checkpoint(checkpoint);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('checkpoint');
+      expect(event.data.id).toBe('cp_5_123456789');
+      expect(event.data.iteration).toBe(5);
+      expect(event.data.messageCount).toBe(10);
+      expect(event.data.tokenCount).toBe(5000);
+    });
+
+    it('should emit checkpoint event with label', () => {
+      const checkpoint = {
+        id: 'cp_3_123456789',
+        label: 'before refactor',
+        iteration: 3,
+        timestamp: new Date().toISOString(),
+        messageCount: 7,
+        tokenCount: 3500,
+      };
+
+      bridge.checkpoint(checkpoint);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('checkpoint');
+      expect(event.data.label).toBe('before refactor');
+    });
+  });
+
+  describe('Phase 4: Command types', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should handle breakpoint_add command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'breakpoint_add',
+        id: 'add-bp-1',
+        data: { type: 'tool', condition: 'write_file' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('breakpoint_add');
+      expect(receivedCommands[0].data.type).toBe('tool');
+      expect(receivedCommands[0].data.condition).toBe('write_file');
+    });
+
+    it('should handle breakpoint_remove command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'breakpoint_remove',
+        id: 'remove-bp-1',
+        data: { id: 'bp_123' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('breakpoint_remove');
+      expect(receivedCommands[0].data.id).toBe('bp_123');
+    });
+
+    it('should handle breakpoint_clear command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'breakpoint_clear',
+        id: 'clear-bp-1',
+        data: {},
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('breakpoint_clear');
+    });
+
+    it('should handle breakpoint_list command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'breakpoint_list',
+        id: 'list-bp-1',
+        data: {},
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('breakpoint_list');
+    });
+
+    it('should handle checkpoint_create command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'checkpoint_create',
+        id: 'create-cp-1',
+        data: { label: 'test checkpoint' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('checkpoint_create');
+      expect(receivedCommands[0].data.label).toBe('test checkpoint');
+    });
+
+    it('should handle checkpoint_list command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'checkpoint_list',
+        id: 'list-cp-1',
+        data: {},
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('checkpoint_list');
+    });
+  });
 });
 
 // Cleanup mock home dir after all tests

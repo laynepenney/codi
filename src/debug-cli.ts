@@ -215,6 +215,18 @@ function formatEvent(event: DebugEvent): string {
       const to = event.data.to as { provider: string; model: string };
       return `${seq} ${chalk.magenta('MODEL SWITCH')} ${from.provider}/${from.model} -> ${to.provider}/${to.model}`;
 
+    case 'breakpoint_hit': {
+      const bp = event.data.breakpoint as { id: string; type: string; condition?: unknown };
+      const ctx = event.data.context as { toolName?: string; iteration: number; error?: string };
+      const condStr = bp.condition ? ` (${bp.condition})` : '';
+      return `${seq} ${chalk.red.bold('BREAKPOINT')} ${bp.type}${condStr} at iteration ${ctx.iteration}${ctx.toolName ? ` tool=${ctx.toolName}` : ''}`;
+    }
+
+    case 'checkpoint': {
+      const cpLabel = event.data.label ? ` "${event.data.label}"` : '';
+      return `${seq} ${chalk.green.bold('CHECKPOINT')} ${event.data.id}${cpLabel} iteration=${event.data.iteration} messages=${event.data.messageCount}`;
+    }
+
     default:
       return `${seq} ${chalk.gray(event.type)} ${JSON.stringify(event.data)}`;
   }
@@ -521,6 +533,223 @@ program
       console.error(chalk.red('Failed to read session info:'), err);
     }
   });
+
+// ============================================
+// Phase 4: Breakpoints
+// ============================================
+
+// Breakpoint command group
+const breakpointCmd = new Command('breakpoint')
+  .alias('bp')
+  .description('Manage breakpoints');
+
+breakpointCmd
+  .command('add <type> [condition]')
+  .description('Add a breakpoint (types: tool, iteration, pattern, error)')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((type, condition, opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+
+    const validTypes = ['tool', 'iteration', 'pattern', 'error'];
+    if (!validTypes.includes(type)) {
+      console.error(chalk.red(`Invalid breakpoint type. Valid types: ${validTypes.join(', ')}`));
+      process.exit(1);
+    }
+
+    // Parse condition based on type
+    let parsedCondition: string | number | undefined = condition;
+    if (type === 'iteration' && condition) {
+      parsedCondition = parseInt(condition, 10);
+      if (isNaN(parsedCondition)) {
+        console.error(chalk.red('Iteration condition must be a number'));
+        process.exit(1);
+      }
+    }
+
+    sendCommand(sessionDir, 'breakpoint_add', { type, condition: parsedCondition });
+  });
+
+breakpointCmd
+  .command('list')
+  .alias('ls')
+  .description('List all breakpoints')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'breakpoint_list', {});
+    console.log(chalk.gray('Watch events to see the response.'));
+  });
+
+breakpointCmd
+  .command('remove <id>')
+  .alias('rm')
+  .description('Remove a breakpoint by ID')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((id, opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'breakpoint_remove', { id });
+  });
+
+breakpointCmd
+  .command('clear')
+  .description('Clear all breakpoints')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'breakpoint_clear', {});
+  });
+
+program.addCommand(breakpointCmd);
+
+// ============================================
+// Phase 4: Checkpoints
+// ============================================
+
+// Checkpoint command group
+const checkpointCmd = new Command('checkpoint')
+  .alias('cp')
+  .description('Manage checkpoints');
+
+checkpointCmd
+  .command('create [label]')
+  .description('Create a checkpoint with optional label')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((label, opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'checkpoint_create', { label });
+  });
+
+checkpointCmd
+  .command('list')
+  .alias('ls')
+  .description('List all checkpoints')
+  .option('-s, --session <id>', 'Session ID (default: current)')
+  .action((opts) => {
+    const sessionDir = getSessionDir(opts.session);
+    if (!sessionDir) {
+      console.error(chalk.red('No active session found.'));
+      process.exit(1);
+    }
+    sendCommand(sessionDir, 'checkpoint_list', {});
+    console.log(chalk.gray('Watch events to see the response.'));
+  });
+
+program.addCommand(checkpointCmd);
+
+// ============================================
+// Phase 4: Session Replay
+// ============================================
+
+program
+  .command('replay [session]')
+  .description('Replay a recorded session')
+  .option('--timed', 'Replay with original timing')
+  .option('--speed <multiplier>', 'Speed multiplier (e.g., 2, 0.5)', '1')
+  .option('-f, --filter <types>', 'Filter event types (comma-separated)')
+  .option('--from-iteration <n>', 'Start from iteration')
+  .option('--from-sequence <n>', 'Start from sequence number')
+  .action(async (session, opts) => {
+    const sessionDir = getSessionDir(session);
+    if (!sessionDir) {
+      console.error(chalk.red('No session found. Specify a session ID or run from a directory with a current session.'));
+      process.exit(1);
+    }
+
+    const eventsFile = getEventsFile(sessionDir);
+    if (!existsSync(eventsFile)) {
+      console.error(chalk.red(`Events file not found: ${eventsFile}`));
+      process.exit(1);
+    }
+
+    const speed = parseFloat(opts.speed) || 1;
+    const filterTypes = opts.filter?.split(',').map((t: string) => t.trim()) as DebugEventType[] | undefined;
+    const fromIteration = opts.fromIteration ? parseInt(opts.fromIteration, 10) : 0;
+    const fromSequence = opts.fromSequence ? parseInt(opts.fromSequence, 10) : 0;
+
+    console.log(chalk.cyan(`Replaying: ${sessionDir}`));
+    if (opts.timed) console.log(chalk.gray(`Speed: ${speed}x`));
+    if (filterTypes) console.log(chalk.gray(`Filter: ${filterTypes.join(', ')}`));
+    if (fromIteration > 0) console.log(chalk.gray(`Starting from iteration: ${fromIteration}`));
+    if (fromSequence > 0) console.log(chalk.gray(`Starting from sequence: ${fromSequence}`));
+    console.log();
+
+    // Read all events
+    const content = readFileSync(eventsFile, 'utf8');
+    const lines = content.split('\n').filter(l => l.trim());
+    const events: DebugEvent[] = [];
+
+    for (const line of lines) {
+      try {
+        events.push(JSON.parse(line) as DebugEvent);
+      } catch {
+        // Skip invalid lines
+      }
+    }
+
+    if (events.length === 0) {
+      console.log(chalk.yellow('No events found in session.'));
+      return;
+    }
+
+    let lastTimestamp: number | null = null;
+    let eventsShown = 0;
+
+    for (const event of events) {
+      // Skip until we reach starting point
+      if (event.sequence < fromSequence) continue;
+
+      // Check iteration filter (data.iteration may not exist on all events)
+      const eventIteration = (event.data as { iteration?: number }).iteration;
+      if (fromIteration > 0 && eventIteration !== undefined && eventIteration < fromIteration) continue;
+
+      // Apply type filter
+      if (filterTypes && !filterTypes.includes(event.type)) continue;
+
+      // Timing
+      if (opts.timed && lastTimestamp !== null) {
+        const eventTime = new Date(event.timestamp).getTime();
+        const delay = (eventTime - lastTimestamp) / speed;
+        const actualDelay = Math.min(Math.max(delay, 0), 5000); // Cap at 5 seconds, min 0
+        if (actualDelay > 10) {
+          await sleep(actualDelay);
+        }
+      }
+      lastTimestamp = new Date(event.timestamp).getTime();
+
+      // Display event
+      console.log(formatEvent(event));
+      eventsShown++;
+    }
+
+    console.log(chalk.gray(`\n--- Replay complete (${eventsShown} events) ---`));
+  });
+
+/**
+ * Sleep for a given number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // Parse and execute
 program.parse();

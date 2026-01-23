@@ -44,7 +44,14 @@ import {
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
 import type { AuditLogger } from './audit.js';
-import { getDebugBridge, isDebugBridgeEnabled } from './debug-bridge.js';
+import {
+  getDebugBridge,
+  isDebugBridgeEnabled,
+  type Breakpoint,
+  type BreakpointContext,
+  type BreakpointType,
+  type Checkpoint,
+} from './debug-bridge.js';
 import {
   checkCommandApproval,
   getApprovalSuggestions,
@@ -151,6 +158,11 @@ export class Agent {
   private debugPaused: boolean = false;
   private debugStepMode: boolean = false;
   private currentIteration: number = 0;
+  // Phase 4: Breakpoints
+  private breakpoints: Map<string, Breakpoint> = new Map();
+  // Phase 4: Checkpoints
+  private lastCheckpointIteration: number = 0;
+  private checkpointInterval: number = 5; // Auto-checkpoint every 5 iterations
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -672,6 +684,24 @@ ${contextToSummarize}`,
     while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
       iterations++;
       this.currentIteration = iterations;
+
+      // Phase 4: Maybe create automatic checkpoint
+      this.maybeCreateCheckpoint();
+
+      // Check iteration breakpoints (Phase 4)
+      const iterBp = this.checkBreakpoints({
+        type: 'iteration',
+        iteration: this.currentIteration,
+      });
+      if (iterBp) {
+        this.debugPaused = true;
+        if (isDebugBridgeEnabled()) {
+          getDebugBridge().breakpointHit(iterBp, {
+            type: 'iteration',
+            iteration: this.currentIteration,
+          });
+        }
+      }
 
       // Wait for debug resume if paused (Phase 2)
       await this.waitForDebugResume();
@@ -1205,6 +1235,29 @@ ${contextToSummarize}`,
         }
 
         for (const batch of batches) {
+          // Phase 4: Check breakpoints before each batch
+          for (const toolCall of batch.calls) {
+            const bp = this.checkBreakpoints({
+              type: 'tool_call',
+              toolName: toolCall.name,
+              toolInput: toolCall.input,
+              iteration: this.currentIteration,
+            });
+
+            if (bp) {
+              this.debugPaused = true;
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().breakpointHit(bp, {
+                  type: 'tool_call',
+                  toolName: toolCall.name,
+                  toolInput: toolCall.input,
+                  iteration: this.currentIteration,
+                });
+              }
+              await this.waitForDebugResume();
+            }
+          }
+
           if (batch.parallel && batch.calls.length > 1) {
             // Execute batch in parallel
             logger.debug(`Executing ${batch.calls.length} tools in parallel: ${batch.calls.map(c => c.name).join(', ')}`);
@@ -1232,7 +1285,27 @@ ${contextToSummarize}`,
               const result = parallelResults[i];
               const toolCall = batch.calls[i];
               toolResults.push(result);
-              if (result.is_error) hasError = true;
+              if (result.is_error) {
+                hasError = true;
+                // Phase 4: Check error breakpoints
+                const errBp = this.checkBreakpoints({
+                  type: 'error',
+                  toolName: toolCall.name,
+                  iteration: this.currentIteration,
+                  error: result.content,
+                });
+                if (errBp) {
+                  this.debugPaused = true;
+                  if (isDebugBridgeEnabled()) {
+                    getDebugBridge().breakpointHit(errBp, {
+                      type: 'error',
+                      toolName: toolCall.name,
+                      iteration: this.currentIteration,
+                      error: result.content,
+                    });
+                  }
+                }
+              }
 
               // Debug bridge: tool call end and result
               if (isDebugBridgeEnabled()) {
@@ -1256,7 +1329,28 @@ ${contextToSummarize}`,
 
               const result = await this.toolRegistry.execute(toolCall);
               toolResults.push(result);
-              if (result.is_error) hasError = true;
+              if (result.is_error) {
+                hasError = true;
+                // Phase 4: Check error breakpoints
+                const errBp = this.checkBreakpoints({
+                  type: 'error',
+                  toolName: toolCall.name,
+                  iteration: this.currentIteration,
+                  error: result.content,
+                });
+                if (errBp) {
+                  this.debugPaused = true;
+                  if (isDebugBridgeEnabled()) {
+                    getDebugBridge().breakpointHit(errBp, {
+                      type: 'error',
+                      toolName: toolCall.name,
+                      iteration: this.currentIteration,
+                      error: result.content,
+                    });
+                  }
+                  await this.waitForDebugResume();
+                }
+              }
 
               // Debug bridge: tool call end and result
               if (isDebugBridgeEnabled()) {
@@ -1745,6 +1839,135 @@ ${contextToSummarize}`,
         messageCount: this.messages.length,
       });
     }
+  }
+
+  // ============================================
+  // Breakpoints (Phase 4)
+  // ============================================
+
+  /**
+   * Add a breakpoint.
+   */
+  addBreakpoint(type: BreakpointType, condition?: string | number): string {
+    const id = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    this.breakpoints.set(id, {
+      id,
+      type,
+      condition,
+      enabled: true,
+      hitCount: 0,
+    });
+    return id;
+  }
+
+  /**
+   * Remove a breakpoint by ID.
+   */
+  removeBreakpoint(id: string): boolean {
+    return this.breakpoints.delete(id);
+  }
+
+  /**
+   * Clear all breakpoints.
+   */
+  clearBreakpoints(): void {
+    this.breakpoints.clear();
+  }
+
+  /**
+   * List all breakpoints.
+   */
+  listBreakpoints(): Breakpoint[] {
+    return [...this.breakpoints.values()];
+  }
+
+  /**
+   * Check if any breakpoint should trigger.
+   * Returns the first matching breakpoint or null.
+   */
+  private checkBreakpoints(context: BreakpointContext): Breakpoint | null {
+    for (const bp of this.breakpoints.values()) {
+      if (!bp.enabled) continue;
+
+      switch (bp.type) {
+        case 'tool':
+          if (context.type === 'tool_call' && context.toolName === bp.condition) {
+            bp.hitCount++;
+            return bp;
+          }
+          break;
+
+        case 'iteration':
+          if (context.iteration === bp.condition) {
+            bp.hitCount++;
+            return bp;
+          }
+          break;
+
+        case 'pattern':
+          if (context.toolInput && typeof bp.condition === 'string') {
+            const inputStr = JSON.stringify(context.toolInput);
+            const regex = new RegExp(bp.condition, 'i');
+            if (regex.test(inputStr)) {
+              bp.hitCount++;
+              return bp;
+            }
+          }
+          break;
+
+        case 'error':
+          if (context.type === 'error') {
+            bp.hitCount++;
+            return bp;
+          }
+          break;
+      }
+    }
+    return null;
+  }
+
+  // ============================================
+  // Checkpoints (Phase 4)
+  // ============================================
+
+  /**
+   * Create a checkpoint with current state.
+   */
+  createCheckpoint(label?: string): Checkpoint {
+    const checkpoint: Checkpoint = {
+      id: `cp_${this.currentIteration}_${Date.now()}`,
+      label,
+      iteration: this.currentIteration,
+      timestamp: new Date().toISOString(),
+      messageCount: this.messages.length,
+      tokenCount: countMessageTokens(this.messages),
+    };
+
+    this.lastCheckpointIteration = this.currentIteration;
+
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().checkpoint(checkpoint);
+    }
+
+    return checkpoint;
+  }
+
+  /**
+   * Automatically create checkpoint if interval has passed.
+   */
+  private maybeCreateCheckpoint(): void {
+    if (!isDebugBridgeEnabled()) return;
+
+    if (this.currentIteration - this.lastCheckpointIteration >= this.checkpointInterval) {
+      this.createCheckpoint();
+    }
+  }
+
+  /**
+   * Set the auto-checkpoint interval.
+   */
+  setCheckpointInterval(interval: number): void {
+    this.checkpointInterval = interval;
   }
 
   /**
