@@ -17,6 +17,7 @@ import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { promptSessionSelection } from './session-selection.js';
+import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -812,74 +813,6 @@ function promptConfirmationWithSuggestions(
       }
     });
   });
-}
-
-/**
- * Parse a command string to extract individual commands from pipes and logical operators.
- * Returns an array of individual command strings.
- */
-function parseCommandChain(command: string): string[] {
-  // Split on pipes and logical operators (|, &&, ||, ;)
-  // This regex splits on |, ;, &&, or || while preserving the separators
-  const parts = command.split(/(\s*\|\s*|\s*;\s*|\s+&&\s+|\s+\|\|\s+)/);
-
-  const commands: string[] = [];
-  let currentCommand = '';
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    // Check if this part is separator content (|, ;, &&, ||)
-    const trimmed = part.trim();
-    const isSeparator = trimmed === '|' || trimmed === ';' || trimmed === '&&' || trimmed === '||';
-
-    if (isSeparator) {
-      // Found a separator, push the current command and start a new one
-      if (currentCommand.trim()) {
-        commands.push(currentCommand.trim());
-      }
-      currentCommand = '';
-    } else if (trimmed) {
-      // Part of a command - only add non-separators
-      currentCommand += (currentCommand ? ' ' : '') + trimmed;
-    }
-  }
-
-  // Don't forget the last command
-  if (currentCommand.trim()) {
-    commands.push(currentCommand.trim());
-  }
-
-  return commands;
-}
-
-/**
- * Request permission for chained commands.
- * Shows each command and asks for approval.
- */
-async function requestPermissionForChainedCommands(
-  rl: ReturnType<typeof createInterface>,
-  commands: string[]
-): Promise<boolean> {
-  console.log(chalk.yellow('\n⚠️  Chained command detected. Please review each command:\n'));
-  
-  for (let i = 0; i < commands.length; i++) {
-    const cmd = commands[i];
-    console.log(chalk.dim(`  ${i + 1}. ${cmd}`));
-  }
-  
-  console.log(chalk.yellow('\nApprove execution of all commands? [y/N/abort] '));
-  const answer = await new Promise<string>((resolve) => {
-    rl.question('', (input: string) => resolve(input));
-  });
-  
-  const lower = answer.toLowerCase().trim();
-  if (lower === 'y' || lower === 'yes') {
-    return true;
-  } else if (lower === 'a' || lower === 'abort') {
-    throw new Error('Command execution aborted by user');
-  } else {
-    return false;
-  }
 }
 
 function normalizeSessionProjectPath(value: string | undefined): string | null {

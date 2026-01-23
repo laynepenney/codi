@@ -1318,10 +1318,25 @@ For maximum impact with reasonable effort:
 13. ~~**Model Map** - Docker-compose style multi-model config~~ DONE (Phases 1-3 complete)
 14. ~~**Multi-Agent Orchestration** - Parallel agents with IPC permission bubbling~~ DONE
 
-## Notes for Contributors
+## Security Guidelines
 
-- Keep tools focused and single-purpose
-- Commands should return prompts, not execute logic directly
-- Test with multiple providers (at least Anthropic + Ollama)
-- Consider token usage - avoid verbose tool outputs
-- Maintain backwards compatibility with existing configs
+Codi follows a principle of explicit consent for all file system and process operations. This includes several layers of protection:
+
+### Direct Shell Commands (! prefix)
+Direct shell commands (using the `!` prefix) now require explicit permission for chained commands. For example:
+- `!ls | grep "test"` will show both commands and require approval
+- `!echo "hello" && pwd` will show each command separately
+- `!command1; command2 | command3` will list all three commands
+
+The system detects command chaining through pipes (`|`), semicolons (`;`), and logical operators (`&&`, `||`). Each command in the chain must be explicitly approved by the user.
+
+### Tool Execution Permissions
+All tool executions go through a permission system that:
+1. Automatically approves safe tools specified in config (`autoApprove`)
+2. Prompts for confirmation on potentially dangerous operations
+3. Provides pattern-based auto-approval suggestions
+
+### Bash Command Safety
+The bash tool includes built-in dangerous command detection with customizable patterns.
+
+Previous versions had a vulnerability where chained commands like `!echo "?" | pnpm dev --quiet` only required permission for the first command (`echo`) but would silently execute subsequent commands (`pnpm`). This has been fixed by requiring explicit permission for ALL commands in a chain.
