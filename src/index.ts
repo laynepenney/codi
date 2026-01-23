@@ -2912,36 +2912,6 @@ Begin by analyzing the query and planning your research approach.`;
     completer,
   });
 
-  // Track the current line buffer for dynamic prompt updates
-  let currentLine = '';
-
-  // Listen for keypress events to update prompt dynamically
-  // @ts-ignore - readline emits keypress events but they're not in TS types
-  rl.on('keypress', (str: string | undefined, key: { name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
-    if (!rlClosed) {
-      // Get the current line content (private property, but accessible)
-      // @ts-ignore
-      currentLine = (rl._line || '') as string || '';
-      
-      // Detect prefix operators and update prompt
-      if (currentLine.trim().length === 0) {
-        if (str === '!') {
-          updatePrompt('shell');
-        } else if (str === '?') {
-          updatePrompt('help');
-        } else {
-          updatePrompt('normal');
-        }
-      } else if (currentLine.trim().length === 1) {
-        // Check if the line has been cleared (backspace)
-        if (currentLine.trim() === '') {
-          updatePrompt('normal');
-        }
-      }
-      // Keep existing mode if line has more content
-    }
-  });
-
   // Track if readline is closed (for piped input)
   let rlClosed = false;
   rl.on('close', () => {
@@ -3415,6 +3385,13 @@ Begin by analyzing the query and planning your research approach.`;
 
     // Audit log user input
     auditLogger.userInput(trimmed);
+
+    // Set appropriate prompt for prefix commands
+    if (trimmed.startsWith('!')) {
+      updatePrompt('shell');
+    } else if (trimmed === '?' || trimmed.startsWith('?')) {
+      updatePrompt('help');
+    }
 
     // Handle ! prefix for direct shell commands
     if (trimmed.startsWith('!')) {
@@ -4072,12 +4049,10 @@ Begin by analyzing the query and planning your research approach.`;
             spinner.stop();
             logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
           }
-          resetPrompt();
           rl.prompt();
           return;
         } else {
           console.log(chalk.yellow(`Unknown command: /${parsed.name}. Type /help for available commands.`));
-          resetPrompt();
           rl.prompt();
           return;
         }
@@ -4104,7 +4079,6 @@ Begin by analyzing the query and planning your research approach.`;
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
     }
 
-    resetPrompt();
     rl.prompt();
   };
 
