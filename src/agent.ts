@@ -578,6 +578,47 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Enforce the message limit to prevent unbounded memory growth.
+   * Uses smart pruning: keeps recent messages and removes old ones.
+   */
+  private enforceMessageLimit(): void {
+    if (this.messages.length <= FIXED_CONFIG.MAX_MESSAGES) {
+      return;
+    }
+
+    logger.debug(`Enforcing message limit: ${this.messages.length} > ${FIXED_CONFIG.MAX_MESSAGES}`);
+
+    // Calculate how many to remove (keep some buffer below the limit)
+    const targetSize = Math.floor(FIXED_CONFIG.MAX_MESSAGES * 0.8); // Keep 80% of limit
+    const removeCount = this.messages.length - targetSize;
+
+    // Find a safe start point in the messages to remove
+    // We need to slice from the beginning, not break tool call/result pairs
+    const recentMessages = this.messages.slice(removeCount);
+    const safeStart = findSafeStartIndex(recentMessages);
+
+    // Adjust the actual slice point to respect tool pairs
+    const actualRemoveCount = removeCount + safeStart;
+    const pruned = actualRemoveCount;
+
+    if (pruned <= 0) {
+      return; // Nothing safe to prune
+    }
+
+    // Update summary to note that messages were pruned
+    const pruneNote = `[Note: ${pruned} older messages were automatically pruned to stay within memory limits]`;
+    if (this.conversationSummary) {
+      this.conversationSummary = `${pruneNote}\n\n${this.conversationSummary}`;
+    } else {
+      this.conversationSummary = pruneNote;
+    }
+
+    // Apply pruning
+    this.messages = this.messages.slice(actualRemoveCount);
+    logger.debug(`Pruned ${pruned} messages, now have ${this.messages.length}`);
+  }
+
+  /**
    * Process a user message and return the final assistant response.
    * This runs the full agentic loop until the model stops calling tools.
    *
@@ -588,6 +629,9 @@ ${contextToSummarize}`,
     // Store original task for continuation prompts
     const originalTask = userMessage;
 
+    // Record start time for timeout check
+    const startTime = Date.now();
+
     // Determine which provider to use for this chat
     const chatProvider = this.getProviderForChat(options?.taskType);
 
@@ -596,6 +640,9 @@ ${contextToSummarize}`,
       role: 'user',
       content: userMessage,
     });
+
+    // Enforce message limit
+    this.enforceMessageLimit();
 
     // Check if context needs compaction
     await this.compactContext();
@@ -606,6 +653,17 @@ ${contextToSummarize}`,
 
     while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
       iterations++;
+
+      // Check wall-clock timeout
+      const elapsed = Date.now() - startTime;
+      if (elapsed > FIXED_CONFIG.MAX_CHAT_DURATION_MS) {
+        const elapsedMinutes = Math.round(elapsed / 60000);
+        const timeoutMsg = `\n\n(Reached time limit of ${elapsedMinutes} minutes, stopping)`;
+        finalResponse += timeoutMsg;
+        this.callbacks.onText?.(timeoutMsg);
+        logger.warn(`Chat timeout after ${elapsedMinutes} minutes and ${iterations} iterations`);
+        break;
+      }
 
       // Get tool definitions if provider supports them and tools are enabled
       const tools = (this.useTools && chatProvider.supportsToolUse())

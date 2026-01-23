@@ -81,7 +81,14 @@ const FILE_TOOLS = new Set([
 ]);
 
 /**
+ * Maximum number of files to track in the working set.
+ * Uses LRU eviction when exceeded.
+ */
+const MAX_RECENT_FILES = 100;
+
+/**
  * Update the working set based on a tool execution.
+ * Uses LRU eviction when the set exceeds MAX_RECENT_FILES.
  */
 export function updateWorkingSet(
   workingSet: WorkingSet,
@@ -94,8 +101,19 @@ export function updateWorkingSet(
   const filePath = (input.path || input.file_path || input.file) as string | undefined;
 
   if (filePath) {
-    // Add to recent files (no limit - working set grows with session)
+    // Remove and re-add to make this the most recently used (Sets preserve insertion order)
+    if (workingSet.recentFiles.has(filePath)) {
+      workingSet.recentFiles.delete(filePath);
+    }
     workingSet.recentFiles.add(filePath);
+
+    // LRU eviction: remove oldest entries when exceeding max
+    while (workingSet.recentFiles.size > MAX_RECENT_FILES) {
+      const oldest = workingSet.recentFiles.values().next().value;
+      if (oldest) {
+        workingSet.recentFiles.delete(oldest);
+      }
+    }
   }
 
   // For glob/grep, extract pattern-matched files from results if available
