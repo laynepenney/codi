@@ -11,6 +11,9 @@ import {
 } from '../src/commands/orchestrate-commands.js';
 import type { CommandContext } from '../src/commands/index.js';
 
+// Skip orchestrator tests on Windows (Unix domain sockets not supported)
+const isWindows = process.platform === 'win32';
+
 // Mock chalk to avoid color codes in tests
 vi.mock('chalk', () => ({
   default: {
@@ -68,6 +71,11 @@ describe('Orchestrate Commands', () => {
   afterEach(() => {
     consoleSpy.mockRestore();
   });
+
+  if (isWindows) {
+    it.skip('Orchestrator tests skipped on Windows (Unix domain sockets not supported)', () => {});
+    return;
+  }
 
   describe('delegateCommand', () => {
     it('has correct name and aliases', () => {

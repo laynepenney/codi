@@ -22,7 +22,15 @@ vi.mock('../src/commands/orchestrate-commands.js', () => {
 
 import { __setMockOrchestrator } from '../src/commands/orchestrate-commands.js';
 
+// Skip orchestrator tests on Windows (Unix domain sockets not supported)
+const isWindows = process.platform === 'win32';
+
 describe('Orchestration Tools', () => {
+  if (isWindows) {
+    it.skip('Orchestration tools tests skipped on Windows (Unix domain sockets not supported)', () => {});
+    return;
+  }
+
   beforeEach(() => {
     __setMockOrchestrator(null);
   });

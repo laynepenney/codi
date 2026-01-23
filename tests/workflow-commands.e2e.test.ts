@@ -12,6 +12,9 @@ import * as os from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { setupMockE2E, cleanupMockE2E, textResponse, type MockE2ESession } from './helpers/mock-e2e.js';
 
+// Skip orchestrator tests on Windows (Unix domain sockets not supported)
+const isWindows = process.platform === 'win32';
+
 vi.setConfig({ testTimeout: 20000 });
 
 function distEntry(): string {
