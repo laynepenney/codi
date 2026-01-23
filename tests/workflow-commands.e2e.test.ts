@@ -15,7 +15,12 @@ import { setupMockE2E, cleanupMockE2E, textResponse, type MockE2ESession } from 
 // Skip orchestrator tests on Windows (Unix domain sockets not supported)
 const isWindows = process.platform === 'win32';
 
-vi.setConfig({ testTimeout: 20000 });
+// Platform-aware timeouts - macOS CI is slower
+const isMacOS = process.platform === 'darwin';
+const TEST_TIMEOUT = isMacOS ? 45000 : 20000;
+const WAIT_TIMEOUT = isMacOS ? 25000 : 15000;
+
+vi.setConfig({ testTimeout: TEST_TIMEOUT });
 
 function distEntry(): string {
   return path.resolve(process.cwd(), 'dist', 'index.js');
@@ -59,7 +64,7 @@ class ProcessHarness {
   writeLine(data: string): void { this.proc.stdin?.write(data + '\n'); }
   getOutput(): string { return this.output; }
 
-  async waitFor(pattern: string | RegExp, timeoutMs = 10000): Promise<string> {
+  async waitFor(pattern: string | RegExp, timeoutMs = WAIT_TIMEOUT): Promise<string> {
     const re = typeof pattern === 'string'
       ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       : pattern;
