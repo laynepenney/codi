@@ -195,10 +195,14 @@ export function invalidateMessageTokenCache(msg: Message): void {
 
 /**
  * Clear all cached token counts (for testing).
+ *
+ * NOTE: WeakMap doesn't have a clear() method and is designed for automatic
+ * garbage collection. For testing, individual messages should be invalidated
+ * using invalidateMessageTokenCache() instead.
  */
 export function clearMessageTokenCache(): void {
-  // WeakMap doesn't have a clear method, so we reassign
-  // This is only for testing - in production the WeakMap handles cleanup
+  // No-op: WeakMap manages its own lifecycle and cannot be cleared directly
+  // Use invalidateMessageTokenCache(msg) for individual message invalidation
 }
 
 /**
