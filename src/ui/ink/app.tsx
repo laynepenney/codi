@@ -301,6 +301,12 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     if (existingStatus) {
       setStatus(existingStatus);
     }
+    const existingSelection = controller.getActiveSessionSelection();
+    if (existingSelection) {
+      setSessionSelection(existingSelection);
+      setSessionIndex(0);
+      setFocus('selection');
+    }
 
     return () => {
       controller.off('message', onMessage);
