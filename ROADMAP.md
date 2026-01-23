@@ -61,12 +61,13 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 | Debug Bridge Command Injection | External control via commands.jsonl (pause, resume, step, inspect) | #110 |
 | Debug CLI | `codi-debug` companion tool for watching events and sending commands | #115 |
 | Debug Bridge Phase 4 | Breakpoints, auto-checkpoints, session replay | #118 |
+| Debug Bridge Phase 5 | Time travel debugging (rewind, branching, timeline) | #129 |
 
 ---
 
 ## Current Status
 
-**Tests:** 1907 passing
+**Tests:** 1927 passing
 **Test Coverage:** ~65% overall
 
 | Module | Coverage |
@@ -82,7 +83,7 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 
 ### High Priority
 
-- [ ] **Windows CI runner** - Test native module compilation on Windows
+- [ ] **Windows CI runner** - Test native module compilation on Windows (see #134)
 - [ ] **npm publish workflow** - Automated releases on tag push (`.github/workflows/release.yml`)
 - [ ] **Command unit tests** - memory-commands, orchestrate-commands, rag-commands, compact-commands
 
@@ -97,7 +98,7 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 - [x] **Debug Bridge Phase 2** - Command injection (pause, resume, step, inspect) - PR #110
 - [x] **Debug Bridge Phase 3** - Debug CLI (`codi-debug`) - PR #116
 - [x] **Debug Bridge Phase 4** - Breakpoints, auto-checkpoints, session replay - PR #118
-- [ ] **Debug Bridge Phase 5** - Time travel debugging (rewind, branching, timeline)
+- [x] **Debug Bridge Phase 5** - Time travel debugging (rewind, branching, timeline) - PR #129
 - [ ] **Optional telemetry** - Opt-in error tracking
 - [ ] **Plugin system re-enable** - Currently disabled pending investigation (#17)
 
