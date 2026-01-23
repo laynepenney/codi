@@ -9,6 +9,7 @@ import { mapContentBlock, type BlockConverters } from './message-converter.js';
 import { getStaticModels, getModelPricing } from '../models.js';
 import { getOllamaModelInfo } from './ollama-model-info.js';
 import { logger } from '../logger.js';
+import { MODEL_CONTEXT_OVERRIDES } from '../constants.js';
 
 const DEFAULT_MODEL = 'gpt-4o';
 const MAX_TOKENS = 4096;
@@ -247,8 +248,23 @@ export class OpenAICompatibleProvider extends BaseProvider {
   /**
    * Get the context window for the current model.
    * For Ollama, returns cached value from /api/show, or triggers async fetch.
+   * Applies model-specific overrides for models with wrong API values.
    */
   override getContextWindow(): number {
+    // Apply model-specific override for Ollama models with incorrect API values
+    const rawContextWindow = this.cachedContextWindow;
+    if (rawContextWindow !== null && this.ollamaBaseUrl) {
+      for (const [pattern, correctWindow] of Object.entries(MODEL_CONTEXT_OVERRIDES)) {
+        if (this.model.includes(pattern)) {
+          const overrideWindow = correctWindow as number;
+          if (rawContextWindow !== overrideWindow) {
+            logger.warn(`Model ${this.model} reports ${rawContextWindow} context window, using override: ${overrideWindow}`);
+          }
+          return overrideWindow;
+        }
+      }
+    }
+
     // Return cached value if available
     if (this.cachedContextWindow !== null) {
       return this.cachedContextWindow;
