@@ -251,6 +251,7 @@ async function resolveFileList(
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
+import { shutdownAllRateLimiters } from './providers/rate-limiter.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
 import { detectProject, formatProjectContext, loadContextFile } from './context.js';
 import { OpenFilesManager } from './open-files.js';
@@ -2940,6 +2941,8 @@ Begin by analyzing the query and planning your research approach.`;
     if (symbolIndex) {
       symbolIndex.close();
     }
+    // Shutdown all rate limiters
+    shutdownAllRateLimiters();
     console.log(chalk.dim('\nGoodbye!'));
     process.exit(0);
   });
@@ -4159,18 +4162,29 @@ const gracefulShutdown = (signal: string) => {
   console.log(chalk.dim(`\nReceived ${signal}, shutting down gracefully...`));
   disableBracketedPaste();
 
+  // Set a timeout to force exit if cleanup takes too long
+  const forceExitTimeout = setTimeout(() => {
+    console.error(chalk.yellow('\nForce exiting after cleanup timeout'));
+    process.exit(1);
+  }, 5000);
+  forceExitTimeout.unref(); // Don't prevent exit if cleanup finishes
+
   // Close symbol index database to prevent corruption
   const symbolIndex = getSymbolIndexService();
   if (symbolIndex) {
     symbolIndex.close();
   }
 
-  // Cleanup orchestrator
+  // Shutdown all rate limiters (clears intervals and rejects pending)
+  shutdownAllRateLimiters();
+
+  // Cleanup orchestrator (stops IPC server, cleans up worktrees)
   const orch = getOrchestratorInstance();
   if (orch) {
     orch.stop().catch(() => {});
   }
 
+  clearTimeout(forceExitTimeout);
   process.exit(0);
 };
 
