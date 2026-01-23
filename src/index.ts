@@ -887,10 +887,12 @@ async function resolveResumeSessionName(
   resumeOption: string | boolean,
   cwd: string,
   rl: Interface | null,
-  interactive: boolean
+  interactive: boolean,
+  inkController?: InkUiController | null
 ): Promise<string | null> {
   const trimmed = typeof resumeOption === 'string' ? resumeOption.trim() : '';
   const canPrompt = Boolean(interactive && rl && process.stdin.isTTY && process.stdout.isTTY);
+  const canInkPrompt = Boolean(interactive && inkController && process.stdin.isTTY && process.stdout.isTTY);
 
   if (trimmed) {
     const exact = listSessions().find((session) => session.name === trimmed);
@@ -903,6 +905,10 @@ async function resolveResumeSessionName(
       return matches[0].name;
     }
     if (matches.length > 1) {
+      if (canInkPrompt && inkController) {
+        const selection = await inkController.requestSessionSelection(matches);
+        return selection?.name ?? matches[0].name;
+      }
       if (canPrompt && rl) {
         const selection = await promptSessionSelection(rl, matches);
         return selection?.name ?? matches[0].name;
@@ -916,12 +922,18 @@ async function resolveResumeSessionName(
   if (candidates.length === 0) {
     return null;
   }
-  if (candidates.length === 1 || !canPrompt || !rl) {
+  if (candidates.length === 1) {
     return candidates[0].name;
   }
-
-  const selection = await promptSessionSelection(rl, candidates);
-  return selection?.name ?? candidates[0].name;
+  if (canInkPrompt && inkController) {
+    const selection = await inkController.requestSessionSelection(candidates);
+    return selection?.name ?? candidates[0].name;
+  }
+  if (canPrompt && rl) {
+    const selection = await promptSessionSelection(rl, candidates);
+    return selection?.name ?? candidates[0].name;
+  }
+  return candidates[0].name;
 }
 
 function autoSaveSession(context: CommandContext, agent: Agent): void {
@@ -3022,6 +3034,16 @@ Begin by analyzing the query and planning your research approach.`;
   let rlClosed = false;
   let promptUser: (preserveCursor?: boolean) => void = () => {};
   let exitApp: () => void = () => {};
+  let inkUiPromise: Promise<void> | null = null;
+  let inkSubmitHandler: ((input: string) => Promise<void>) | null = null;
+  const pendingInkInputs: string[] = [];
+  const handleInkSubmit = async (input: string) => {
+    if (inkSubmitHandler) {
+      await inkSubmitHandler(input);
+    } else {
+      pendingInkInputs.push(input);
+    }
+  };
 
   const shutdown = () => {
     workerStatusUI?.clear();
@@ -3110,6 +3132,20 @@ Begin by analyzing the query and planning your research approach.`;
   }
   if (useInkUi) {
     spinner.setEnabled(false);
+  }
+
+  if (useInkUi && inkController) {
+    const history = loadHistory();
+    const completer = createCompleter();
+    inkUiPromise = runInkUi({
+      controller: inkController,
+      onSubmit: handleInkSubmit,
+      onExit: () => {
+        handleExit();
+      },
+      history,
+      completer,
+    });
   }
 
   // Track if we've received streaming output (to manage spinner)
@@ -3591,7 +3627,8 @@ Begin by analyzing the query and planning your research approach.`;
       options.resume,
       process.cwd(),
       rl,
-      !options.prompt
+      !options.prompt,
+      inkController
     );
     if (!sessionToLoad && !resumeArg && !options.prompt && process.stdout.isTTY) {
       console.log(chalk.dim('\nNo saved sessions found for this working directory.'));
@@ -4397,17 +4434,17 @@ Begin by analyzing the query and planning your research approach.`;
   };
 
   if (useInkUi && inkController) {
-    const history = loadHistory();
-    const completer = createCompleter();
-    await runInkUi({
-      controller: inkController,
-      onSubmit: handleInput,
-      onExit: () => {
-        handleExit();
-      },
-      history,
-      completer,
-    });
+    inkSubmitHandler = handleInput;
+    while (pendingInkInputs.length > 0) {
+      const nextInput = pendingInkInputs.shift();
+      if (nextInput) {
+        // eslint-disable-next-line no-await-in-loop
+        await handleInput(nextInput);
+      }
+    }
+    if (inkUiPromise) {
+      await inkUiPromise;
+    }
     process.exit(0);
   }
 

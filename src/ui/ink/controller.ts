@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import type { ToolConfirmation, ConfirmationResult } from '../../agent.js';
 import type { WorkerState, WorkerResult, ReaderState, ReaderResult } from '../../orchestrate/types.js';
 import type { LogMessage } from '../../orchestrate/ipc/protocol.js';
+import type { SessionInfo } from '../../session.js';
 
 export type UiMessageKind = 'user' | 'assistant' | 'system' | 'worker';
 
@@ -48,9 +49,20 @@ export interface UiConfirmationRequest {
   confirmation: ToolConfirmation;
 }
 
+export interface UiSessionSelectionRequest {
+  id: string;
+  prompt: string;
+  sessions: SessionInfo[];
+}
+
 interface PendingConfirmation {
   request: UiConfirmationRequest;
   resolve: (result: ConfirmationResult) => void;
+}
+
+interface PendingSessionSelection {
+  request: UiSessionSelectionRequest;
+  resolve: (result: SessionInfo | null) => void;
 }
 
 export class InkUiController extends EventEmitter {
@@ -58,6 +70,8 @@ export class InkUiController extends EventEmitter {
   private logCounter = 0;
   private confirmationCounter = 0;
   private confirmations: PendingConfirmation[] = [];
+  private sessionSelectionCounter = 0;
+  private sessionSelection: PendingSessionSelection | null = null;
   private status: UiStatus = {};
 
   addMessage(kind: UiMessageKind, text: string, workerId?: string): void {
@@ -173,6 +187,36 @@ export class InkUiController extends EventEmitter {
   getActiveConfirmation(): UiConfirmationRequest | null {
     return this.confirmations[0]?.request ?? null;
   }
+
+  requestSessionSelection(
+    sessions: SessionInfo[],
+    prompt = 'Select a session to resume:'
+  ): Promise<SessionInfo | null> {
+    const request: UiSessionSelectionRequest = {
+      id: `s${++this.sessionSelectionCounter}`,
+      prompt,
+      sessions,
+    };
+
+    return new Promise<SessionInfo | null>((resolve) => {
+      this.sessionSelection = { request, resolve };
+      this.emit('sessionSelection', request);
+    });
+  }
+
+  resolveSessionSelection(id: string, result: SessionInfo | null): void {
+    if (!this.sessionSelection || this.sessionSelection.request.id !== id) {
+      return;
+    }
+    const selection = this.sessionSelection;
+    this.sessionSelection = null;
+    selection.resolve(result);
+    this.emit('sessionSelection', null);
+  }
+
+  getActiveSessionSelection(): UiSessionSelectionRequest | null {
+    return this.sessionSelection?.request ?? null;
+  }
 }
 
 export interface InkUiControllerEvents {
@@ -187,6 +231,7 @@ export interface InkUiControllerEvents {
   readerResult: (result: ReaderResult) => void;
   status: (status: UiStatus) => void;
   confirmation: (request: UiConfirmationRequest | null) => void;
+  sessionSelection: (request: UiSessionSelectionRequest | null) => void;
   exit: () => void;
 }
 

@@ -7,16 +7,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ConfirmationResult } from '../../agent.js';
 import type { ReaderResult, ReaderState, WorkerResult, WorkerState } from '../../orchestrate/types.js';
+import { formatSessionInfo } from '../../session.js';
 import type {
   InkUiController,
   UiConfirmationRequest,
   UiMessage,
   UiReaderLog,
+  UiSessionSelectionRequest,
   UiStatus,
   UiWorkerLog,
 } from './controller.js';
 
-type FocusTarget = 'input' | 'activity';
+type FocusTarget = 'input' | 'activity' | 'selection';
 
 type LogTone = 'label' | 'body' | 'spacer';
 
@@ -113,6 +115,8 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const [activityScrollOffset, setActivityScrollOffset] = useState(0);
   const [confirmation, setConfirmation] = useState<UiConfirmationRequest | null>(null);
   const [confirmIndex, setConfirmIndex] = useState(0);
+  const [sessionSelection, setSessionSelection] = useState<UiSessionSelectionRequest | null>(null);
+  const [sessionIndex, setSessionIndex] = useState(0);
   const [inputValue, setInputValue] = useState('');
   const [historyEntries, setHistoryEntries] = useState<string[]>(() => (history ? [...history] : []));
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -264,6 +268,16 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       setConfirmIndex(0);
     };
 
+    const onSessionSelection = (request: UiSessionSelectionRequest | null) => {
+      setSessionSelection(request);
+      setSessionIndex(0);
+      if (request) {
+        setFocus('selection');
+      } else {
+        setFocus('input');
+      }
+    };
+
     const onExitRequest = () => {
       onExit();
       exit();
@@ -280,6 +294,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     controller.on('readerResult', onReaderResult);
     controller.on('status', onStatus);
     controller.on('confirmation', onConfirmation);
+    controller.on('sessionSelection', onSessionSelection);
     controller.on('exit', onExitRequest);
 
     const existingStatus = controller.getStatus();
@@ -299,6 +314,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       controller.off('readerResult', onReaderResult);
       controller.off('status', onStatus);
       controller.off('confirmation', onConfirmation);
+      controller.off('sessionSelection', onSessionSelection);
       controller.off('exit', onExitRequest);
     };
   }, [controller, exit, onExit, stdout]);
@@ -415,6 +431,38 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     if (key.ctrl && input === 'c') {
       onExit();
       exit();
+      return;
+    }
+
+    if (sessionSelection) {
+      if (key.upArrow) {
+        setSessionIndex((prev) =>
+          prev > 0 ? prev - 1 : Math.max(0, sessionSelection.sessions.length - 1)
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setSessionIndex((prev) =>
+          prev < sessionSelection.sessions.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+      if (key.return) {
+        const selection = sessionSelection.sessions[sessionIndex] ?? null;
+        controller.resolveSessionSelection(sessionSelection.id, selection);
+        return;
+      }
+      if (key.escape) {
+        controller.resolveSessionSelection(sessionSelection.id, null);
+        return;
+      }
+      if (/^\d$/.test(input)) {
+        const num = Number.parseInt(input, 10);
+        if (num >= 1 && num <= sessionSelection.sessions.length) {
+          controller.resolveSessionSelection(sessionSelection.id, sessionSelection.sessions[num - 1] ?? null);
+        }
+        return;
+      }
       return;
     }
 
@@ -747,6 +795,20 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     return wrapDisplayLines(lines, contentWidth);
   }, [confirmation, confirmationOptions, confirmIndex, contentWidth]);
 
+  const sessionLines = useMemo(() => {
+    if (!sessionSelection) return [];
+    const lines: string[] = [];
+    lines.push(sessionSelection.prompt);
+    sessionSelection.sessions.forEach((session, index) => {
+      const prefix = index === sessionIndex ? '▶ ' : '  ';
+      lines.push(`${prefix}${formatSessionInfo(session)}`);
+    });
+    lines.push('');
+    lines.push('(Use ↑↓ arrow keys to navigate, Enter to select, Esc to cancel)');
+    lines.push('(Or type a number 1-9 to jump to that session)');
+    return wrapDisplayLines(lines, contentWidth);
+  }, [sessionSelection, sessionIndex, contentWidth]);
+
   const statusLines = useMemo(() => {
     const session = status.sessionName ? status.sessionName : 'none';
     const modelLabel = status.provider && status.model ? `${status.provider}/${status.model}` : 'unknown';
@@ -774,6 +836,9 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const hintLine = useMemo(() => {
     if (confirmation) {
       return 'Confirm: Up/Down, Enter, y=approve, n=deny, a=abort';
+    }
+    if (sessionSelection) {
+      return 'Session: Up/Down, Enter to select, Esc to cancel';
     }
     if (focus === 'activity') {
       return 'Activity: Up/Down select | Left/Right or Enter expand | PgUp/PgDn scroll | L log/result | Esc back';
@@ -834,6 +899,15 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
           ))}
         </Box>
       )}
+      {sessionLines.length > 0 && (
+        <Box flexDirection="column">
+          {sessionLines.map((line, index) => (
+            <Text key={`session-${index}`}>
+              {line || ' '}
+            </Text>
+          ))}
+        </Box>
+      )}
       {activityPanel.lines.length > 0 && (
         <Box flexDirection="column">
           {activityPanel.lines.map((line, index) => (
@@ -872,8 +946,8 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
               }
             }}
             onSubmit={handleSubmit}
-            focus={focus === 'input' && !confirmation}
-            placeholder={focus === 'input' ? 'Type a command' : ''}
+            focus={focus === 'input' && !confirmation && !sessionSelection}
+            placeholder={focus === 'input' && !sessionSelection ? 'Type a command' : ''}
           />
         </Box>
       </Box>
