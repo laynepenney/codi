@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, lstatSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
@@ -17,7 +17,16 @@ vi.mock('os', async (importOriginal) => {
 });
 
 // Import after mocking
-const { DebugBridge, getDebugBridge, initDebugBridge, isDebugBridgeEnabled } = await import('../src/debug-bridge.js');
+const {
+  DebugBridge,
+  getDebugBridge,
+  initDebugBridge,
+  isDebugBridgeEnabled,
+  getDebugDir,
+  getSessionsDir,
+  getCurrentSessionLink,
+  getSessionIndexFile,
+} = await import('../src/debug-bridge.js');
 
 describe('Debug Bridge', () => {
   let bridge: InstanceType<typeof DebugBridge>;
@@ -47,17 +56,21 @@ describe('Debug Bridge', () => {
       expect(id).toMatch(/^debug_\d{8}_\d{6}_[a-z0-9]{4}$/);
     });
 
-    it('should return the events file path', () => {
+    it('should return the events file path after enable', () => {
+      bridge.enable();
       const path = bridge.getEventsFile();
       expect(path).toContain('.codi');
       expect(path).toContain('debug');
+      expect(path).toContain('sessions');
       expect(path).toContain('events.jsonl');
     });
 
-    it('should return the commands file path', () => {
+    it('should return the commands file path after enable', () => {
+      bridge.enable();
       const path = bridge.getCommandsFile();
       expect(path).toContain('.codi');
       expect(path).toContain('debug');
+      expect(path).toContain('sessions');
       expect(path).toContain('commands.jsonl');
     });
   });
@@ -257,17 +270,101 @@ describe('Debug Bridge', () => {
   });
 
   describe('Session file', () => {
-    it('should create session.json on enable', () => {
+    it('should create session.json in session directory on enable', () => {
       bridge.enable();
 
-      const sessionFile = join(mockHomeDir, '.codi', 'debug', 'session.json');
+      const sessionFile = bridge.getSessionFile();
       expect(existsSync(sessionFile)).toBe(true);
+      expect(sessionFile).toContain(bridge.getSessionId());
 
       const session = JSON.parse(readFileSync(sessionFile, 'utf8'));
       expect(session.sessionId).toBe(bridge.getSessionId());
       expect(session.pid).toBe(process.pid);
       expect(session.eventsFile).toBeDefined();
       expect(session.commandsFile).toBeDefined();
+    });
+  });
+
+  describe('Session isolation', () => {
+    it('should create unique session directory', () => {
+      bridge.enable();
+
+      const sessionDir = bridge.getSessionDir();
+      expect(existsSync(sessionDir)).toBe(true);
+      expect(sessionDir).toContain('sessions');
+      expect(sessionDir).toContain(bridge.getSessionId());
+    });
+
+    it('should have events and commands files in session directory', () => {
+      bridge.enable();
+
+      const eventsFile = bridge.getEventsFile();
+      const commandsFile = bridge.getCommandsFile();
+      const sessionDir = bridge.getSessionDir();
+
+      expect(eventsFile.startsWith(sessionDir)).toBe(true);
+      expect(commandsFile.startsWith(sessionDir)).toBe(true);
+      expect(existsSync(eventsFile)).toBe(true);
+      expect(existsSync(commandsFile)).toBe(true);
+    });
+
+    it('should create current symlink pointing to session', () => {
+      bridge.enable();
+
+      const currentLink = getCurrentSessionLink();
+      // On some systems (Windows), symlinks may not work
+      if (existsSync(currentLink)) {
+        const stats = lstatSync(currentLink);
+        expect(stats.isSymbolicLink()).toBe(true);
+      }
+    });
+
+    it('should register session in index', () => {
+      bridge.enable();
+
+      const indexFile = getSessionIndexFile();
+      expect(existsSync(indexFile)).toBe(true);
+
+      const index = JSON.parse(readFileSync(indexFile, 'utf8'));
+      expect(index.sessions).toBeInstanceOf(Array);
+
+      const session = index.sessions.find((s: any) => s.id === bridge.getSessionId());
+      expect(session).toBeDefined();
+      expect(session.pid).toBe(process.pid);
+      expect(session.cwd).toBe(process.cwd());
+    });
+
+    it('should unregister session on shutdown', () => {
+      bridge.enable();
+      const sessionId = bridge.getSessionId();
+
+      bridge.shutdown();
+
+      const indexFile = getSessionIndexFile();
+      const index = JSON.parse(readFileSync(indexFile, 'utf8'));
+      const session = index.sessions.find((s: any) => s.id === sessionId);
+      expect(session).toBeUndefined();
+    });
+
+    it('should create separate directories for multiple sessions', () => {
+      const bridge1 = new DebugBridge();
+      const bridge2 = new DebugBridge();
+
+      bridge1.enable();
+      bridge2.enable();
+
+      expect(bridge1.getSessionDir()).not.toBe(bridge2.getSessionDir());
+      expect(bridge1.getEventsFile()).not.toBe(bridge2.getEventsFile());
+      expect(existsSync(bridge1.getSessionDir())).toBe(true);
+      expect(existsSync(bridge2.getSessionDir())).toBe(true);
+
+      // Both should be registered in index
+      const indexFile = getSessionIndexFile();
+      const index = JSON.parse(readFileSync(indexFile, 'utf8'));
+      expect(index.sessions.length).toBeGreaterThanOrEqual(2);
+
+      bridge1.shutdown();
+      bridge2.shutdown();
     });
   });
 });
