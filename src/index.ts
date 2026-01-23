@@ -1597,6 +1597,17 @@ function handleModelMapOutput(output: string): void {
     return;
   }
 
+  if (firstLine.startsWith('__MODELMAP_ADD__|')) {
+    const parts = firstLine.slice('__MODELMAP_ADD__|'.length).split('|');
+    const [name, provider, model, filePath, scope] = parts;
+    console.log(chalk.green(`\nAdded model "${name}" to ${scope} config`));
+    console.log(chalk.dim(`  Provider: ${provider}`));
+    console.log(chalk.dim(`  Model: ${model}`));
+    console.log(chalk.dim(`  File: ${filePath}`));
+    console.log(chalk.cyan(`\nUse with: /switch ${name}`));
+    return;
+  }
+
   if (firstLine.startsWith('__MODELMAP_INIT__|')) {
     const parts = firstLine.slice('__MODELMAP_INIT__|'.length).split('|');
     const filePath = parts[0];

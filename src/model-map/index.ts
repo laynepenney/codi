@@ -21,6 +21,7 @@ export {
   watchModelMap,
   getExampleModelMap,
   initModelMap as initModelMapFile,
+  addModelToMap,
   getGlobalConfigDir,
   ModelMapValidationError,
   type ValidationResult,
