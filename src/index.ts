@@ -316,6 +316,7 @@ import { READER_ALLOWED_TOOLS } from './orchestrate/types.js';
 import {
   loadWorkspaceConfig,
   loadLocalConfig,
+  loadGlobalConfig,
   validateConfig,
   mergeConfig,
   getCustomDangerousPatterns,
@@ -2496,6 +2497,19 @@ async function main() {
     );
   }
 
+  // Load global configuration (~/.codi/config.json)
+  const { config: globalConfig, configPath: globalConfigPath } = loadGlobalConfig();
+  if (globalConfig && globalConfigPath) {
+    console.log(chalk.dim(`Global config: ${globalConfigPath}`));
+    const warnings = validateConfig(globalConfig);
+    if (warnings.length > 0) {
+      console.log(chalk.yellow('Global config warnings:'));
+      for (const w of warnings) {
+        console.log(chalk.yellow(`  - ${w}`));
+      }
+    }
+  }
+
   // Load workspace configuration
   const { config: workspaceConfig, configPath } = loadWorkspaceConfig();
   if (workspaceConfig && configPath) {
@@ -2559,7 +2573,8 @@ async function main() {
       summarizeModel: options.summarizeModel,
       maxContextTokens: contextWindowTokens,
     },
-    localConfig
+    localConfig,
+    globalConfig
   );
 
   // Register tools and commands
