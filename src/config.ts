@@ -268,19 +268,24 @@ const DEFAULT_CONFIG: ResolvedConfig = {
 /**
  * Find and load global configuration from ~/.codi/config.json.
  * This applies to all projects unless overridden by project-specific config.
+ * @param overrideDir - Optional directory override for testing
  */
-export function loadGlobalConfig(): {
+export function loadGlobalConfig(overrideDir?: string): {
   config: WorkspaceConfig | null;
   configPath: string | null;
 } {
-  if (fs.existsSync(GLOBAL_CONFIG_FILE)) {
+  const configPath = overrideDir
+    ? path.join(overrideDir, 'config.json')
+    : GLOBAL_CONFIG_FILE;
+
+  if (fs.existsSync(configPath)) {
     try {
-      const content = fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf-8');
+      const content = fs.readFileSync(configPath, 'utf-8');
       const config = JSON.parse(content) as WorkspaceConfig;
-      return { config, configPath: GLOBAL_CONFIG_FILE };
+      return { config, configPath };
     } catch (error) {
-      console.warn(`Warning: Failed to parse ${GLOBAL_CONFIG_FILE}: ${error instanceof Error ? error.message : error}`);
-      return { config: null, configPath: GLOBAL_CONFIG_FILE };
+      console.warn(`Warning: Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
+      return { config: null, configPath };
     }
   }
   return { config: null, configPath: null };
@@ -490,6 +495,9 @@ export function mergeConfig(
 
   // Merge local config approvals (adds to workspace config approvals)
   if (localConfig) {
+    if (localConfig.autoApprove) {
+      config.autoApprove = [...new Set([...config.autoApprove, ...localConfig.autoApprove])];
+    }
     if (localConfig.approvedPatterns) {
       config.approvedPatterns = [...config.approvedPatterns, ...localConfig.approvedPatterns];
     }
