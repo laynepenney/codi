@@ -3399,6 +3399,53 @@ Begin by analyzing the query and planning your research approach.`;
   }
 
   // =========================================================================
+  // DEBUG BRIDGE COMMAND HANDLER (Phase 2)
+  // =========================================================================
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().startCommandWatcher(async (cmd) => {
+      switch (cmd.type) {
+        case 'pause':
+          agent.setDebugPaused(true);
+          break;
+        case 'resume':
+          agent.setDebugPaused(false);
+          break;
+        case 'step':
+          agent.setDebugStep();
+          break;
+        case 'inspect': {
+          const what = cmd.data.what as 'messages' | 'context' | 'tools' | 'all' | undefined;
+          const snapshot = agent.getStateSnapshot(what ?? 'all');
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'inspect',
+            data: snapshot,
+          });
+          break;
+        }
+        case 'inject_message': {
+          const role = cmd.data.role as 'user' | 'assistant';
+          const content = cmd.data.content as string;
+          if (role && content) {
+            agent.injectMessage(role, content);
+            getDebugBridge().emit('command_response', {
+              commandId: cmd.id,
+              type: 'inject_message',
+              success: true,
+            });
+          }
+          break;
+        }
+        default:
+          getDebugBridge().emit('error', {
+            message: `Unknown command type: ${cmd.type}`,
+            context: 'command_handler',
+          });
+      }
+    });
+  }
+
+  // =========================================================================
   // NON-INTERACTIVE MODE - Run single prompt and exit without readline
   // =========================================================================
   if (options.prompt) {

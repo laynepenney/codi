@@ -147,6 +147,10 @@ export class Agent {
   private workingSet: WorkingSet = createWorkingSet();
   private indexedFiles: Set<string> | null = null; // RAG indexed files for code relevance scoring
   private embeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null; // For semantic deduplication
+  // Debug control (Phase 2)
+  private debugPaused: boolean = false;
+  private debugStepMode: boolean = false;
+  private currentIteration: number = 0;
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -667,6 +671,10 @@ ${contextToSummarize}`,
 
     while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
       iterations++;
+      this.currentIteration = iterations;
+
+      // Wait for debug resume if paused (Phase 2)
+      await this.waitForDebugResume();
 
       // Check wall-clock timeout
       const elapsed = Date.now() - startTime;
@@ -1377,6 +1385,13 @@ ${contextToSummarize}`,
         toolResultsTokenBudget: this.contextConfig.toolResultsTokenBudget,
         toolResultTruncateThreshold: this.contextConfig.toolResultTruncateThreshold,
       });
+
+      // Check step mode after iteration completes (Phase 2)
+      if (this.debugStepMode && isDebugBridgeEnabled()) {
+        this.debugPaused = true;
+        this.debugStepMode = false;
+        getDebugBridge().emit('step_complete', { iteration: this.currentIteration });
+      }
     }
 
     if (iterations >= FIXED_CONFIG.MAX_ITERATIONS) {
@@ -1602,6 +1617,134 @@ ${contextToSummarize}`,
    */
   isCompressionEnabled(): boolean {
     return this.enableCompression;
+  }
+
+  // ============================================
+  // Debug control (Phase 2)
+  // ============================================
+
+  /**
+   * Set the debug paused state.
+   */
+  setDebugPaused(paused: boolean): void {
+    this.debugPaused = paused;
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().emit(paused ? 'paused' : 'resumed', {
+        iteration: this.currentIteration,
+      });
+    }
+  }
+
+  /**
+   * Check if the agent is paused.
+   */
+  isDebugPaused(): boolean {
+    return this.debugPaused;
+  }
+
+  /**
+   * Enable step mode - execute one iteration then pause.
+   */
+  setDebugStep(): void {
+    this.debugStepMode = true;
+    this.debugPaused = false; // Resume to execute one step
+  }
+
+  /**
+   * Wait for debug resume if paused.
+   * Called before each API request in the chat loop.
+   */
+  private async waitForDebugResume(): Promise<void> {
+    if (!isDebugBridgeEnabled() || !this.debugPaused) return;
+
+    // Emit paused state periodically while waiting
+    while (this.debugPaused) {
+      getDebugBridge().emit('state_snapshot', {
+        paused: true,
+        waiting: 'resume',
+        iteration: this.currentIteration,
+        messageCount: this.messages.length,
+      });
+      await new Promise(r => setTimeout(r, 500)); // Check every 500ms
+    }
+  }
+
+  /**
+   * Get a snapshot of the agent state for debugging.
+   */
+  getStateSnapshot(what: 'messages' | 'context' | 'tools' | 'all' = 'all'): Record<string, unknown> {
+    const snapshot: Record<string, unknown> = {
+      timestamp: new Date().toISOString(),
+      sessionId: isDebugBridgeEnabled() ? getDebugBridge().getSessionId() : null,
+      iteration: this.currentIteration,
+      paused: this.debugPaused,
+    };
+
+    if (what === 'messages' || what === 'all') {
+      const roleCount = { user: 0, assistant: 0, tool: 0 };
+      for (const msg of this.messages) {
+        if (msg.role === 'user') {
+          if (typeof msg.content !== 'string' &&
+              msg.content.some(b => b.type === 'tool_result')) {
+            roleCount.tool++;
+          } else {
+            roleCount.user++;
+          }
+        } else if (msg.role === 'assistant') {
+          roleCount.assistant++;
+        }
+      }
+
+      snapshot.messages = {
+        count: this.messages.length,
+        roles: roleCount,
+        recent: this.messages.slice(-3).map(m => ({
+          role: m.role,
+          preview: getMessageText(m).slice(0, 200),
+        })),
+      };
+    }
+
+    if (what === 'context' || what === 'all') {
+      snapshot.context = {
+        tokenEstimate: countMessageTokens(this.messages),
+        maxTokens: this.maxContextTokens,
+        hasSummary: !!this.conversationSummary,
+        summaryPreview: this.conversationSummary?.slice(0, 200),
+      };
+    }
+
+    if (what === 'tools' || what === 'all') {
+      snapshot.tools = {
+        enabled: this.toolRegistry.getDefinitions().map(d => d.name),
+        count: this.toolRegistry.getDefinitions().length,
+      };
+    }
+
+    snapshot.provider = {
+      name: this.provider.getName(),
+      model: this.provider.getModel(),
+    };
+
+    snapshot.workingSet = [...this.workingSet.recentFiles];
+
+    return snapshot;
+  }
+
+  /**
+   * Inject a message into the conversation history.
+   * Used for debugging/testing purposes.
+   */
+  injectMessage(role: 'user' | 'assistant', content: string): void {
+    this.messages.push({ role, content });
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().emit('state_snapshot', {
+        injectedMessage: true,
+        role,
+        contentPreview: content.slice(0, 200),
+        messageCount: this.messages.length,
+      });
+    }
   }
 
   /**
