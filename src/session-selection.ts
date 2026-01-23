@@ -177,8 +177,15 @@ export class SessionSelector {
       };
 
       // Handle keypress events
-      const handleKeypress = (chunk: Buffer, key: any) => {
-        const rawInput = chunk.toString('utf8');
+      const handleKeypress = (chunk: Buffer | string | undefined, key: any) => {
+        let rawInput = '';
+        if (typeof chunk === 'string') {
+          rawInput = chunk;
+        } else if (Buffer.isBuffer(chunk)) {
+          rawInput = chunk.toString('utf8');
+        } else if (key && typeof key.sequence === 'string') {
+          rawInput = key.sequence;
+        }
         if (!key) {
           if (rawInput === '\r' || rawInput === '\n') {
             finish({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
