@@ -1,40 +1,12 @@
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
+  "provider": "ollama",
+  "model": "glm-4.7",
+  "maxContextTokens": 200000,
+  "systemPromptAdditions": "You are an expert coding assistant using the glm-4.7 model.",
   "autoApprove": [
     "read_file",
     "glob",
     "grep",
     "list_directory"
-  ],
-  "approvedPatterns": [],
-  "approvedCategories": [],
-  "dangerousPatterns": [],
-  "systemPromptAdditions": "",
-  "commandAliases": {},
-  "projectContext": "",
-  "enableCompression": false,
-  "models": {
-    "summarize": {
-      "provider": "ollama",
-      "model": "llama3.2"
-    }
-  },
-  "contextOptimization": {
-    "mergeCaseVariants": true,
-    "mergeSimilarNames": true,
-    "minRecentMessages": 3,
-    "importanceThreshold": 0.4
-  },
-  "rag": {
-    "enabled": false,
-    "embeddingProvider": "ollama",
-    "topK": 5,
-    "minScore": 0.7,
-    "autoIndex": false,
-    "watchFiles": false
-  },
-  "mcpServers": {},
-  "approvedPathCategories": [],
-  "approvedPathPatterns": []
+  ]
 }
