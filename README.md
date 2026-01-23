@@ -114,14 +114,9 @@ pnpm link --global
 <details>
 <summary><strong>Windows</strong></summary>
 
-- Use PowerShell or Windows Terminal (not cmd.exe)
-- Git Bash works but may have readline issues
-- WSL2 recommended for best experience
-- Path separator differences are handled automatically
+**Windows is not currently supported.** We recommend using WSL2 (Windows Subsystem for Linux) for the best experience.
 
-**Known limitations:**
-- PTY-based tests are skipped
-- Some bash commands may need Windows equivalents
+See [GitHub issue #134](https://github.com/laynepenney/codi/issues/134) for details.
 
 </details>
 
