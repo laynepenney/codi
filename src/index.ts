@@ -18,6 +18,7 @@ import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { promptSessionSelection } from './session-selection.js';
 import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
+import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -3593,6 +3594,18 @@ Begin by analyzing the query and planning your research approach.`;
         resetPrompt();
         rl.prompt();
         return;
+      }
+
+      // Parse and check all commands in the chain for permission
+      const commands = parseCommandChain(shellCommand);
+      if (commands.length > 1) {
+        const allowed = await requestPermissionForChainedCommands(rl, commands);
+        if (!allowed) {
+          console.log(chalk.yellow('Command execution cancelled.'));
+          resetPrompt();
+          rl.prompt();
+          return;
+        }
       }
 
       // Execute command with inherited stdio for real-time output
