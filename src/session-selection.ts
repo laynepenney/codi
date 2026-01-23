@@ -281,7 +281,7 @@ export class SessionSelector {
 
     process.stdout.write(`${lines.join('\n')}\n`);
     const columns = Math.max(1, process.stdout.columns ?? 80);
-    this.renderedRows = countDisplayRows(lines, columns) + 1;
+    this.renderedRows = countDisplayRows(lines, columns);
   }
 
   /**
