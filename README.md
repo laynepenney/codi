@@ -248,6 +248,26 @@ These options are used internally when spawning worker agents:
 
 ---
 
+## Keyboard Shortcuts
+
+Codi supports several keyboard shortcuts for efficient interaction:
+
+| Shortcut | Description |
+|----------|-------------|
+| **ESC** | Interrupt current AI processing and return to prompt |
+| **Ctrl+C** | Submit current line without starting a new one |
+| **Ctrl+C (twice quickly)** | Force quit Codi |
+| **↑/↓** | Navigate command history |
+| **Tab** | Tab completion for files and commands |
+
+**ESI Interrupt Feature:** Press ESC at any time during AI processing to cancel and return to the prompt. This is useful for:
+- Long-running tool calls (e.g., test suites)
+- Mistaken commands with large operations
+- Infinite loops or stuck operations
+- Quick iterations without waiting for completion
+
+---
+
 ## Commands
 
 <details>
