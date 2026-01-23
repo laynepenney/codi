@@ -3755,17 +3755,23 @@ Begin by analyzing the query and planning your research approach.`;
 
       // Budget info
       console.log(chalk.bold('\n  Context Budget:'));
-      console.log(chalk.dim(`    Window:       ${formatTokens(info.contextWindow).padStart(8)}  (${info.tierName} tier)`));
-      console.log(chalk.dim(`    Output rsv:   ${formatTokens(info.outputReserve).padStart(8)}`));
-      console.log(chalk.dim(`    Safety:       ${formatTokens(info.safetyBuffer).padStart(8)}`));
+      // Show effective context window and tier info
+      if (info.effectiveLimit !== info.contextWindow) {
+        console.log(chalk.dim(`    Window:         ${formatTokens(info.effectiveLimit).padStart(8)}  (${info.tierName} tier)`));
+        console.log(chalk.dim(`    Original:       ${formatTokens(info.contextWindow).padStart(8)}  (provider limit)`));
+      } else {
+        console.log(chalk.dim(`    Window:         ${formatTokens(info.contextWindow).padStart(8)}  (${info.tierName} tier)`));
+      }
+      console.log(chalk.dim(`    Output rsv:     ${formatTokens(info.outputReserve).padStart(8)}`));
+      console.log(chalk.dim(`    Safety:         ${formatTokens(info.safetyBuffer).padStart(8)}`));
       
       // Calculate truly available tokens (what's left after current usage)
       const trulyAvailable = Math.max(0, info.effectiveLimit - info.tokens);
-      console.log(chalk.green(`    Available:    ${formatTokens(trulyAvailable).padStart(8)}`));
+      console.log(chalk.green(`    Available:      ${formatTokens(trulyAvailable).padStart(8)}`));
       
       // Show override info if effectiveLimit differs from contextWindow
       if (info.effectiveLimit !== info.contextWindow) {
-        console.log(chalk.dim(`    Override:     Effective limit ${formatTokens(info.effectiveLimit)} tokens`));
+        console.log(chalk.dim(`    Override:       Effective limit ${formatTokens(info.effectiveLimit)} tokens`));
       }
 
       // Message breakdown
