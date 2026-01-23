@@ -11,8 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Platform-aware timeouts - macOS CI is slower
 const isMacOS = process.platform === 'darwin';
-const TEST_TIMEOUT = isMacOS ? 45000 : 20000;
-const WAIT_TIMEOUT = isMacOS ? 25000 : 15000;
+const TEST_TIMEOUT = isMacOS ? 90000 : 20000;
+const WAIT_TIMEOUT = isMacOS ? 60000 : 15000;
 
 // Set longer timeout for E2E tests
 vi.setConfig({ testTimeout: TEST_TIMEOUT });

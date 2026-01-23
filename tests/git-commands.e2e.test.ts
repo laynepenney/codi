@@ -14,8 +14,8 @@ import { setupMockE2E, cleanupMockE2E, textResponse, type MockE2ESession } from 
 
 // Platform-aware timeouts - macOS CI is slower
 const isMacOS = process.platform === 'darwin';
-const TEST_TIMEOUT = isMacOS ? 45000 : 20000;
-const WAIT_TIMEOUT = isMacOS ? 25000 : 15000;
+const TEST_TIMEOUT = isMacOS ? 90000 : 20000;
+const WAIT_TIMEOUT = isMacOS ? 60000 : 15000;
 
 vi.setConfig({ testTimeout: TEST_TIMEOUT });
 

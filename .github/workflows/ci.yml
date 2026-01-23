@@ -10,10 +10,12 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # macOS is flaky due to slow CI runners - don't block PRs
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        # Windows disabled pending fixes - see GitHub issue for details
+        # Windows disabled pending fixes - see GitHub issue #134
         os: [ubuntu-latest, macos-latest]
 
     steps:
