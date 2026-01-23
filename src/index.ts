@@ -328,6 +328,7 @@ import { spinner } from './spinner.js';
 import { logger, parseLogLevel, LogLevel } from './logger.js';
 import { MCPClientManager, startMCPServer } from './mcp/index.js';
 import { AuditLogger, initAuditLogger, getAuditLogger } from './audit.js';
+import { initDebugBridge, getDebugBridge, isDebugBridgeEnabled } from './debug-bridge.js';
 
 // CLI setup
 program
@@ -352,6 +353,7 @@ program
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
   .option('--no-mcp', 'Disable MCP server connections (ignore mcpServers in config)')
   .option('--audit', 'Enable audit logging (writes to ~/.codi/audit/)')
+  .option('--debug-bridge', 'Enable debug bridge for live debugging (writes to ~/.codi/debug/)')
   // Non-interactive mode options
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
@@ -2476,6 +2478,12 @@ async function main() {
   const auditEnabled = options.audit || process.env.CODI_AUDIT === 'true';
   const auditLogger = initAuditLogger(auditEnabled);
 
+  // Initialize debug bridge (--debug-bridge flag or CODI_DEBUG_BRIDGE env var)
+  const debugBridgeEnabled = options.debugBridge || process.env.CODI_DEBUG_BRIDGE === 'true';
+  if (debugBridgeEnabled) {
+    initDebugBridge();
+  }
+
   console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
@@ -2737,6 +2745,11 @@ async function main() {
   if (auditLogger.isEnabled()) {
     console.log(chalk.dim(`Audit log: ${auditLogger.getLogFile()}`));
     auditLogger.sessionStart(provider.getName(), provider.getModel(), process.cwd(), process.argv.slice(2));
+  }
+
+  // Emit debug bridge session start
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().sessionStart(provider.getName(), provider.getModel());
   }
 
   // Create secondary provider for summarization if configured
@@ -3417,6 +3430,12 @@ Begin by analyzing the query and planning your research approach.`;
     // Audit log user input
     auditLogger.userInput(trimmed);
 
+    // Debug bridge user input
+    if (isDebugBridgeEnabled()) {
+      const isCommand = trimmed.startsWith('/') || trimmed.startsWith('!');
+      getDebugBridge().userInput(trimmed, isCommand);
+    }
+
     // Set appropriate prompt for prefix commands
     if (trimmed.startsWith('!')) {
       updatePrompt('shell');
@@ -3506,6 +3525,10 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.dim('\nGoodbye!'));
       // Log session end
       auditLogger.sessionEnd();
+      // Shutdown debug bridge
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().shutdown();
+      }
       // Cleanup MCP connections
       if (mcpManager) {
         await mcpManager.disconnectAll();
@@ -4200,6 +4223,11 @@ const gracefulShutdown = (signal: string) => {
 
   // Shutdown all rate limiters (clears intervals and rejects pending)
   shutdownAllRateLimiters();
+
+  // Shutdown debug bridge (writes session_end event)
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().shutdown();
+  }
 
   // Cleanup orchestrator (stops IPC server, cleans up worktrees)
   const orch = getOrchestratorInstance();
