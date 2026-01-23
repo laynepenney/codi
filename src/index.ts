@@ -536,9 +536,11 @@ When suggesting changes, format them clearly so the user can apply them manually
  * @param projectInfo - Detected information about the current project, if any.
  */
 function showHelp(projectInfo: ProjectInfo | null): void {
-  console.log(chalk.bold('\nShortcuts:'));
-  console.log(chalk.dim('  !<command>         - Run shell command directly (e.g., !ls, !git status)'));
-  console.log(chalk.dim('  ?[topic]           - Show help, optionally filtered by topic'));
+  console.log(chalk.bold.cyan('\n⚡ Quick Shortcuts:'));
+  console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
+  console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
+  console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
+  console.log();
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
@@ -2950,6 +2952,48 @@ Begin by analyzing the query and planning your research approach.`;
   // Session name tracking for prompt display
   let currentSession: string | null = null;
 
+  // Dynamic prompt mode tracking
+  type PromptMode = 'normal' | 'shell' | 'help';
+  let currentPromptMode: PromptMode = 'normal';
+
+  // Get the base prompt text without colors
+  const getBasePromptText = (mode: PromptMode): string => {
+    switch (mode) {
+      case 'shell':
+        return 'Shell';
+      case 'help':
+        return 'Help';
+      default:
+        return 'You';
+    }
+  };
+
+  // Get the colored prompt
+  const getPromptText = (mode: PromptMode): string => {
+    const baseText = getBasePromptText(mode);
+    let colorFn = chalk.bold.cyan;
+    
+    // Use different colors for different modes
+    if (mode === 'shell') {
+      colorFn = chalk.bold.yellow;
+    } else if (mode === 'help') {
+      colorFn = chalk.bold.green;
+    }
+    
+    return colorFn(`\n${baseText}: `);
+  };
+
+  // Update the readline prompt
+  const updatePrompt = (mode: PromptMode) => {
+    currentPromptMode = mode;
+    rl.setPrompt(getPromptText(mode));
+  };
+
+  // Reset prompt to normal mode
+  const resetPrompt = () => {
+    updatePrompt('normal');
+  };
+
   // Create OpenFilesManager instance for tracking working set
   const openFilesManager = new OpenFilesManager();
 
@@ -3347,11 +3391,27 @@ Begin by analyzing the query and planning your research approach.`;
     // Audit log user input
     auditLogger.userInput(trimmed);
 
+    // Set appropriate prompt for prefix commands
+    if (trimmed.startsWith('!')) {
+      updatePrompt('shell');
+    } else if (trimmed === '?' || trimmed.startsWith('?')) {
+      updatePrompt('help');
+    }
+
     // Handle ! prefix for direct shell commands
     if (trimmed.startsWith('!')) {
       const shellCommand = trimmed.slice(1).trim();
       if (!shellCommand) {
-        console.log(chalk.dim('Usage: !<command> - run a shell command directly'));
+        console.log(chalk.cyan('\n⚡ Shell Command Shortcuts\n'));
+        console.log(chalk.dim('Run shell commands directly without going through the AI:\n'));
+        console.log(chalk.dim('  Examples:'));
+        console.log(chalk.dim('    !ls                 - List files'));
+        console.log(chalk.dim('    !git status         - Check git status'));
+        console.log(chalk.dim('    !npm test           - Run tests'));
+        console.log(chalk.dim('    !docker ps          - List containers'));
+        console.log(chalk.dim('    !pwd                - Show current directory\n'));
+        console.log(chalk.dim('  Tip: Use ! for quick commands, /ask the AI for help with commands.\n'));
+        resetPrompt();
         rl.prompt();
         return;
       }
@@ -3367,11 +3427,13 @@ Begin by analyzing the query and planning your research approach.`;
         if (code !== 0) {
           console.log(chalk.dim(`Exit code: ${code}`));
         }
+        resetPrompt();
         rl.prompt();
       });
 
       child.on('error', (err) => {
         console.log(chalk.red(`Error: ${err.message}`));
+        resetPrompt();
         rl.prompt();
       });
 
@@ -3408,6 +3470,7 @@ Begin by analyzing the query and planning your research approach.`;
       } else {
         showHelp(projectInfo);
       }
+      resetPrompt();
       rl.prompt();
       return;
     }
@@ -4065,7 +4128,13 @@ Begin by analyzing the query and planning your research approach.`;
   // Set up line handler for REPL
   rl.on('line', onLine);
 
-  console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
+  console.log(
+    chalk.dim('Tips: ') +
+      chalk.cyan('!<command>') + chalk.dim(' to run shell directly, ') +
+      chalk.cyan('?topic') + chalk.dim(' for help, ') +
+      chalk.cyan('/help') + chalk.dim(' for commands, ') +
+      chalk.cyan('/exit') + chalk.dim(' to quit.\n')
+  );
   rl.prompt();
 }
 
