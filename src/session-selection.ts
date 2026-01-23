@@ -1,9 +1,12 @@
-import { clearScreenDown, emitKeypressEvents, Interface as ReadlineInterface } from 'readline';
+import {
+  clearScreenDown,
+  cursorTo,
+  emitKeypressEvents,
+  Interface as ReadlineInterface,
+  moveCursor,
+} from 'readline';
 import { SessionInfo, formatSessionInfo } from './session.js';
 import chalk from 'chalk';
-
-const ANSI_SAVE = '\x1b[s';
-const ANSI_RESTORE = '\x1b[u';
 
 /**
  * Options for session selection
@@ -34,7 +37,7 @@ export class SessionSelector {
   private options: Required<SessionSelectionOptions>;
   private selectedIndex: number = 0;
   private keypressHandler: ((chunk: Buffer, key: any) => void) | null = null;
-  private anchorSaved = false;
+  private renderedLines = 0;
 
   constructor(rl: ReadlineInterface, sessions: SessionInfo[], options?: SessionSelectionOptions) {
     this.rl = rl;
@@ -255,12 +258,10 @@ export class SessionSelector {
    * Render the current selection state
    */
   private renderSelection(): void {
-    if (this.anchorSaved) {
-      process.stdout.write(ANSI_RESTORE);
+    if (this.renderedLines > 0) {
+      cursorTo(process.stdout, 0);
+      moveCursor(process.stdout, 0, -this.renderedLines);
       clearScreenDown(process.stdout);
-    } else {
-      process.stdout.write(ANSI_SAVE);
-      this.anchorSaved = true;
     }
 
     const lines: string[] = [];
@@ -278,7 +279,8 @@ export class SessionSelector {
     lines.push(chalk.dim('(Or type a number 1-9 to jump to that session)'));
     lines.push(chalk.cyan('> '));
 
-    process.stdout.write(lines.join('\n'));
+    process.stdout.write(`${lines.join('\n')}\n`);
+    this.renderedLines = lines.length;
   }
 
   /**
@@ -296,10 +298,11 @@ export class SessionSelector {
       this.keypressHandler = null;
     }
 
-    if (this.anchorSaved) {
-      process.stdout.write(ANSI_RESTORE);
+    if (this.renderedLines > 0) {
+      cursorTo(process.stdout, 0);
+      moveCursor(process.stdout, 0, -this.renderedLines);
       clearScreenDown(process.stdout);
-      this.anchorSaved = false;
+      this.renderedLines = 0;
     }
   }
 
