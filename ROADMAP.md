@@ -178,3 +178,9 @@ src/
 ## Contributing
 
 See [CLAUDE.md](./CLAUDE.md) for development guidelines and [SECURITY.md](./SECURITY.md) for security practices.
+
+---
+
+## Codebase Quality
+
+For a comprehensive review of the codebase's strengths and areas for improvement, see [CODEBASE_REVIEW.md](./CODEBASE_REVIEW.md).
