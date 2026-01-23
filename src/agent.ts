@@ -56,7 +56,7 @@ import {
   type ApprovedPattern,
   type ApprovedPathPattern,
 } from './approvals.js';
-import { batchToolCalls, getBatchStats } from './tool-executor.js';
+import { batchToolCalls, getBatchStats, executeWithConcurrencyLimit } from './tool-executor.js';
 
 /**
  * Information about a tool call for confirmation.
@@ -1172,10 +1172,11 @@ ${contextToSummarize}`,
               updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
             }
 
-            // Execute all in parallel
-            const parallelResults = await Promise.all(
-              batch.calls.map(toolCall => this.toolRegistry.execute(toolCall))
-            );
+            // Execute all in parallel with concurrency limit (max 8 concurrent)
+            const parallelResults = await executeWithConcurrencyLimit(
+              batch.calls,
+              (toolCall) => this.toolRegistry.execute(toolCall)
+            ) as Awaited<ReturnType<typeof this.toolRegistry.execute>>[];
 
             // Process results
             for (let i = 0; i < parallelResults.length; i++) {

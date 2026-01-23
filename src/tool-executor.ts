@@ -6,10 +6,104 @@
  *
  * Groups tool calls by dependency and executes independent calls in parallel
  * while maintaining sequential execution for dependent operations.
+ *
+ * Includes a semaphore to limit concurrent tool execution and prevent
+ * file descriptor exhaustion under heavy load.
  */
 
 import type { ToolCall } from './types.js';
 import { normalize } from 'path';
+
+/**
+ * Maximum concurrent tool executions to prevent file descriptor exhaustion.
+ */
+export const MAX_CONCURRENT_TOOLS = 8;
+
+/**
+ * Simple semaphore for limiting concurrent async operations.
+ */
+export class Semaphore {
+  private permits: number;
+  private readonly maxPermits: number;
+  private waitQueue: Array<() => void> = [];
+
+  constructor(maxPermits: number) {
+    this.maxPermits = maxPermits;
+    this.permits = maxPermits;
+  }
+
+  /**
+   * Acquire a permit, waiting if necessary.
+   */
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return;
+    }
+
+    // Wait for a permit to become available
+    return new Promise<void>((resolve) => {
+      this.waitQueue.push(resolve);
+    });
+  }
+
+  /**
+   * Release a permit, allowing a waiting operation to proceed.
+   */
+  release(): void {
+    const next = this.waitQueue.shift();
+    if (next) {
+      // Give permit to waiting operation
+      next();
+    } else {
+      // Return permit to pool
+      this.permits++;
+    }
+  }
+
+  /**
+   * Execute a function with semaphore-limited concurrency.
+   */
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+
+  /**
+   * Get current stats.
+   */
+  getStats(): { available: number; max: number; waiting: number } {
+    return {
+      available: this.permits,
+      max: this.maxPermits,
+      waiting: this.waitQueue.length,
+    };
+  }
+}
+
+/**
+ * Global semaphore for tool execution concurrency control.
+ * Limits parallel tool execution to MAX_CONCURRENT_TOOLS.
+ */
+export const toolExecutionSemaphore = new Semaphore(MAX_CONCURRENT_TOOLS);
+
+/**
+ * Execute a batch of tool calls with semaphore-limited concurrency.
+ * Returns results in the same order as the input calls.
+ */
+export async function executeWithConcurrencyLimit<T>(
+  items: T[],
+  executor: (item: T) => Promise<unknown>,
+): Promise<unknown[]> {
+  const results = await Promise.all(
+    items.map((item) => toolExecutionSemaphore.run(() => executor(item)))
+  );
+  return results;
+}
 
 /**
  * Tools that only read state and can safely run in parallel.

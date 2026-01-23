@@ -17,6 +17,8 @@ export interface RateLimiterOptions {
   initialTokens?: number;
   /** Minimum gap between requests in ms. Default: 0 (no minimum) */
   minRequestGap?: number;
+  /** Maximum queue size before rejecting with backpressure error. Default: 100 */
+  maxQueueSize?: number;
   /** Optional name for debugging */
   name?: string;
 }
@@ -38,8 +40,10 @@ export interface RateLimiterStats {
   availableTokens: number;
   maxTokens: number;
   queueLength: number;
+  maxQueueSize: number;
   totalAcquired: number;
   totalReleased: number;
+  totalBackpressureRejections: number;
 }
 
 interface QueuedRequest {
@@ -55,6 +59,7 @@ export class TokenBucketRateLimiter implements RateLimiter {
   private readonly maxTokens: number;
   private readonly refillRate: number;
   private readonly minRequestGap: number;
+  private readonly maxQueueSize: number;
   private readonly name: string;
   private lastRefillTime: number;
   private lastRequestTime: number = 0;
@@ -65,12 +70,14 @@ export class TokenBucketRateLimiter implements RateLimiter {
   // Stats
   private totalAcquired = 0;
   private totalReleased = 0;
+  private totalBackpressureRejections = 0;
 
   constructor(options: RateLimiterOptions = {}) {
     this.maxTokens = options.maxTokens ?? 2;
     this.refillRate = options.refillRate ?? 1;
     this.tokens = options.initialTokens ?? this.maxTokens;
     this.minRequestGap = options.minRequestGap ?? 0;
+    this.maxQueueSize = options.maxQueueSize ?? 100;
     this.name = options.name ?? 'rate-limiter';
     this.lastRefillTime = Date.now();
 
@@ -138,6 +145,15 @@ export class TokenBucketRateLimiter implements RateLimiter {
       return;
     }
 
+    // Check backpressure - reject if queue is too long
+    if (this.queue.length >= this.maxQueueSize) {
+      this.totalBackpressureRejections++;
+      throw new Error(
+        `Rate limiter backpressure: queue full (${this.queue.length}/${this.maxQueueSize}). ` +
+        `Try again later or reduce request rate.`
+      );
+    }
+
     // Queue the request
     return new Promise<void>((resolve, reject) => {
       this.queue.push({ resolve, reject });
@@ -165,8 +181,10 @@ export class TokenBucketRateLimiter implements RateLimiter {
       availableTokens: Math.floor(this.tokens * 100) / 100,
       maxTokens: this.maxTokens,
       queueLength: this.queue.length,
+      maxQueueSize: this.maxQueueSize,
       totalAcquired: this.totalAcquired,
       totalReleased: this.totalReleased,
+      totalBackpressureRejections: this.totalBackpressureRejections,
     };
   }
 
