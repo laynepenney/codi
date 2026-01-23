@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, lstatSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, lstatSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
@@ -365,6 +365,161 @@ describe('Debug Bridge', () => {
 
       bridge1.shutdown();
       bridge2.shutdown();
+    });
+  });
+
+  describe('Command watching (Phase 2)', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should start command watcher and process commands', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      // Wait for watcher to be ready
+      await new Promise(r => setTimeout(r, 100));
+
+      // Write a command to the commands file
+      const command = {
+        type: 'pause',
+        id: 'test-cmd-1',
+        data: {},
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(command) + '\n');
+
+      // Wait for polling-based watcher to detect the change
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('pause');
+      expect(receivedCommands[0].id).toBe('test-cmd-1');
+    });
+
+    it('should emit command_executed event after processing', async () => {
+      bridge.startCommandWatcher(async () => {
+        // Command processed
+      });
+
+      // Wait for watcher to be ready
+      await new Promise(r => setTimeout(r, 100));
+
+      // Write a command
+      const command = {
+        type: 'inspect',
+        id: 'test-cmd-2',
+        data: { what: 'all' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(command) + '\n');
+
+      // Wait for processing
+      await new Promise(r => setTimeout(r, 300));
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const events = lines.map(l => JSON.parse(l));
+
+      const executed = events.find(e => e.type === 'command_executed');
+      expect(executed).toBeDefined();
+      expect(executed.data.commandId).toBe('test-cmd-2');
+      expect(executed.data.type).toBe('inspect');
+    });
+
+    it('should process only new commands', async () => {
+      const receivedCommands: any[] = [];
+
+      // Write first command before starting watcher
+      const cmd1 = { type: 'pause', id: 'cmd-1', data: {} };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd1) + '\n');
+
+      // Start watcher (should skip existing commands)
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      // Wait for watcher to be ready
+      await new Promise(r => setTimeout(r, 150));
+
+      // Write second command after starting watcher
+      const cmd2 = { type: 'resume', id: 'cmd-2', data: {} };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd2) + '\n');
+
+      // Wait for processing
+      await new Promise(r => setTimeout(r, 300));
+
+      // Should only receive the second command (watcher started after first)
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].id).toBe('cmd-2');
+    });
+
+    it('should handle invalid JSON gracefully', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      // Wait for watcher to be ready
+      await new Promise(r => setTimeout(r, 100));
+
+      // Write invalid JSON
+      appendFileSync(bridge.getCommandsFile(), 'invalid json\n');
+
+      // Wait for processing
+      await new Promise(r => setTimeout(r, 300));
+
+      // Should not crash, should emit error event
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const events = lines.map(l => JSON.parse(l));
+
+      const errorEvent = events.find(e => e.type === 'error');
+      expect(errorEvent).toBeDefined();
+      expect(errorEvent.data.context).toBe('command_processing');
+    });
+
+    it('should emit new event types: paused, resumed, step_complete', () => {
+      // Test paused event
+      bridge.emit('paused', { iteration: 1 });
+      // Test resumed event
+      bridge.emit('resumed', { iteration: 1 });
+      // Test step_complete event
+      bridge.emit('step_complete', { iteration: 2 });
+      // Test command_response event
+      bridge.emit('command_response', { commandId: 'test', type: 'inspect', data: {} });
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const events = lines.map(l => JSON.parse(l));
+
+      expect(events.some(e => e.type === 'paused')).toBe(true);
+      expect(events.some(e => e.type === 'resumed')).toBe(true);
+      expect(events.some(e => e.type === 'step_complete')).toBe(true);
+      expect(events.some(e => e.type === 'command_response')).toBe(true);
+    });
+
+    it('should stop command watcher on shutdown', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      // Shutdown stops the watcher
+      bridge.shutdown();
+
+      // Write a command after shutdown
+      const cmd = { type: 'pause', id: 'after-shutdown', data: {} };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      // Wait
+      await new Promise(r => setTimeout(r, 200));
+
+      // Should not receive any commands after shutdown
+      expect(receivedCommands.length).toBe(0);
     });
   });
 });

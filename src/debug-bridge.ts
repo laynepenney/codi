@@ -34,6 +34,7 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { watch, type FSWatcher } from 'chokidar';
 import type { Message, ToolCall } from './types.js';
 
 /** Debug directory */
@@ -83,7 +84,11 @@ export type DebugEventType =
   | 'error'
   | 'command_executed'
   | 'model_switch'
-  | 'state_snapshot';
+  | 'state_snapshot'
+  | 'paused'
+  | 'resumed'
+  | 'step_complete'
+  | 'command_response';
 
 /**
  * Base debug event structure.
@@ -127,8 +132,9 @@ export class DebugBridge {
   private sequence: number = 0;
   private startTime: number;
   private paused: boolean = false;
-  private commandCallback?: (cmd: DebugCommand) => void;
+  private commandCallback?: (cmd: DebugCommand) => Promise<void>;
   private lastCommandPosition: number = 0;
+  private commandWatcher?: FSWatcher;
 
   constructor() {
     this.sessionId = this.generateSessionId();
@@ -525,9 +531,85 @@ export class DebugBridge {
    */
   shutdown(): void {
     if (!this.enabled) return;
+    this.stopCommandWatcher();
     this.sessionEnd();
     this.unregisterSession();
     this.enabled = false;
+  }
+
+  // ============================================
+  // Command watching (Phase 2)
+  // ============================================
+
+  /**
+   * Start watching the commands file for incoming commands.
+   * Commands are processed asynchronously via the callback.
+   */
+  startCommandWatcher(callback: (cmd: DebugCommand) => Promise<void>): void {
+    if (!this.enabled) return;
+
+    this.commandCallback = callback;
+
+    // Initialize lastCommandPosition to current file length
+    // so we only process commands written after watcher starts
+    try {
+      const content = readFileSync(this.getCommandsFile(), 'utf8');
+      const lines = content.split('\n').filter(l => l.trim());
+      this.lastCommandPosition = lines.length;
+    } catch {
+      this.lastCommandPosition = 0;
+    }
+
+    // Use chokidar for reliable cross-platform file watching
+    this.commandWatcher = watch(this.getCommandsFile(), {
+      persistent: true,
+      usePolling: true, // More reliable for tests
+      interval: 50,
+    });
+
+    this.commandWatcher.on('change', () => this.processNewCommands());
+    console.log(`   Commands: ${this.getCommandsFile()}`);
+  }
+
+  /**
+   * Stop watching the commands file.
+   */
+  stopCommandWatcher(): void {
+    if (this.commandWatcher) {
+      this.commandWatcher.close();
+      this.commandWatcher = undefined;
+    }
+  }
+
+  /**
+   * Process new commands from the commands file.
+   */
+  private async processNewCommands(): Promise<void> {
+    if (!this.commandCallback) return;
+
+    try {
+      const content = readFileSync(this.getCommandsFile(), 'utf8');
+      const lines = content.split('\n').filter(l => l.trim());
+
+      // Process only new commands since last check
+      const newLines = lines.slice(this.lastCommandPosition);
+      this.lastCommandPosition = lines.length;
+
+      for (const line of newLines) {
+        try {
+          const cmd = JSON.parse(line) as DebugCommand;
+          await this.commandCallback(cmd);
+          this.emit('command_executed', { commandId: cmd.id, type: cmd.type });
+        } catch (err) {
+          this.emit('error', {
+            message: `Invalid command: ${err instanceof Error ? err.message : String(err)}`,
+            context: 'command_processing',
+          });
+        }
+      }
+    } catch (err) {
+      // File read error, ignore
+    }
   }
 }
 
