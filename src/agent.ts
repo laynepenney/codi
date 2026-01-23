@@ -45,6 +45,14 @@ import {
 import { logger, LogLevel } from './logger.js';
 import type { AuditLogger } from './audit.js';
 import {
+  getDebugBridge,
+  isDebugBridgeEnabled,
+  type Breakpoint,
+  type BreakpointContext,
+  type BreakpointType,
+  type Checkpoint,
+} from './debug-bridge.js';
+import {
   checkCommandApproval,
   getApprovalSuggestions,
   addApprovedPattern,
@@ -56,7 +64,7 @@ import {
   type ApprovedPattern,
   type ApprovedPathPattern,
 } from './approvals.js';
-import { batchToolCalls, getBatchStats } from './tool-executor.js';
+import { batchToolCalls, getBatchStats, executeWithConcurrencyLimit } from './tool-executor.js';
 
 /**
  * Information about a tool call for confirmation.
@@ -146,6 +154,15 @@ export class Agent {
   private workingSet: WorkingSet = createWorkingSet();
   private indexedFiles: Set<string> | null = null; // RAG indexed files for code relevance scoring
   private embeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null; // For semantic deduplication
+  // Debug control (Phase 2)
+  private debugPaused: boolean = false;
+  private debugStepMode: boolean = false;
+  private currentIteration: number = 0;
+  // Phase 4: Breakpoints
+  private breakpoints: Map<string, Breakpoint> = new Map();
+  // Phase 4: Checkpoints
+  private lastCheckpointIteration: number = 0;
+  private checkpointInterval: number = 5; // Auto-checkpoint every 5 iterations
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -539,14 +556,27 @@ ${contextToSummarize}`,
       );
 
       this.conversationSummary = summaryResponse.content;
+      const messagesBefore = this.messages.length;
       this.messages = applySelection(this.messages, selection);
 
       const newTokens = countMessageTokens(this.messages);
       logger.debug(`Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
+
+      // Debug bridge: context compaction
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().contextCompaction(totalTokens, newTokens, messagesBefore, this.messages.length);
+      }
     } catch (error) {
       // If summarization fails, fall back to simple selection without summary
       logger.debug(`Summarization failed, using selection only: ${error}`);
+      const messagesBefore = this.messages.length;
       this.messages = applySelection(this.messages, selection);
+
+      // Debug bridge: context compaction (fallback)
+      if (isDebugBridgeEnabled()) {
+        const newTokens = countMessageTokens(this.messages);
+        getDebugBridge().contextCompaction(totalTokens, newTokens, messagesBefore, this.messages.length);
+      }
     }
   }
 
@@ -578,6 +608,47 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Enforce the message limit to prevent unbounded memory growth.
+   * Uses smart pruning: keeps recent messages and removes old ones.
+   */
+  private enforceMessageLimit(): void {
+    if (this.messages.length <= FIXED_CONFIG.MAX_MESSAGES) {
+      return;
+    }
+
+    logger.debug(`Enforcing message limit: ${this.messages.length} > ${FIXED_CONFIG.MAX_MESSAGES}`);
+
+    // Calculate how many to remove (keep some buffer below the limit)
+    const targetSize = Math.floor(FIXED_CONFIG.MAX_MESSAGES * 0.8); // Keep 80% of limit
+    const removeCount = this.messages.length - targetSize;
+
+    // Find a safe start point in the messages to remove
+    // We need to slice from the beginning, not break tool call/result pairs
+    const recentMessages = this.messages.slice(removeCount);
+    const safeStart = findSafeStartIndex(recentMessages);
+
+    // Adjust the actual slice point to respect tool pairs
+    const actualRemoveCount = removeCount + safeStart;
+    const pruned = actualRemoveCount;
+
+    if (pruned <= 0) {
+      return; // Nothing safe to prune
+    }
+
+    // Update summary to note that messages were pruned
+    const pruneNote = `[Note: ${pruned} older messages were automatically pruned to stay within memory limits]`;
+    if (this.conversationSummary) {
+      this.conversationSummary = `${pruneNote}\n\n${this.conversationSummary}`;
+    } else {
+      this.conversationSummary = pruneNote;
+    }
+
+    // Apply pruning
+    this.messages = this.messages.slice(actualRemoveCount);
+    logger.debug(`Pruned ${pruned} messages, now have ${this.messages.length}`);
+  }
+
+  /**
    * Process a user message and return the final assistant response.
    * This runs the full agentic loop until the model stops calling tools.
    *
@@ -588,6 +659,9 @@ ${contextToSummarize}`,
     // Store original task for continuation prompts
     const originalTask = userMessage;
 
+    // Record start time for timeout check
+    const startTime = Date.now();
+
     // Determine which provider to use for this chat
     const chatProvider = this.getProviderForChat(options?.taskType);
 
@@ -596,6 +670,9 @@ ${contextToSummarize}`,
       role: 'user',
       content: userMessage,
     });
+
+    // Enforce message limit
+    this.enforceMessageLimit();
 
     // Check if context needs compaction
     await this.compactContext();
@@ -606,6 +683,39 @@ ${contextToSummarize}`,
 
     while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
       iterations++;
+      this.currentIteration = iterations;
+
+      // Phase 4: Maybe create automatic checkpoint
+      this.maybeCreateCheckpoint();
+
+      // Check iteration breakpoints (Phase 4)
+      const iterBp = this.checkBreakpoints({
+        type: 'iteration',
+        iteration: this.currentIteration,
+      });
+      if (iterBp) {
+        this.debugPaused = true;
+        if (isDebugBridgeEnabled()) {
+          getDebugBridge().breakpointHit(iterBp, {
+            type: 'iteration',
+            iteration: this.currentIteration,
+          });
+        }
+      }
+
+      // Wait for debug resume if paused (Phase 2)
+      await this.waitForDebugResume();
+
+      // Check wall-clock timeout
+      const elapsed = Date.now() - startTime;
+      if (elapsed > FIXED_CONFIG.MAX_CHAT_DURATION_MS) {
+        const elapsedMinutes = Math.round(elapsed / 60000);
+        const timeoutMsg = `\n\n(Reached time limit of ${elapsedMinutes} minutes, stopping)`;
+        finalResponse += timeoutMsg;
+        this.callbacks.onText?.(timeoutMsg);
+        logger.warn(`Chat timeout after ${elapsedMinutes} minutes and ${iterations} iterations`);
+        break;
+      }
 
       // Get tool definitions if provider supports them and tools are enabled
       const tools = (this.useTools && chatProvider.supportsToolUse())
@@ -616,6 +726,16 @@ ${contextToSummarize}`,
       let systemContext = this.systemPrompt;
       if (this.conversationSummary) {
         systemContext += `\n\n## Previous Conversation Summary\n${this.conversationSummary}`;
+      }
+
+      // Add dynamic context alert when usage is high
+      const contextInfo = this.getContextInfo();
+      const usagePercent = (contextInfo.tokens / contextInfo.maxTokens) * 100;
+      if (usagePercent >= 75) {
+        const statusLabel = usagePercent >= 90 ? 'CRITICAL' : 'HIGH';
+        const alert = `\n\n## Context Alert\n${statusLabel} usage (${usagePercent.toFixed(0)}%). Prefer grep/search_codebase over read_file. Use recall_result for previously read content.`;
+        systemContext += alert;
+        logger.debug(`Context alert: ${statusLabel} usage at ${usagePercent.toFixed(1)}%`);
       }
 
       // Apply compression if enabled and it actually saves space
@@ -664,6 +784,16 @@ ${contextToSummarize}`,
         tools,
         systemContext
       );
+
+      // Debug bridge: API request
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().apiRequest(
+          chatProvider.getName(),
+          chatProvider.getModel(),
+          messagesToSend.length,
+          !!tools
+        );
+      }
 
       // Call the model with streaming (using native system prompt support)
       const apiStartTime = Date.now();
@@ -727,6 +857,17 @@ ${contextToSummarize}`,
         Date.now() - apiStartTime,
         response.rawResponse
       );
+
+      // Debug bridge: API response
+      if (isDebugBridgeEnabled()) {
+        getDebugBridge().apiResponse(
+          response.stopReason,
+          response.usage?.inputTokens || 0,
+          response.usage?.outputTokens || 0,
+          Date.now() - apiStartTime,
+          response.toolCalls.length
+        );
+      }
 
       // Record usage for cost tracking
       if (response.usage) {
@@ -1094,6 +1235,29 @@ ${contextToSummarize}`,
         }
 
         for (const batch of batches) {
+          // Phase 4: Check breakpoints before each batch
+          for (const toolCall of batch.calls) {
+            const bp = this.checkBreakpoints({
+              type: 'tool_call',
+              toolName: toolCall.name,
+              toolInput: toolCall.input,
+              iteration: this.currentIteration,
+            });
+
+            if (bp) {
+              this.debugPaused = true;
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().breakpointHit(bp, {
+                  type: 'tool_call',
+                  toolName: toolCall.name,
+                  toolInput: toolCall.input,
+                  iteration: this.currentIteration,
+                });
+              }
+              await this.waitForDebugResume();
+            }
+          }
+
           if (batch.parallel && batch.calls.length > 1) {
             // Execute batch in parallel
             logger.debug(`Executing ${batch.calls.length} tools in parallel: ${batch.calls.map(c => c.name).join(', ')}`);
@@ -1102,19 +1266,53 @@ ${contextToSummarize}`,
             for (const toolCall of batch.calls) {
               this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
               updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
+              // Debug bridge: tool call start
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().toolCallStart(toolCall.name, toolCall.input, toolCall.id);
+              }
             }
 
-            // Execute all in parallel
-            const parallelResults = await Promise.all(
-              batch.calls.map(toolCall => this.toolRegistry.execute(toolCall))
-            );
+            // Execute all in parallel with concurrency limit (max 8 concurrent)
+            const parallelStartTime = Date.now();
+            const parallelResults = await executeWithConcurrencyLimit(
+              batch.calls,
+              (toolCall) => this.toolRegistry.execute(toolCall)
+            ) as Awaited<ReturnType<typeof this.toolRegistry.execute>>[];
+            const parallelDuration = Date.now() - parallelStartTime;
 
             // Process results
             for (let i = 0; i < parallelResults.length; i++) {
               const result = parallelResults[i];
               const toolCall = batch.calls[i];
               toolResults.push(result);
-              if (result.is_error) hasError = true;
+              if (result.is_error) {
+                hasError = true;
+                // Phase 4: Check error breakpoints
+                const errBp = this.checkBreakpoints({
+                  type: 'error',
+                  toolName: toolCall.name,
+                  iteration: this.currentIteration,
+                  error: result.content,
+                });
+                if (errBp) {
+                  this.debugPaused = true;
+                  if (isDebugBridgeEnabled()) {
+                    getDebugBridge().breakpointHit(errBp, {
+                      type: 'error',
+                      toolName: toolCall.name,
+                      iteration: this.currentIteration,
+                      error: result.content,
+                    });
+                  }
+                }
+              }
+
+              // Debug bridge: tool call end and result
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().toolCallEnd(toolCall.name, toolCall.id, parallelDuration, !!result.is_error);
+                getDebugBridge().toolResult(toolCall.name, toolCall.id, result.content, !!result.is_error);
+              }
+
               this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
             }
           } else {
@@ -1123,9 +1321,44 @@ ${contextToSummarize}`,
               this.callbacks.onToolCall?.(toolCall.name, toolCall.input);
               updateWorkingSet(this.workingSet, toolCall.name, toolCall.input);
 
+              // Debug bridge: tool call start
+              const toolStartTime = Date.now();
+              if (isDebugBridgeEnabled()) {
+                getDebugBridge().toolCallStart(toolCall.name, toolCall.input, toolCall.id);
+              }
+
               const result = await this.toolRegistry.execute(toolCall);
               toolResults.push(result);
-              if (result.is_error) hasError = true;
+              if (result.is_error) {
+                hasError = true;
+                // Phase 4: Check error breakpoints
+                const errBp = this.checkBreakpoints({
+                  type: 'error',
+                  toolName: toolCall.name,
+                  iteration: this.currentIteration,
+                  error: result.content,
+                });
+                if (errBp) {
+                  this.debugPaused = true;
+                  if (isDebugBridgeEnabled()) {
+                    getDebugBridge().breakpointHit(errBp, {
+                      type: 'error',
+                      toolName: toolCall.name,
+                      iteration: this.currentIteration,
+                      error: result.content,
+                    });
+                  }
+                  await this.waitForDebugResume();
+                }
+              }
+
+              // Debug bridge: tool call end and result
+              if (isDebugBridgeEnabled()) {
+                const durationMs = Date.now() - toolStartTime;
+                getDebugBridge().toolCallEnd(toolCall.name, toolCall.id, durationMs, !!result.is_error);
+                getDebugBridge().toolResult(toolCall.name, toolCall.id, result.content, !!result.is_error);
+              }
+
               this.callbacks.onToolResult?.(toolCall.name, result.content, !!result.is_error);
             }
           }
@@ -1246,6 +1479,13 @@ ${contextToSummarize}`,
         toolResultsTokenBudget: this.contextConfig.toolResultsTokenBudget,
         toolResultTruncateThreshold: this.contextConfig.toolResultTruncateThreshold,
       });
+
+      // Check step mode after iteration completes (Phase 2)
+      if (this.debugStepMode && isDebugBridgeEnabled()) {
+        this.debugPaused = true;
+        this.debugStepMode = false;
+        getDebugBridge().emit('step_complete', { iteration: this.currentIteration });
+      }
     }
 
     if (iterations >= FIXED_CONFIG.MAX_ITERATIONS) {
@@ -1471,6 +1711,263 @@ ${contextToSummarize}`,
    */
   isCompressionEnabled(): boolean {
     return this.enableCompression;
+  }
+
+  // ============================================
+  // Debug control (Phase 2)
+  // ============================================
+
+  /**
+   * Set the debug paused state.
+   */
+  setDebugPaused(paused: boolean): void {
+    this.debugPaused = paused;
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().emit(paused ? 'paused' : 'resumed', {
+        iteration: this.currentIteration,
+      });
+    }
+  }
+
+  /**
+   * Check if the agent is paused.
+   */
+  isDebugPaused(): boolean {
+    return this.debugPaused;
+  }
+
+  /**
+   * Enable step mode - execute one iteration then pause.
+   */
+  setDebugStep(): void {
+    this.debugStepMode = true;
+    this.debugPaused = false; // Resume to execute one step
+  }
+
+  /**
+   * Wait for debug resume if paused.
+   * Called before each API request in the chat loop.
+   */
+  private async waitForDebugResume(): Promise<void> {
+    if (!isDebugBridgeEnabled() || !this.debugPaused) return;
+
+    // Emit paused state periodically while waiting
+    while (this.debugPaused) {
+      getDebugBridge().emit('state_snapshot', {
+        paused: true,
+        waiting: 'resume',
+        iteration: this.currentIteration,
+        messageCount: this.messages.length,
+      });
+      await new Promise(r => setTimeout(r, 500)); // Check every 500ms
+    }
+  }
+
+  /**
+   * Get a snapshot of the agent state for debugging.
+   */
+  getStateSnapshot(what: 'messages' | 'context' | 'tools' | 'all' = 'all'): Record<string, unknown> {
+    const snapshot: Record<string, unknown> = {
+      timestamp: new Date().toISOString(),
+      sessionId: isDebugBridgeEnabled() ? getDebugBridge().getSessionId() : null,
+      iteration: this.currentIteration,
+      paused: this.debugPaused,
+    };
+
+    if (what === 'messages' || what === 'all') {
+      const roleCount = { user: 0, assistant: 0, tool: 0 };
+      for (const msg of this.messages) {
+        if (msg.role === 'user') {
+          if (typeof msg.content !== 'string' &&
+              msg.content.some(b => b.type === 'tool_result')) {
+            roleCount.tool++;
+          } else {
+            roleCount.user++;
+          }
+        } else if (msg.role === 'assistant') {
+          roleCount.assistant++;
+        }
+      }
+
+      snapshot.messages = {
+        count: this.messages.length,
+        roles: roleCount,
+        recent: this.messages.slice(-3).map(m => ({
+          role: m.role,
+          preview: getMessageText(m).slice(0, 200),
+        })),
+      };
+    }
+
+    if (what === 'context' || what === 'all') {
+      snapshot.context = {
+        tokenEstimate: countMessageTokens(this.messages),
+        maxTokens: this.maxContextTokens,
+        hasSummary: !!this.conversationSummary,
+        summaryPreview: this.conversationSummary?.slice(0, 200),
+      };
+    }
+
+    if (what === 'tools' || what === 'all') {
+      snapshot.tools = {
+        enabled: this.toolRegistry.getDefinitions().map(d => d.name),
+        count: this.toolRegistry.getDefinitions().length,
+      };
+    }
+
+    snapshot.provider = {
+      name: this.provider.getName(),
+      model: this.provider.getModel(),
+    };
+
+    snapshot.workingSet = [...this.workingSet.recentFiles];
+
+    return snapshot;
+  }
+
+  /**
+   * Inject a message into the conversation history.
+   * Used for debugging/testing purposes.
+   */
+  injectMessage(role: 'user' | 'assistant', content: string): void {
+    this.messages.push({ role, content });
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().emit('state_snapshot', {
+        injectedMessage: true,
+        role,
+        contentPreview: content.slice(0, 200),
+        messageCount: this.messages.length,
+      });
+    }
+  }
+
+  // ============================================
+  // Breakpoints (Phase 4)
+  // ============================================
+
+  /**
+   * Add a breakpoint.
+   */
+  addBreakpoint(type: BreakpointType, condition?: string | number): string {
+    const id = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    this.breakpoints.set(id, {
+      id,
+      type,
+      condition,
+      enabled: true,
+      hitCount: 0,
+    });
+    return id;
+  }
+
+  /**
+   * Remove a breakpoint by ID.
+   */
+  removeBreakpoint(id: string): boolean {
+    return this.breakpoints.delete(id);
+  }
+
+  /**
+   * Clear all breakpoints.
+   */
+  clearBreakpoints(): void {
+    this.breakpoints.clear();
+  }
+
+  /**
+   * List all breakpoints.
+   */
+  listBreakpoints(): Breakpoint[] {
+    return [...this.breakpoints.values()];
+  }
+
+  /**
+   * Check if any breakpoint should trigger.
+   * Returns the first matching breakpoint or null.
+   */
+  private checkBreakpoints(context: BreakpointContext): Breakpoint | null {
+    for (const bp of this.breakpoints.values()) {
+      if (!bp.enabled) continue;
+
+      switch (bp.type) {
+        case 'tool':
+          if (context.type === 'tool_call' && context.toolName === bp.condition) {
+            bp.hitCount++;
+            return bp;
+          }
+          break;
+
+        case 'iteration':
+          if (context.iteration === bp.condition) {
+            bp.hitCount++;
+            return bp;
+          }
+          break;
+
+        case 'pattern':
+          if (context.toolInput && typeof bp.condition === 'string') {
+            const inputStr = JSON.stringify(context.toolInput);
+            const regex = new RegExp(bp.condition, 'i');
+            if (regex.test(inputStr)) {
+              bp.hitCount++;
+              return bp;
+            }
+          }
+          break;
+
+        case 'error':
+          if (context.type === 'error') {
+            bp.hitCount++;
+            return bp;
+          }
+          break;
+      }
+    }
+    return null;
+  }
+
+  // ============================================
+  // Checkpoints (Phase 4)
+  // ============================================
+
+  /**
+   * Create a checkpoint with current state.
+   */
+  createCheckpoint(label?: string): Checkpoint {
+    const checkpoint: Checkpoint = {
+      id: `cp_${this.currentIteration}_${Date.now()}`,
+      label,
+      iteration: this.currentIteration,
+      timestamp: new Date().toISOString(),
+      messageCount: this.messages.length,
+      tokenCount: countMessageTokens(this.messages),
+    };
+
+    this.lastCheckpointIteration = this.currentIteration;
+
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().checkpoint(checkpoint);
+    }
+
+    return checkpoint;
+  }
+
+  /**
+   * Automatically create checkpoint if interval has passed.
+   */
+  private maybeCreateCheckpoint(): void {
+    if (!isDebugBridgeEnabled()) return;
+
+    if (this.currentIteration - this.lastCheckpointIteration >= this.checkpointInterval) {
+      this.createCheckpoint();
+    }
+  }
+
+  /**
+   * Set the auto-checkpoint interval.
+   */
+  setCheckpointInterval(interval: number): void {
+    this.checkpointInterval = interval;
   }
 
   /**

@@ -3,9 +3,9 @@
 
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import { validateAndResolvePath } from '../utils/path-validation.js';
 
 export class ReadFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -42,7 +42,7 @@ export class ReadFileTool extends BaseTool {
       throw new Error('Path is required');
     }
 
-    const resolvedPath = resolve(process.cwd(), path);
+    const resolvedPath = validateAndResolvePath(path);
 
     if (!existsSync(resolvedPath)) {
       throw new Error(`File not found: ${resolvedPath}`);

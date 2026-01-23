@@ -167,9 +167,10 @@ describe('tool-result-cache', () => {
       expect(entry!.metadata.estimatedTokens).toBe(15);
     });
 
-    it('sorts by cached time, newest first', () => {
+    it('sorts by cached time, newest first', async () => {
       // Add with slight delay to ensure different timestamps
       const id1 = cacheToolResult('first', 'c1', 's1', 10, false);
+      await new Promise(resolve => setTimeout(resolve, 5)); // Ensure different timestamp
       const id2 = cacheToolResult('second', 'c2', 's2', 10, false);
 
       const results = listCachedResults();

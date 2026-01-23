@@ -16,12 +16,16 @@ import { shutdownAllRateLimiters } from '../providers/rate-limiter.js';
 // Loader
 export {
   loadModelMap,
+  loadProjectModelMap,
   validateModelMap,
   watchModelMap,
   getExampleModelMap,
   initModelMap as initModelMapFile,
+  addModelToMap,
+  getGlobalConfigDir,
   ModelMapValidationError,
   type ValidationResult,
+  type ModelMapLoadResult,
 } from './loader.js';
 
 // Registry
@@ -149,7 +153,8 @@ import type { PipelineExecutor } from './executor.js';
  */
 export interface ModelMap {
   config: ModelMapConfig;
-  configPath: string | null;
+  configPath: string | null;        // Project config path (if exists)
+  globalConfigPath: string | null;  // Global config path (if exists)
   registry: ModelRegistry;
   router: TaskRouter;
   executor: PipelineExecutor;
@@ -160,13 +165,16 @@ export interface ModelMap {
 }
 
 /**
- * Initialize a complete model map from the current directory.
+ * Initialize a complete model map from global and/or project config.
  *
- * @param cwd Working directory to load config from
+ * Global config (~/.codi/models.yaml) is loaded first, then project config
+ * (codi-models.yaml) overrides global settings.
+ *
+ * @param cwd Working directory to load project config from
  * @returns ModelMap instance or null if no config found
  */
 export function initModelMap(cwd: string = process.cwd()): ModelMap | null {
-  const { config, configPath, error } = loadModelMap(cwd);
+  const { config, configPath, globalConfigPath, error } = loadModelMap(cwd);
 
   if (!config) {
     if (error) {
@@ -216,6 +224,7 @@ export function initModelMap(cwd: string = process.cwd()): ModelMap | null {
   return {
     config,
     configPath,
+    globalConfigPath,
     registry,
     router,
     executor,

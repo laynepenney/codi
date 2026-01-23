@@ -129,7 +129,10 @@ export class SessionSelector {
         pause?: () => void;
         resume?: () => void;
       };
-      const wasPaused = typeof inputStream?.isPaused === 'function' ? inputStream.isPaused() : false;
+      // Node.js Interface has isPaused at runtime but types may not reflect it
+      const wasPaused = typeof inputStream?.isPaused === 'function'
+        ? inputStream.isPaused()
+        : (this.rl as unknown as { isPaused?: () => boolean }).isPaused?.() ?? false;
       if (!wasPaused) {
         this.rl.pause();
       }

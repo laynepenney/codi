@@ -3,10 +3,10 @@
 
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { resolve } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
+import { validateAndResolvePath } from '../utils/path-validation.js';
 
 interface Hunk {
   oldStart: number;
@@ -76,7 +76,7 @@ export class PatchFileTool extends BaseTool {
       throw new Error('Provide either "patch" or "patches", not both');
     }
 
-    const resolvedPath = resolve(process.cwd(), filePath);
+    const resolvedPath = validateAndResolvePath(filePath);
 
     if (!existsSync(resolvedPath)) {
       throw new Error(`File not found: ${resolvedPath}`);

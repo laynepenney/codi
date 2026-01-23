@@ -12,6 +12,7 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { gzipSync, gunzipSync } from 'zlib';
 
 /**
  * Cached tool result entry.
@@ -74,8 +75,12 @@ export function generateCacheId(toolName: string, content: string): string {
   return `${toolName.slice(0, 10)}_${hash}`;
 }
 
+/** Minimum content size to use gzip compression (small content may expand) */
+const GZIP_THRESHOLD_BYTES = 1024;
+
 /**
  * Store a tool result in the cache.
+ * Uses gzip compression for content larger than threshold.
  */
 export function cacheToolResult(
   toolName: string,
@@ -94,11 +99,20 @@ export function cacheToolResult(
   lastCacheTimestamp = cachedAt;
 
   const id = generateCacheId(toolName, content);
-  const contentPath = join(CACHE_DIR, `${id}.content`);
+  const contentBuffer = Buffer.from(content, 'utf-8');
+
+  // Use gzip for larger content
+  const useGzip = contentBuffer.length >= GZIP_THRESHOLD_BYTES;
+  const contentPath = join(CACHE_DIR, `${id}.content${useGzip ? '.gz' : ''}`);
   const metaPath = join(CACHE_DIR, `${id}.meta.json`);
 
-  // Write content
-  writeFileSync(contentPath, content, 'utf-8');
+  // Write content (optionally compressed)
+  if (useGzip) {
+    const compressed = gzipSync(contentBuffer);
+    writeFileSync(contentPath, compressed);
+  } else {
+    writeFileSync(contentPath, content, 'utf-8');
+  }
 
   // Write metadata
   const metadata: CacheMetadata = {
@@ -117,17 +131,30 @@ export function cacheToolResult(
 
 /**
  * Retrieve a cached tool result by ID.
+ * Handles both gzipped and non-gzipped content.
  */
 export function getCachedResult(id: string): CachedToolResult | null {
-  const contentPath = join(CACHE_DIR, `${id}.content`);
+  const contentPathPlain = join(CACHE_DIR, `${id}.content`);
+  const contentPathGz = join(CACHE_DIR, `${id}.content.gz`);
   const metaPath = join(CACHE_DIR, `${id}.meta.json`);
+
+  // Check for gzipped first (more common for large results)
+  const isGzipped = existsSync(contentPathGz);
+  const contentPath = isGzipped ? contentPathGz : contentPathPlain;
 
   if (!existsSync(contentPath) || !existsSync(metaPath)) {
     return null;
   }
 
   try {
-    const content = readFileSync(contentPath, 'utf-8');
+    let content: string;
+    if (isGzipped) {
+      const compressed = readFileSync(contentPath);
+      content = gunzipSync(compressed).toString('utf-8');
+    } else {
+      content = readFileSync(contentPath, 'utf-8');
+    }
+
     const metadata: CacheMetadata = JSON.parse(readFileSync(metaPath, 'utf-8'));
 
     return {
@@ -147,10 +174,12 @@ export function getCachedResult(id: string): CachedToolResult | null {
 
 /**
  * Check if a cached result exists.
+ * Checks for both gzipped and non-gzipped content.
  */
 export function hasCachedResult(id: string): boolean {
-  const contentPath = join(CACHE_DIR, `${id}.content`);
-  return existsSync(contentPath);
+  const contentPathPlain = join(CACHE_DIR, `${id}.content`);
+  const contentPathGz = join(CACHE_DIR, `${id}.content.gz`);
+  return existsSync(contentPathPlain) || existsSync(contentPathGz);
 }
 
 /**
@@ -182,6 +211,7 @@ export function listCachedResults(): Array<{ id: string; metadata: CacheMetadata
 
 /**
  * Clean up old cache entries.
+ * Handles both gzipped and non-gzipped content files.
  */
 export function cleanupCache(): { removed: number; freedBytes: number } {
   ensureCacheDir();
@@ -196,16 +226,23 @@ export function cleanupCache(): { removed: number; freedBytes: number } {
     if (file.endsWith('.meta.json')) {
       const id = file.replace('.meta.json', '');
       const metaPath = join(CACHE_DIR, file);
-      const contentPath = join(CACHE_DIR, `${id}.content`);
+      const contentPathPlain = join(CACHE_DIR, `${id}.content`);
+      const contentPathGz = join(CACHE_DIR, `${id}.content.gz`);
 
       try {
         const metadata: CacheMetadata = JSON.parse(readFileSync(metaPath, 'utf-8'));
 
         // Remove old entries
         if (now - metadata.cachedAt > MAX_CACHE_AGE_MS) {
-          if (existsSync(contentPath)) {
-            freedBytes += statSync(contentPath).size;
-            unlinkSync(contentPath);
+          // Remove plain content if exists
+          if (existsSync(contentPathPlain)) {
+            freedBytes += statSync(contentPathPlain).size;
+            unlinkSync(contentPathPlain);
+          }
+          // Remove gzipped content if exists
+          if (existsSync(contentPathGz)) {
+            freedBytes += statSync(contentPathGz).size;
+            unlinkSync(contentPathGz);
           }
           freedBytes += statSync(metaPath).size;
           unlinkSync(metaPath);
@@ -214,7 +251,8 @@ export function cleanupCache(): { removed: number; freedBytes: number } {
       } catch {
         // Remove invalid files
         try {
-          if (existsSync(contentPath)) unlinkSync(contentPath);
+          if (existsSync(contentPathPlain)) unlinkSync(contentPathPlain);
+          if (existsSync(contentPathGz)) unlinkSync(contentPathGz);
           if (existsSync(metaPath)) unlinkSync(metaPath);
           removed++;
         } catch {

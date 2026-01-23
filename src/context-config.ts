@@ -79,6 +79,10 @@ export const FIXED_CONFIG = {
   MAX_CONSECUTIVE_ERRORS: 3,
   /** Tokens reserved for model output (applies to all tiers) */
   MAX_OUTPUT_TOKENS: 8192,
+  /** Maximum messages to keep in history (prevents unbounded memory growth) */
+  MAX_MESSAGES: 500,
+  /** Maximum duration for a single chat call in milliseconds (1 hour) */
+  MAX_CHAT_DURATION_MS: 60 * 60 * 1000,
 } as const;
 
 /**

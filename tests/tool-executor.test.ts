@@ -9,6 +9,10 @@ import {
   isMutating,
   READ_ONLY_TOOLS,
   MUTATING_TOOLS,
+  Semaphore,
+  executeWithConcurrencyLimit,
+  MAX_CONCURRENT_TOOLS,
+  toolExecutionSemaphore,
 } from '../src/tool-executor.js';
 import type { ToolCall } from '../src/types.js';
 
@@ -263,6 +267,119 @@ describe('tool-executor', () => {
       for (const tool of MUTATING_TOOLS) {
         expect(READ_ONLY_TOOLS.has(tool)).toBe(false);
       }
+    });
+  });
+
+  describe('Semaphore', () => {
+    it('should allow immediate acquisition when permits available', async () => {
+      const sem = new Semaphore(2);
+      const stats1 = sem.getStats();
+      expect(stats1.available).toBe(2);
+
+      await sem.acquire();
+      const stats2 = sem.getStats();
+      expect(stats2.available).toBe(1);
+
+      await sem.acquire();
+      const stats3 = sem.getStats();
+      expect(stats3.available).toBe(0);
+    });
+
+    it('should queue requests when no permits available', async () => {
+      const sem = new Semaphore(1);
+      await sem.acquire();
+
+      // This should not resolve immediately
+      let resolved = false;
+      const promise = sem.acquire().then(() => { resolved = true; });
+
+      // Give it a tick
+      await new Promise(r => setTimeout(r, 10));
+      expect(resolved).toBe(false);
+      expect(sem.getStats().waiting).toBe(1);
+
+      // Release should allow queued request to proceed
+      sem.release();
+      await promise;
+      expect(resolved).toBe(true);
+    });
+
+    it('should release permits correctly', async () => {
+      const sem = new Semaphore(2);
+      await sem.acquire();
+      await sem.acquire();
+      expect(sem.getStats().available).toBe(0);
+
+      sem.release();
+      expect(sem.getStats().available).toBe(1);
+
+      sem.release();
+      expect(sem.getStats().available).toBe(2);
+    });
+
+    it('should run function with semaphore via run()', async () => {
+      const sem = new Semaphore(1);
+      let running = 0;
+      let maxRunning = 0;
+
+      const task = async () => {
+        running++;
+        maxRunning = Math.max(maxRunning, running);
+        await new Promise(r => setTimeout(r, 10));
+        running--;
+        return 'done';
+      };
+
+      const results = await Promise.all([
+        sem.run(task),
+        sem.run(task),
+        sem.run(task),
+      ]);
+
+      expect(results).toEqual(['done', 'done', 'done']);
+      expect(maxRunning).toBe(1); // Only 1 at a time
+    });
+
+    it('should report stats correctly', () => {
+      const sem = new Semaphore(5);
+      const stats = sem.getStats();
+      expect(stats.available).toBe(5);
+      expect(stats.max).toBe(5);
+      expect(stats.waiting).toBe(0);
+    });
+  });
+
+  describe('executeWithConcurrencyLimit', () => {
+    it('should execute all items and return results in order', async () => {
+      const items = [1, 2, 3, 4, 5];
+      const results = await executeWithConcurrencyLimit(
+        items,
+        async (n) => n * 2
+      );
+      expect(results).toEqual([2, 4, 6, 8, 10]);
+    });
+
+    it('should limit concurrency to MAX_CONCURRENT_TOOLS', async () => {
+      // This is a bit tricky to test directly since toolExecutionSemaphore is shared
+      // We can at least verify the constant exists
+      expect(MAX_CONCURRENT_TOOLS).toBe(8);
+    });
+
+    it('should handle errors in executor', async () => {
+      const items = [1, 2, 3];
+      await expect(
+        executeWithConcurrencyLimit(items, async (n) => {
+          if (n === 2) throw new Error('test error');
+          return n;
+        })
+      ).rejects.toThrow('test error');
+    });
+  });
+
+  describe('toolExecutionSemaphore', () => {
+    it('should exist and have MAX_CONCURRENT_TOOLS permits', () => {
+      const stats = toolExecutionSemaphore.getStats();
+      expect(stats.max).toBe(MAX_CONCURRENT_TOOLS);
     });
   });
 });

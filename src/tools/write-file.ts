@@ -3,10 +3,11 @@
 
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { dirname } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
+import { validateAndResolvePath } from '../utils/path-validation.js';
 
 export class WriteFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -42,7 +43,7 @@ export class WriteFileTool extends BaseTool {
       throw new Error('Content is required');
     }
 
-    const resolvedPath = resolve(process.cwd(), path);
+    const resolvedPath = validateAndResolvePath(path);
     const isNewFile = !existsSync(resolvedPath);
 
     // Record change for undo

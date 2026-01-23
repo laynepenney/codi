@@ -251,6 +251,7 @@ async function resolveFileList(
 
 import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
+import { shutdownAllRateLimiters } from './providers/rate-limiter.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
 import { detectProject, formatProjectContext, loadContextFile } from './context.js';
 import { OpenFilesManager } from './open-files.js';
@@ -283,7 +284,7 @@ import { registerMemoryCommands } from './commands/memory-commands.js';
 import { registerCompactCommands } from './commands/compact-commands.js';
 import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
 import { registerApprovalCommands } from './commands/approval-commands.js';
-import { registerSymbolCommands, setSymbolIndexService } from './commands/symbol-commands.js';
+import { registerSymbolCommands, setSymbolIndexService, getSymbolIndexService } from './commands/symbol-commands.js';
 import { registerMCPCommands } from './commands/mcp-commands.js';
 import { setOrchestrator, getOrchestratorInstance } from './commands/orchestrate-commands.js';
 import { registerImageCommands } from './commands/image-commands.js';
@@ -295,7 +296,7 @@ import {
   DEFAULT_RAG_CONFIG,
   type RAGConfig,
 } from './rag/index.js';
-import { registerRAGSearchTool, registerSymbolIndexTools, registerOrchestrationTools } from './tools/index.js';
+import { registerRAGSearchTool, registerSymbolIndexTools, registerOrchestrationTools, registerContextStatusTool } from './tools/index.js';
 import { createCompleter } from './completions.js';
 import { SymbolIndexService } from './symbol-index/index.js';
 import { formatCost, formatTokens } from './usage.js';
@@ -332,6 +333,7 @@ import { spinner } from './spinner.js';
 import { logger, parseLogLevel, LogLevel } from './logger.js';
 import { MCPClientManager, startMCPServer } from './mcp/index.js';
 import { AuditLogger, initAuditLogger, getAuditLogger } from './audit.js';
+import { initDebugBridge, getDebugBridge, isDebugBridgeEnabled } from './debug-bridge.js';
 
 // CLI setup
 program
@@ -356,6 +358,7 @@ program
   .option('--mcp-server', 'Run as MCP server (stdio transport) - exposes tools to other MCP clients')
   .option('--no-mcp', 'Disable MCP server connections (ignore mcpServers in config)')
   .option('--audit', 'Enable audit logging (writes to ~/.codi/audit/)')
+  .option('--debug-bridge', 'Enable debug bridge for live debugging (writes to ~/.codi/debug/)')
   // Non-interactive mode options
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
@@ -416,6 +419,37 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 5. **Handle errors**: Include appropriate error handling
 6. **Test awareness**: Consider how changes affect tests
 
+## Context Management
+
+You operate within a token budget. Use tools efficiently to maximize useful work.
+
+### Search Strategy (Most to Least Efficient)
+1. **search_codebase** - Semantic search. Best when you don't know where code lives.
+2. **grep** - Pattern search for known terms, function names, strings.
+3. **glob** - Find files by name patterns before reading.
+4. **find_symbol** - Jump directly to function/class definitions.
+5. **read_file** with offset/limit - Read specific portions of files.
+6. **read_file** (full) - Use sparingly, only when complete context needed.
+
+### Cached Tool Results
+Large tool results are truncated and cached. You'll see messages like:
+\`[read_file: 500 lines] (cached: read_file_abc123, ~2000 tokens)\`
+
+Use **recall_result** to retrieve full content:
+- \`recall_result\` with \`cache_id\` retrieves the full content
+- \`recall_result\` with \`action: "list"\` shows all cached results
+
+### Efficient Patterns
+- Explore with grep/glob before reading files
+- Use offset/limit parameters for large files
+- Use search_codebase when file location is unknown
+- Don't re-read files already in context
+
+### Anti-Patterns to Avoid
+- Reading entire files when you only need one function
+- Using read_file to scan for content (use grep instead)
+- Ignoring cached results when you need truncated content
+
 ## Tool Use Rules
 - The tool list below is authoritative for this run. Use only these tool names and their parameters.
 - When you need a tool, emit a tool call (do not describe tool usage in plain text).
@@ -445,6 +479,10 @@ function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean
 - **get_dependency_graph**: Show file imports/dependents (params: file, direction, depth)
 - **get_inheritance**: Show class hierarchy (params: name, direction)
 - **get_call_graph**: Show function callers (params: name, file)
+
+### Context Management
+- **get_context_status**: Check token budget usage and status (params: include_cached)
+- **recall_result**: Retrieve truncated/cached tool results (params: cache_id, action)
 
 ### Other
 - **bash**: Execute shell commands (params: command, cwd)
@@ -520,9 +558,11 @@ When suggesting changes, format them clearly so the user can apply them manually
  * @param projectInfo - Detected information about the current project, if any.
  */
 function showHelp(projectInfo: ProjectInfo | null): void {
-  console.log(chalk.bold('\nShortcuts:'));
-  console.log(chalk.dim('  !<command>         - Run shell command directly (e.g., !ls, !git status)'));
-  console.log(chalk.dim('  ?[topic]           - Show help, optionally filtered by topic'));
+  console.log(chalk.bold.cyan('\n⚡ Quick Shortcuts:'));
+  console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
+  console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
+  console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
+  console.log();
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
@@ -1735,10 +1775,27 @@ function handleModelMapOutput(output: string): void {
     return;
   }
 
+  if (firstLine.startsWith('__MODELMAP_ADD__|')) {
+    const parts = firstLine.slice('__MODELMAP_ADD__|'.length).split('|');
+    const [name, provider, model, filePath, scope] = parts;
+    console.log(chalk.green(`\nAdded model "${name}" to ${scope} config`));
+    console.log(chalk.dim(`  Provider: ${provider}`));
+    console.log(chalk.dim(`  Model: ${model}`));
+    console.log(chalk.dim(`  File: ${filePath}`));
+    console.log(chalk.cyan(`\nUse with: /switch ${name}`));
+    return;
+  }
+
   if (firstLine.startsWith('__MODELMAP_INIT__|')) {
-    const path = firstLine.slice('__MODELMAP_INIT__|'.length);
-    console.log(chalk.green(`\nCreated model map: ${path}`));
-    console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    const parts = firstLine.slice('__MODELMAP_INIT__|'.length).split('|');
+    const filePath = parts[0];
+    const scope = parts[1] || 'project';
+    console.log(chalk.green(`\nCreated ${scope} model map: ${filePath}`));
+    if (scope === 'global') {
+      console.log(chalk.dim('Global models can be used in any project with /switch <name>'));
+    } else {
+      console.log(chalk.dim('Edit this file to configure multi-model orchestration.'));
+    }
     return;
   }
 
@@ -1759,6 +1816,12 @@ function handleModelMapOutput(output: string): void {
       const type = parts[0];
 
       switch (type) {
+        case 'globalPath':
+          console.log(chalk.dim(`Global: ${parts[1]}`));
+          break;
+        case 'projectPath':
+          console.log(chalk.dim(`Project: ${parts[1]}`));
+          break;
         case 'path':
           console.log(chalk.dim(`File: ${parts[1]}`));
           break;
@@ -2591,6 +2654,12 @@ async function main() {
   const auditEnabled = options.audit || process.env.CODI_AUDIT === 'true';
   const auditLogger = initAuditLogger(auditEnabled);
 
+  // Initialize debug bridge (--debug-bridge flag or CODI_DEBUG_BRIDGE env var)
+  const debugBridgeEnabled = options.debugBridge || process.env.CODI_DEBUG_BRIDGE === 'true';
+  if (debugBridgeEnabled) {
+    initDebugBridge();
+  }
+
   console.log(chalk.bold.blue('\n🤖 Codi - Your AI Coding Wingman\n'));
 
   // Detect project context
@@ -2854,6 +2923,11 @@ async function main() {
     auditLogger.sessionStart(provider.getName(), provider.getModel(), process.cwd(), process.argv.slice(2));
   }
 
+  // Emit debug bridge session start
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().sessionStart(provider.getName(), provider.getModel());
+  }
+
   // Create secondary provider for summarization if configured
   let secondaryProvider = null;
   if (resolvedConfig.summarizeProvider || resolvedConfig.summarizeModel) {
@@ -3061,6 +3135,48 @@ Begin by analyzing the query and planning your research approach.`;
   // Session name tracking for prompt display
   let currentSession: string | null = null;
 
+  // Dynamic prompt mode tracking
+  type PromptMode = 'normal' | 'shell' | 'help';
+  let currentPromptMode: PromptMode = 'normal';
+
+  // Get the base prompt text without colors
+  const getBasePromptText = (mode: PromptMode): string => {
+    switch (mode) {
+      case 'shell':
+        return 'Shell';
+      case 'help':
+        return 'Help';
+      default:
+        return 'You';
+    }
+  };
+
+  // Get the colored prompt
+  const getPromptText = (mode: PromptMode): string => {
+    const baseText = getBasePromptText(mode);
+    let colorFn = chalk.bold.cyan;
+    
+    // Use different colors for different modes
+    if (mode === 'shell') {
+      colorFn = chalk.bold.yellow;
+    } else if (mode === 'help') {
+      colorFn = chalk.bold.green;
+    }
+    
+    return colorFn(`\n${baseText}: `);
+  };
+
+  // Update the readline prompt
+  const updatePrompt = (mode: PromptMode) => {
+    currentPromptMode = mode;
+    rl?.setPrompt(getPromptText(mode));
+  };
+
+  // Reset prompt to normal mode
+  const resetPrompt = () => {
+    updatePrompt('normal');
+  };
+
   // Create OpenFilesManager instance for tracking working set
   const openFilesManager = new OpenFilesManager();
 
@@ -3138,6 +3254,17 @@ Begin by analyzing the query and planning your research approach.`;
     const orch = getOrchestratorInstance();
     if (orch) {
       orch.stop().catch(() => {});
+    }
+    // Close symbol index database
+    const symbolIndex = getSymbolIndexService();
+    if (symbolIndex) {
+      symbolIndex.close();
+    }
+    // Shutdown all rate limiters
+    shutdownAllRateLimiters();
+    // Shutdown debug bridge (writes session_end event)
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().shutdown();
     }
   };
   const handleExit = () => {
@@ -3689,6 +3816,11 @@ Begin by analyzing the query and planning your research approach.`;
     logger.debug(`RAG: Embedding provider set for semantic message deduplication`);
   }
 
+  // Set up context status tool with agent as provider
+  const contextStatusTool = registerContextStatusTool();
+  contextStatusTool.setContextProvider(agent);
+  logger.debug(`Context status tool registered`);
+
   // Deprecated: setSessionAgent is now a no-op
   // Agent reference is passed via commandContext
 
@@ -3747,6 +3879,113 @@ Begin by analyzing the query and planning your research approach.`;
   }
 
   // =========================================================================
+  // DEBUG BRIDGE COMMAND HANDLER (Phase 2)
+  // =========================================================================
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().startCommandWatcher(async (cmd) => {
+      switch (cmd.type) {
+        case 'pause':
+          agent.setDebugPaused(true);
+          break;
+        case 'resume':
+          agent.setDebugPaused(false);
+          break;
+        case 'step':
+          agent.setDebugStep();
+          break;
+        case 'inspect': {
+          const what = cmd.data.what as 'messages' | 'context' | 'tools' | 'all' | undefined;
+          const snapshot = agent.getStateSnapshot(what ?? 'all');
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'inspect',
+            data: snapshot,
+          });
+          break;
+        }
+        case 'inject_message': {
+          const role = cmd.data.role as 'user' | 'assistant';
+          const content = cmd.data.content as string;
+          if (role && content) {
+            agent.injectMessage(role, content);
+            getDebugBridge().emit('command_response', {
+              commandId: cmd.id,
+              type: 'inject_message',
+              success: true,
+            });
+          }
+          break;
+        }
+        // Phase 4: Breakpoint commands
+        case 'breakpoint_add': {
+          const bpType = cmd.data.type as 'tool' | 'iteration' | 'pattern' | 'error';
+          const condition = cmd.data.condition as string | number | undefined;
+          const bpId = agent.addBreakpoint(bpType, condition);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_add',
+            data: { id: bpId, bpType, condition },
+          });
+          break;
+        }
+        case 'breakpoint_remove': {
+          const bpId = cmd.data.id as string;
+          const removed = agent.removeBreakpoint(bpId);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_remove',
+            data: { id: bpId, removed },
+          });
+          break;
+        }
+        case 'breakpoint_clear': {
+          agent.clearBreakpoints();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_clear',
+            data: { cleared: true },
+          });
+          break;
+        }
+        case 'breakpoint_list': {
+          const breakpoints = agent.listBreakpoints();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'breakpoint_list',
+            data: { breakpoints },
+          });
+          break;
+        }
+        // Phase 4: Checkpoint commands
+        case 'checkpoint_create': {
+          const label = cmd.data.label as string | undefined;
+          const checkpoint = agent.createCheckpoint(label);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'checkpoint_create',
+            data: checkpoint,
+          });
+          break;
+        }
+        case 'checkpoint_list': {
+          // Checkpoints are recorded in events.jsonl - emit guidance
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'checkpoint_list',
+            data: { message: 'Checkpoints are recorded in events.jsonl as checkpoint events' },
+          });
+          break;
+        }
+        default:
+          getDebugBridge().emit('error', {
+            message: `Unknown command type: ${cmd.type}`,
+            context: 'command_handler',
+          });
+      }
+    });
+  }
+
+  // =========================================================================
   // NON-INTERACTIVE MODE - Run single prompt and exit without readline
   // =========================================================================
   if (options.prompt) {
@@ -3781,11 +4020,33 @@ Begin by analyzing the query and planning your research approach.`;
     // Audit log user input
     auditLogger.userInput(trimmed);
 
+    // Debug bridge user input
+    if (isDebugBridgeEnabled()) {
+      const isCommand = trimmed.startsWith('/') || trimmed.startsWith('!');
+      getDebugBridge().userInput(trimmed, isCommand);
+    }
+
+    // Set appropriate prompt for prefix commands
+    if (trimmed.startsWith('!')) {
+      updatePrompt('shell');
+    } else if (trimmed === '?' || trimmed.startsWith('?')) {
+      updatePrompt('help');
+    }
+
     // Handle ! prefix for direct shell commands
     if (trimmed.startsWith('!')) {
       const shellCommand = trimmed.slice(1).trim();
       if (!shellCommand) {
-        console.log(chalk.dim('Usage: !<command> - run a shell command directly'));
+        console.log(chalk.cyan('\n⚡ Shell Command Shortcuts\n'));
+        console.log(chalk.dim('Run shell commands directly without going through the AI:\n'));
+        console.log(chalk.dim('  Examples:'));
+        console.log(chalk.dim('    !ls                 - List files'));
+        console.log(chalk.dim('    !git status         - Check git status'));
+        console.log(chalk.dim('    !npm test           - Run tests'));
+        console.log(chalk.dim('    !docker ps          - List containers'));
+        console.log(chalk.dim('    !pwd                - Show current directory\n'));
+        console.log(chalk.dim('  Tip: Use ! for quick commands, /ask the AI for help with commands.\n'));
+        resetPrompt();
         promptUser();
         return;
       }
@@ -3801,11 +4062,13 @@ Begin by analyzing the query and planning your research approach.`;
         if (code !== 0) {
           console.log(chalk.dim(`Exit code: ${code}`));
         }
+        resetPrompt();
         promptUser();
       });
 
       child.on('error', (err) => {
         console.log(chalk.red(`Error: ${err.message}`));
+        resetPrompt();
         promptUser();
       });
 
@@ -3842,6 +4105,7 @@ Begin by analyzing the query and planning your research approach.`;
       } else {
         showHelp(projectInfo);
       }
+      resetPrompt();
       promptUser();
       return;
     }
@@ -3878,7 +4142,7 @@ Begin by analyzing the query and planning your research approach.`;
 
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
-      const usedPercent = Math.min(100, (info.tokens / info.contextWindow) * 100);
+      const usedPercent = (info.tokens / info.contextWindow) * 100; // Removed Math.min(100, ...) to show actual overage
       const budgetPercent = (info.maxTokens / info.contextWindow) * 100;
 
       console.log(chalk.bold('\n📊 Context Status'));
@@ -3892,7 +4156,9 @@ Begin by analyzing the query and planning your research approach.`;
                   chalk.yellow('█'.repeat(Math.max(0, usedWidth - budgetWidth))) +
                   chalk.dim('░'.repeat(Math.max(0, barWidth - usedWidth)));
 
-      console.log(`\n  ${bar} ${usedPercent.toFixed(1)}%`);
+      // Color based on usage level
+      const percentColor = usedPercent >= 100 ? chalk.redBright : (usedPercent >= 75 ? chalk.yellow : chalk.green);
+      console.log(`\n  ${bar} ${percentColor(usedPercent.toFixed(1) + '%')}`);
       console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.contextWindow)} tokens`));
 
       // Token breakdown
@@ -4605,7 +4871,13 @@ Begin by analyzing the query and planning your research approach.`;
   // Set up line handler for REPL
   rl?.on('line', onLine);
 
-  console.log(chalk.dim('Type /help for commands, /exit to quit.\n'));
+  console.log(
+    chalk.dim('Tips: ') +
+      chalk.cyan('!<command>') + chalk.dim(' to run shell directly, ') +
+      chalk.cyan('?topic') + chalk.dim(' for help, ') +
+      chalk.cyan('/help') + chalk.dim(' for commands, ') +
+      chalk.cyan('/exit') + chalk.dim(' to quit.\n')
+  );
   promptUser();
 }
 
@@ -4624,5 +4896,44 @@ process.on('unhandledRejection', (reason) => {
   console.error(chalk.red(`\nUnhandled rejection: ${reason}`));
   process.exit(1);
 });
+
+// Graceful shutdown on SIGTERM/SIGINT
+const gracefulShutdown = (signal: string) => {
+  console.log(chalk.dim(`\nReceived ${signal}, shutting down gracefully...`));
+  disableBracketedPaste();
+
+  // Set a timeout to force exit if cleanup takes too long
+  const forceExitTimeout = setTimeout(() => {
+    console.error(chalk.yellow('\nForce exiting after cleanup timeout'));
+    process.exit(1);
+  }, 5000);
+  forceExitTimeout.unref(); // Don't prevent exit if cleanup finishes
+
+  // Close symbol index database to prevent corruption
+  const symbolIndex = getSymbolIndexService();
+  if (symbolIndex) {
+    symbolIndex.close();
+  }
+
+  // Shutdown all rate limiters (clears intervals and rejects pending)
+  shutdownAllRateLimiters();
+
+  // Shutdown debug bridge (writes session_end event)
+  if (isDebugBridgeEnabled()) {
+    getDebugBridge().shutdown();
+  }
+
+  // Cleanup orchestrator (stops IPC server, cleans up worktrees)
+  const orch = getOrchestratorInstance();
+  if (orch) {
+    orch.stop().catch(() => {});
+  }
+
+  clearTimeout(forceExitTimeout);
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 main().catch(console.error);

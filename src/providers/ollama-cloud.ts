@@ -16,6 +16,7 @@ import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCal
 import { DEFAULT_FALLBACK_CONFIG, findBestToolMatch } from '../tools/tool-fallback.js';
 import { logger, LogLevel } from '../logger.js';
 import { getOllamaModelInfo } from './ollama-model-info.js';
+import { MODEL_CONTEXT_OVERRIDES } from '../constants.js';
 
 /** Ollama message format */
 interface OllamaMessage {
@@ -905,17 +906,21 @@ export class OllamaCloudProvider extends BaseProvider {
   /**
    * Get the context window for the current model.
    * Returns cached value from /api/show, or default if not yet fetched.
+   * Applies model-specific overrides for models with wrong API values.
    */
   override getContextWindow(): number {
-    // Return cached value if available
-    if (this.cachedContextWindow !== null) {
-      return this.cachedContextWindow;
+    const rawContextWindow = this.cachedContextWindow ?? 128000;
+
+    // Apply model-specific override for models with incorrect API values
+    for (const [pattern, correctWindow] of Object.entries(MODEL_CONTEXT_OVERRIDES)) {
+      if (this.model.includes(pattern)) {
+        if (rawContextWindow !== correctWindow) {
+          logger.warn(`Model ${this.model} reports ${rawContextWindow} context window, using override: ${correctWindow}`);
+        }
+        return correctWindow;
+      }
     }
 
-    // Trigger async fetch for next time (fire and forget)
-    this.ensureContextWindow().catch(() => {});
-
-    // Return default for now - will be accurate on subsequent calls
-    return 128000; // Conservative default
+    return rawContextWindow;
   }
 }
