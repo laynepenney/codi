@@ -281,19 +281,24 @@ interface StepExecution {
 - [ ] Create AI prompt action
 - [ ] Add custom action registration
 
-### Phase 7: AI-Assisted Building (Week 4-5)
+### Phase 7: AI-Assisted Building (Week 5-6)
 - [ ] Create interactive workflow builder command
-- [ ] Implement step-by-step workflow creation
-- [ ] Add workflow templates
-- [ ] Create natural language workflow import
-- [ ] Add workflow validation suggestions
+- [ ] Implement step-by-step workflow creation with AI guidance
+- [ ] Add workflow templates library
+- [ ] Create natural language workflow import (describe workflow, AI generates YAML)
+- [ ] Add workflow validation and suggestions
+- [ ] Design AI prompt templates for common workflows
 
-### Phase 8: Testing & Polish (Week 5)
+**Rationale**: Extended from 1 week to 2 weeks due to complexity of natural language understanding and AI prompt engineering required for this phase.
+
+### Phase 8: Testing & Polish (Week 6)
 - [ ] Write comprehensive unit tests
 - [ ] Create integration tests
 - [ ] Add example workflows
 - [ ] Update documentation (CODI.md, README)
 - [ ] Performance testing and optimization
+
+**Timeline Update**: Extended from 5 weeks to 6 weeks total to accommodate AI-assisted building complexity.
 
 ---
 
@@ -518,26 +523,84 @@ The current pipeline system in `codi-models.yaml` will remain functional. Workfl
 
 ---
 
-## Open Questions
+## Open Questions & Decisions
 
-1. **Model Connection Pooling**: Should we maintain connections to switched models?
-   - Option A: Disconnect/reconnect each time (simpler, uses fewer resources)
-   - Option B: Keep active model pool (faster switching, uses more resources)
+1. **Model Connection Pooling**: ✅ Decision: Option A (Disconnect/reconnect)
+   - Simpler implementation (aligns with existing lazy loading patterns)
+   - Uses fewer resources (important for CLI tool)
+   - Connection overhead is acceptable for workflow scale
 
-2. **Condition Expression Language**: How complex should conditions be?
-   - Option A: Simple predefined conditions (approved, file-exists)
-   - Option B: JavaScript expressions for flexibility
-   - Option C: Custom condition DSL
+2. **Condition Expression Language**: ✅ Decision: Option A + JS Safety
+   - Start with simple predefined conditions (approved, file-exists, variable-equals)
+   - Add safe JavaScript eval for simple expressions (e.g., `${iteration} < 5`)
+   - Defer complex DSL to phase 5+ if needed
 
-3. **Workflow Permissions**: Should workflows have restricted capabilities?
-   - Option A: Full access to all tools and commands
-   - Option B: Configurable permissions per workflow
-   - Option C: Prompt for approval before sensitive actions
+3. **Workflow Permissions**: ✅ Decision: Option C (Prompt for sensitive)
+   - Aligns with Codi's security model (explicit consent required)
+   - Configurable auto-approve patterns for non-sensitive steps
+   - Sensitive actions (write_file, bash) always prompt
 
-4. **Integration with Existing Commands**: Should workflows integrate with existing slash commands?
-   - Option A: Workflows stand alone, don't interfere
-   - Option B: Workflows can trigger existing commands
-   - Option C: Existing commands can be wrapped as workflow steps
+4. **Integration with Existing Commands**: ✅ Decision: Option B (Workflows trigger commands)
+   - Workflows can call existing `/` commands via special action
+   - Wraps command results as step outputs
+   - Cleaner architecture than duplication
+
+---
+
+## Cost Estimation
+
+### Token Usage
+
+| Workflow Type | Est. Tokens per Execution | Est. Cost (Claude) |
+|---------------|---------------------------|-------------------|
+| Simple (5 steps, no AI prompts) | ~1,000 | ~$0.001 |
+| Medium (10 steps, 2 AI prompts) | ~10,000 | ~$0.01 |
+| Complex (20 steps, 5 AI prompts) | ~50,000 | ~$0.05 |
+
+### Model Switching Overhead
+
+| Scenario | Latency Impact | Resource Impact |
+|----------|---------------|-----------------|
+| Model switch (same provider) | ~2-3 seconds | Low |
+| Model switch (different provider) | ~5-10 seconds | Medium |
+
+### Cost Mitigation Strategies
+
+1. **Prompt Optimization**: Cache common prompts, reuse system context
+2. **Model Selection**: Use cheaper models for routine steps (glm, haiku)
+3. **Connection Caching**: Keep warm connections during workflow execution
+4. **Cost Tracking**: Display estimated cost before workflow execution
+5. **Budget Limits**: Optional budget cap per workflow execution
+
+---
+
+## Success Metrics
+
+### Quantitative Metrics
+
+| Metric | Target | Measurement Method |
+|--------|--------|-------------------|
+| Workflow Adoption | 50+ unique workflows created in 3 months | Analytics tracking |
+| Workflow Completion Rate | 80% workflows complete successfully | State tracking |
+| Token Cost Efficiency | Within 20% of estimated costs | Usage tracking |
+| User Satisfaction | ≥4/5 rating for workflow feature | User surveys |
+
+### Qualitative Metrics
+
+| Metric | Target | Measurement Method |
+|--------|--------|-------------------|
+| User Understanding | Can create workflow without docs | User testing |
+| Feature Discovery | Users find `/workflow` commands naturally | Usage patterns |
+| Time Savings | Users report time reduction | Feedback surveys |
+| Reliability | No data loss on pause/resume | Error tracking |
+
+### Milestone-Based Goals
+
+- **Month 1**: Core engine working, 5 example workflows
+- **Month 2**: Model switching, conditional logic
+- **Month 3**: Loop support, state persistence
+- **Month 4**: Interactive builder, PR/git actions
+- **Month 5**: AI-assisted creation, templates
 
 ---
 
