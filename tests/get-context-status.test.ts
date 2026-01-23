@@ -68,6 +68,7 @@ describe('GetContextStatusTool', () => {
         expect(result).toContain('Context Status:');
         expect(result).toContain('Tokens used: 10,000 / 100,000');
         expect(result).toContain('10.0% of budget');
+        expect(result).toContain('Available window: 90,000 tokens (90.0% remaining)');
         expect(result).toContain('Status: HEALTHY');
         expect(result).toContain('Token Breakdown:');
         expect(result).toContain('Messages: 8,000 tokens');
@@ -231,6 +232,61 @@ describe('GetContextStatusTool', () => {
         expect(result).toContain('Cached Results: 1 available');
         expect(result).toContain('(Use include_cached: true to see IDs)');
         expect(result).not.toContain('read_file_abc123');
+      });
+
+      it('should show override in context window when maxTokens differs from contextWindow', async () => {
+        mockProvider.getContextInfo = vi.fn().mockReturnValue({
+          tokens: 10000,
+          messageTokens: 8000,
+          systemPromptTokens: 1500,
+          toolDefinitionTokens: 500,
+          maxTokens: 100000, // Override
+          contextWindow: 200000, // Original window
+          outputReserve: 8192,
+          safetyBuffer: 1000,
+          tierName: 'large',
+          messages: 10,
+          userMessages: 5,
+          assistantMessages: 4,
+          toolResultMessages: 1,
+          hasSummary: false,
+          compression: null,
+          compressionEnabled: false,
+          workingSetFiles: 3,
+        });
+
+        const result = await tool.execute({});
+
+        expect(result).toContain('Available window: 90,000 tokens (90.0% remaining)');
+        expect(result).toContain('original large tier, override in effect');
+      });
+
+      it('should show normal context window when maxTokens equals contextWindow', async () => {
+        mockProvider.getContextInfo = vi.fn().mockReturnValue({
+          tokens: 10000,
+          messageTokens: 8000,
+          systemPromptTokens: 1500,
+          toolDefinitionTokens: 500,
+          maxTokens: 100000,
+          contextWindow: 100000, // Same as maxTokens
+          outputReserve: 8192,
+          safetyBuffer: 1000,
+          tierName: 'large',
+          messages: 10,
+          userMessages: 5,
+          assistantMessages: 4,
+          toolResultMessages: 1,
+          hasSummary: false,
+          compression: null,
+          compressionEnabled: false,
+          workingSetFiles: 3,
+        });
+
+        const result = await tool.execute({});
+
+        expect(result).toContain('Available window: 90,000 tokens (90.0% remaining)');
+        expect(result).toContain('Context window: 100,000 tokens (large tier)');
+        expect(result).not.toContain('override in effect');
       });
 
       it('should limit cached results to 10 entries', async () => {

@@ -3757,7 +3757,15 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.dim(`    Window:       ${formatTokens(info.contextWindow).padStart(8)}  (${info.tierName} tier)`));
       console.log(chalk.dim(`    Output rsv:   ${formatTokens(info.outputReserve).padStart(8)}`));
       console.log(chalk.dim(`    Safety:       ${formatTokens(info.safetyBuffer).padStart(8)}`));
-      console.log(chalk.green(`    Available:    ${formatTokens(info.maxTokens).padStart(8)}`));
+      
+      // Calculate truly available tokens (what's left after current usage)
+      const trulyAvailable = Math.max(0, info.maxTokens - info.tokens);
+      console.log(chalk.green(`    Available:    ${formatTokens(trulyAvailable).padStart(8)}`));
+      
+      // Show override info if maxTokens differs from contextWindow
+      if (info.maxTokens !== info.contextWindow) {
+        console.log(chalk.dim(`    Override:     Max ${formatTokens(info.maxTokens)} tokens`));
+      }
 
       // Message breakdown
       console.log(chalk.bold('\n  Messages:'));
