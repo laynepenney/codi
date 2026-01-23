@@ -3488,11 +3488,53 @@ Begin by analyzing the query and planning your research approach.`;
           break;
         }
         case 'checkpoint_list': {
-          // Checkpoints are recorded in events.jsonl - emit guidance
+          const checkpoints = agent.listCheckpoints();
           getDebugBridge().emit('command_response', {
             commandId: cmd.id,
             type: 'checkpoint_list',
-            data: { message: 'Checkpoints are recorded in events.jsonl as checkpoint events' },
+            data: { checkpoints },
+          });
+          break;
+        }
+        // Phase 5: Time travel commands
+        case 'rewind': {
+          const checkpointId = cmd.data.checkpointId as string;
+          const success = agent.rewind(checkpointId);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'rewind',
+            data: { checkpointId, success },
+          });
+          break;
+        }
+        case 'branch_create': {
+          const cpId = cmd.data.checkpointId as string;
+          const branchName = cmd.data.name as string;
+          const success = agent.createBranch(cpId, branchName);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'branch_create',
+            data: { checkpointId: cpId, name: branchName, success },
+          });
+          break;
+        }
+        case 'branch_switch': {
+          const branchName = cmd.data.name as string;
+          const success = agent.switchBranch(branchName);
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'branch_switch',
+            data: { name: branchName, success },
+          });
+          break;
+        }
+        case 'branch_list': {
+          const branches = agent.listBranches();
+          const currentBranch = agent.getCurrentBranch();
+          getDebugBridge().emit('command_response', {
+            commandId: cmd.id,
+            type: 'branch_list',
+            data: { branches, currentBranch },
           });
           break;
         }

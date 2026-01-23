@@ -661,4 +661,185 @@ describe('Debug Bridge E2E', () => {
       await proc.waitForExit();
     });
   });
+
+  // ============================================
+  // Phase 5: Time Travel Debugging
+  // ============================================
+
+  describe('Branch commands via codi-debug', () => {
+    it('should create branch via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, 500));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} branch create test-branch -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+      });
+
+      expect(result).toContain('Sent: branch_create');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+
+    it('should switch branch via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, 500));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} branch switch main -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+      });
+
+      expect(result).toContain('Sent: branch_switch');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+
+    it('should list branches via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, 500));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} branch list -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+      });
+
+      expect(result).toContain('Sent: branch_list');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+  });
+
+  describe('Rewind command via codi-debug', () => {
+    it('should rewind via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, 500));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} rewind cp_0_test -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+      });
+
+      expect(result).toContain('Sent: rewind');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+  });
+
+  describe('Timeline command via codi-debug', () => {
+    it('should show timeline via codi-debug command', async () => {
+      fs.writeFileSync(path.join(projectDir, 'test.txt'), 'test content');
+
+      proc = new ProcessHarness(process.execPath, [
+        distEntry(),
+        '--provider', 'mock',
+        '--debug-bridge',
+      ], {
+        cwd: projectDir,
+        env: {
+          ...mockSession.env,
+          HOME: projectDir,
+        },
+      });
+
+      await proc.waitFor(/Orchestrator: ready/i);
+      await new Promise(r => setTimeout(r, 500));
+
+      const sessionsDir = path.join(debugDir, 'sessions');
+      const sessions = fs.readdirSync(sessionsDir);
+      const sessionId = sessions[0];
+
+      const result = execSync(`${process.execPath} ${debugCliEntry()} timeline -s ${sessionId}`, {
+        cwd: projectDir,
+        env: { ...process.env, HOME: projectDir, NO_COLOR: '1' },
+        encoding: 'utf8',
+      });
+
+      // Output may say "Timeline" or "No timeline data" depending on whether checkpoints exist
+      expect(result.toLowerCase()).toContain('timeline');
+
+      proc.writeLine('/exit');
+      await proc.waitForExit();
+    });
+  });
 });
