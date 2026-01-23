@@ -7,6 +7,21 @@
  */
 
 /**
+ * Model-specific context window overrides.
+ * For models where the API reports incorrect context window values.
+ * Map of model name pattern -> true context window size.
+ */
+export const MODEL_CONTEXT_OVERRIDES: Record<string, number> = {
+  // GLM models from Ollama Cloud report incorrect values
+  // These models claim 120K but actually have 8K-32K context
+  'glm-4': 8192,
+  'glm-4.7': 8192,
+  'glm-4-air': 32768,
+  'glm-4-flash': 32768,
+  // Add other models with incorrect API values here
+};
+
+/**
  * Agent loop configuration.
  */
 export const AGENT_CONFIG = {

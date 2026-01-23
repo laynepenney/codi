@@ -3610,7 +3610,7 @@ Begin by analyzing the query and planning your research approach.`;
 
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
-      const usedPercent = Math.min(100, (info.tokens / info.contextWindow) * 100);
+      const usedPercent = (info.tokens / info.contextWindow) * 100; // Removed Math.min(100, ...) to show actual overage
       const budgetPercent = (info.maxTokens / info.contextWindow) * 100;
 
       console.log(chalk.bold('\n📊 Context Status'));
@@ -3624,7 +3624,9 @@ Begin by analyzing the query and planning your research approach.`;
                   chalk.yellow('█'.repeat(Math.max(0, usedWidth - budgetWidth))) +
                   chalk.dim('░'.repeat(Math.max(0, barWidth - usedWidth)));
 
-      console.log(`\n  ${bar} ${usedPercent.toFixed(1)}%`);
+      // Color based on usage level
+      const percentColor = usedPercent >= 100 ? chalk.redBright : (usedPercent >= 75 ? chalk.yellow : chalk.green);
+      console.log(`\n  ${bar} ${percentColor(usedPercent.toFixed(1) + '%')}`);
       console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.contextWindow)} tokens`));
 
       // Token breakdown
