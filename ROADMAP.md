@@ -57,12 +57,14 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 | Global Model Maps | `~/.codi/models.yaml` for cross-project model aliases | #99 |
 | Interactive Model Addition | `/modelmap add [--global] name provider model` | #100 |
 | Debug Bridge | `--debug-bridge` flag streams events to JSONL for live debugging | #101 |
+| Debug Bridge Session Isolation | Unique directories per session, current symlink, session index | #109 |
+| Debug Bridge Command Injection | External control via commands.jsonl (pause, resume, step, inspect) | #110 |
 
 ---
 
 ## Current Status
 
-**Tests:** 1801 passing
+**Tests:** 1813 passing
 **Test Coverage:** ~65% overall
 
 | Module | Coverage |
@@ -90,7 +92,8 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 
 ### Nice to Have
 
-- [ ] **Debug Bridge Phase 2** - Command injection (pause, resume, inject_message)
+- [x] **Debug Bridge Phase 2** - Command injection (pause, resume, step, inspect) - PR #110
+- [ ] **Debug Bridge Phase 3** - Debug CLI (`codi-debug`) and breakpoints
 - [ ] **Optional telemetry** - Opt-in error tracking
 - [ ] **Plugin system re-enable** - Currently disabled pending investigation (#17)
 

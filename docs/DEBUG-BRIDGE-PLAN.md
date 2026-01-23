@@ -2,6 +2,8 @@
 
 **Goal:** Extend the debug bridge to support bidirectional communication, allowing external debuggers to control Codi sessions.
 
+**Status:** Phase 2 Complete (PR #110)
+
 ---
 
 ## Current State (Phase 1 - Complete in v0.16.0)
@@ -16,18 +18,9 @@ The debug bridge streams events to `~/.codi/debug/events.jsonl`:
 
 **Files:** `src/debug-bridge.ts`, hooks in `src/agent.ts` and `src/index.ts`
 
-### Known Issue: Global Files
-
-Currently all sessions write to the same files:
-- `~/.codi/debug/events.jsonl`
-- `~/.codi/debug/commands.jsonl`
-- `~/.codi/debug/session.json`
-
-This causes conflicts when running multiple Codi instances.
-
 ---
 
-## Phase 1.5: Session-Unique Files (Prerequisite Fix)
+## Phase 1.5: Session-Unique Files ✅ Complete (PR #109)
 
 ### Problem
 
@@ -139,7 +132,7 @@ shutdown(): void {
 
 ---
 
-## Phase 2: Command Injection
+## Phase 2: Command Injection ✅ Complete (PR #110)
 
 ### Overview
 
