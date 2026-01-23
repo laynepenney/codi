@@ -17,6 +17,7 @@ import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { promptSessionSelection } from './session-selection.js';
+import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
 
 // History configuration - allow override for testing
 const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
@@ -543,6 +544,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
   console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
   console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
+  console.log(chalk.dim('  ESC                    - Interrupt current AI processing and return to prompt'));
   console.log();
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
@@ -2951,8 +2953,32 @@ Begin by analyzing the query and planning your research approach.`;
 
   // Track if readline is closed (for piped input)
   let rlClosed = false;
+  
+  // Initialize interrupt handler for ESC key cancellation
+  const interruptHandler = getInterruptHandler();
+  interruptHandler.initialize(rl);
+  interruptHandler.setCallback(() => {
+    // Show interruption message
+    console.log(chalk.yellow('\n\n🚫 Interrupted!'));
+    console.log(chalk.dim('Press Ctrl+C to exit or continue typing...\n'));
+    
+    // Stop any active spinner
+    spinner.stop();
+    
+    // Clear any ongoing streaming state
+    isStreaming = false;
+    
+    // Reset to prompt
+    resetPrompt();
+    rl.prompt();
+  });
+  
   rl.on('close', () => {
     rlClosed = true;
+    
+    // Cleanup interrupt handler
+    destroyInterruptHandler();
+    
     // Don't exit here if in non-interactive mode - runNonInteractive handles its own cleanup
     if (options.prompt) {
       return;
@@ -4167,19 +4193,42 @@ Begin by analyzing the query and planning your research approach.`;
     isStreaming = false;
     spinner.thinking();
 
+    // Mark the start of agent processing for interrupt detection
+    interruptHandler.startProcessing();
+    
     try {
+      // Check if user pressed ESC before we started processing
+      if (interruptHandler.wasInterrupted()) {
+        console.log(chalk.yellow('\n⚠️ Operation cancelled'));
+        resetPrompt();
+        rl.prompt();
+        return;
+      }
+      
       const startTime = Date.now();
+      
       await agent.chat(trimmed);
+      
       if (isReasoningStreaming) {
         console.log(chalk.dim.italic('\n---\n'));
         isReasoningStreaming = false;
       }
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.dim(`\n(${elapsed}s)`));
+      
+      // Check if operation was interrupted during processing
+      if (interruptHandler.wasInterrupted()) {
+        console.log(chalk.dim('\n⚠️ Operation interrupted'));
+      } else {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(chalk.dim(`\n(${elapsed}s)`));
+      }
+      
       autoSaveSession(commandContext, agent);
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
+    } finally {
+      // Always mark processing as complete
+      interruptHandler.endProcessing();
     }
 
     rl.prompt();
@@ -4231,7 +4280,8 @@ Begin by analyzing the query and planning your research approach.`;
       chalk.cyan('!<command>') + chalk.dim(' to run shell directly, ') +
       chalk.cyan('?topic') + chalk.dim(' for help, ') +
       chalk.cyan('/help') + chalk.dim(' for commands, ') +
-      chalk.cyan('/exit') + chalk.dim(' to quit.\n')
+      chalk.cyan('/exit') + chalk.dim(' to quit, ') +
+      chalk.cyan('ESC') + chalk.dim(' to interrupt.\n')
   );
   rl.prompt();
 }
@@ -4256,6 +4306,9 @@ process.on('unhandledRejection', (reason) => {
 const gracefulShutdown = (signal: string) => {
   console.log(chalk.dim(`\nReceived ${signal}, shutting down gracefully...`));
   disableBracketedPaste();
+
+  // Cleanup interrupt handler
+  destroyInterruptHandler();
 
   // Set a timeout to force exit if cleanup takes too long
   const forceExitTimeout = setTimeout(() => {
