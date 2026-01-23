@@ -59,12 +59,13 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 | Debug Bridge | `--debug-bridge` flag streams events to JSONL for live debugging | #101 |
 | Debug Bridge Session Isolation | Unique directories per session, current symlink, session index | #109 |
 | Debug Bridge Command Injection | External control via commands.jsonl (pause, resume, step, inspect) | #110 |
+| Debug CLI | `codi-debug` companion tool for watching events and sending commands | #115 |
 
 ---
 
 ## Current Status
 
-**Tests:** 1813 passing
+**Tests:** 1830 passing
 **Test Coverage:** ~65% overall
 
 | Module | Coverage |
@@ -93,7 +94,8 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 ### Nice to Have
 
 - [x] **Debug Bridge Phase 2** - Command injection (pause, resume, step, inspect) - PR #110
-- [ ] **Debug Bridge Phase 3** - Debug CLI (`codi-debug`) and breakpoints
+- [x] **Debug Bridge Phase 3** - Debug CLI (`codi-debug`) - PR #115
+- [ ] **Debug Bridge Phase 4** - Breakpoints and session recording/replay
 - [ ] **Optional telemetry** - Opt-in error tracking
 - [ ] **Plugin system re-enable** - Currently disabled pending investigation (#17)
 
