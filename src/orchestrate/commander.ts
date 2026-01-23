@@ -332,6 +332,28 @@ export class Orchestrator extends EventEmitter {
     // Handle stdout/stderr from the child process (debugging and early failures)
     let stdoutBuffer = '';
     let stderrBuffer = '';
+    const flushLogBuffer = (buffer: string, level: LogMessage['level']) => {
+      const lines = buffer.replace(/\r/g, '').split('\n');
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(workerId, createMessage<LogMessage>('log', {
+          childId: workerId,
+          level,
+          content: text,
+        }));
+      }
+    };
+    const flushPendingLogs = () => {
+      if (stdoutBuffer) {
+        flushLogBuffer(stdoutBuffer, 'info');
+        stdoutBuffer = '';
+      }
+      if (stderrBuffer) {
+        flushLogBuffer(stderrBuffer, 'error');
+        stderrBuffer = '';
+      }
+    };
 
     proc.stdout?.on('data', (data) => {
       stdoutBuffer += data.toString();
@@ -366,6 +388,7 @@ export class Orchestrator extends EventEmitter {
     // Handle exit
     proc.on('exit', (code) => {
       this.processes.delete(workerId);
+      flushPendingLogs();
       const state = this.workers.get(workerId);
 
       if (state && state.status !== 'complete' && state.status !== 'failed') {
@@ -512,6 +535,28 @@ export class Orchestrator extends EventEmitter {
     const showReaderStdout = process.env.CODI_READER_STDIO === '1';
     let stdoutBuffer = '';
     let stderrBuffer = '';
+    const flushLogBuffer = (buffer: string, level: LogMessage['level']) => {
+      const lines = buffer.replace(/\r/g, '').split('\n');
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(readerId, createMessage<LogMessage>('log', {
+          childId: readerId,
+          level,
+          content: text,
+        }));
+      }
+    };
+    const flushPendingLogs = () => {
+      if (showReaderStdout && stdoutBuffer) {
+        flushLogBuffer(stdoutBuffer, 'info');
+        stdoutBuffer = '';
+      }
+      if (stderrBuffer) {
+        flushLogBuffer(stderrBuffer, 'error');
+        stderrBuffer = '';
+      }
+    };
 
     proc.stdout?.on('data', (data) => {
       stdoutBuffer += data.toString();
@@ -549,6 +594,7 @@ export class Orchestrator extends EventEmitter {
     // Handle exit
     proc.on('exit', (code) => {
       this.processes.delete(readerId);
+      flushPendingLogs();
       const state = this.readers.get(readerId);
 
       if (state && state.status !== 'complete' && state.status !== 'failed') {

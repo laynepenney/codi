@@ -790,6 +790,23 @@ function emitCapturedOutput(
   }
 }
 
+function renderCommandOutput(
+  inkController: InkUiController | null,
+  handler: () => void
+): void {
+  if (!inkController) {
+    handler();
+    return;
+  }
+  const captured = startConsoleCapture();
+  try {
+    handler();
+  } finally {
+    captured.restore();
+    emitCapturedOutput(inkController, captured);
+  }
+}
+
 /**
  * Prompt user for confirmation using readline.
  */
@@ -3892,43 +3909,57 @@ Begin by analyzing the query and planning your research approach.`;
             if (result) {
               // Handle session command outputs (special format)
               if (result.startsWith('__SESSION_')) {
-                handleSessionOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleSessionOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle config command outputs
               if (result.startsWith('__CONFIG_') || result.startsWith('__INIT_RESULT__')) {
-                handleConfigOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleConfigOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle history command outputs
               if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
-                handleHistoryOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleHistoryOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle usage command outputs
               if (result.startsWith('__USAGE_')) {
-                handleUsageOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleUsageOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle plugin command outputs
               if (result.startsWith('__PLUGIN')) {
-                handlePluginOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handlePluginOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle models command outputs
               if (result.startsWith('__MODELS__')) {
-                handleModelsOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleModelsOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle switch command outputs
               if (result.startsWith('__SWITCH_')) {
-                handleSwitchOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleSwitchOutput(result);
+                });
                 // Update session state on successful switch
                 if (result.startsWith('__SWITCH_SUCCESS__') && commandContext.sessionState) {
                   const switchParts = result.split('|');
@@ -3940,7 +3971,9 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle modelmap command outputs
               if (result.startsWith('__MODELMAP_')) {
-                handleModelMapOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleModelMapOutput(result);
+                });
                 promptUser();
                 return;
               }
@@ -4255,43 +4288,57 @@ Begin by analyzing the query and planning your research approach.`;
                 }
 
                 // Other pipeline outputs (list, info, error)
-                handlePipelineOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handlePipelineOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle import command outputs
               if (result.startsWith('__IMPORT_')) {
-                handleImportOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleImportOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle memory command outputs
               if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
-                handleMemoryOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleMemoryOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle compression command outputs
               if (result.startsWith('COMPRESS_')) {
-                handleCompressionOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleCompressionOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle compact command outputs
               if (result.startsWith('COMPACT_')) {
-                handleCompactOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleCompactOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle approval command outputs
               if (result.startsWith('__APPROVAL')) {
-                handleApprovalOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleApprovalOutput(result);
+                });
                 promptUser();
                 return;
               }
               // Handle symbols command outputs
               if (result.startsWith('__SYMBOLS_')) {
-                handleSymbolsOutput(result);
+                renderCommandOutput(inkController, () => {
+                  handleSymbolsOutput(result);
+                });
                 promptUser();
                 return;
               }
