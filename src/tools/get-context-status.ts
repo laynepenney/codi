@@ -18,6 +18,7 @@ export interface ContextInfoProvider {
     toolDefinitionTokens: number;
     maxTokens: number;
     contextWindow: number;
+    effectiveLimit: number;
     outputReserve: number;
     safetyBuffer: number;
     tierName: string;
@@ -78,12 +79,12 @@ export class GetContextStatusTool extends BaseTool {
     const info = this.contextProvider.getContextInfo();
 
     // Calculate usage percentage
-    const usagePercent = (info.tokens / info.maxTokens) * 100;
+    const usagePercent = (info.tokens / info.effectiveLimit) * 100;
     const contextPercent = (info.tokens / info.contextWindow) * 100;
     
     // Calculate available tokens
-    const availableTokens = Math.max(0, info.maxTokens - info.tokens);
-    const availablePercent = (availableTokens / info.maxTokens) * 100;
+    const availableTokens = Math.max(0, info.effectiveLimit - info.tokens);
+    const availablePercent = (availableTokens / info.effectiveLimit) * 100;
 
     // Determine status level
     const status = this.getStatusLevel(usagePercent);
@@ -92,11 +93,11 @@ export class GetContextStatusTool extends BaseTool {
     const lines: string[] = [];
 
     lines.push('Context Status:');
-    lines.push(`  Tokens used: ${info.tokens.toLocaleString()} / ${info.maxTokens.toLocaleString()} (${usagePercent.toFixed(1)}% of budget)`);
+    lines.push(`  Tokens used: ${info.tokens.toLocaleString()} / ${info.effectiveLimit.toLocaleString()} (${usagePercent.toFixed(1)}% of budget)`);
     lines.push(`  Available window: ${availableTokens.toLocaleString()} tokens (${availablePercent.toFixed(1)}% remaining)`);
     
-    // Show context window if different from maxTokens (override in effect)
-    if (info.contextWindow !== info.maxTokens) {
+    // Show context window if different from effectiveLimit (override in effect)
+    if (info.contextWindow !== info.effectiveLimit) {
       lines.push(`  Context window: ${info.contextWindow.toLocaleString()} tokens (original ${info.tierName} tier, override in effect)`);
     } else {
       lines.push(`  Context window: ${info.contextWindow.toLocaleString()} tokens (${info.tierName} tier)`);

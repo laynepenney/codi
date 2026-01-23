@@ -1627,6 +1627,7 @@ ${contextToSummarize}`,
     // Limits and budget
     maxTokens: number;
     contextWindow: number;
+    effectiveLimit: number; // The actual limit to use (maxTokens if set, otherwise contextWindow)
     outputReserve: number;
     safetyBuffer: number;
     tierName: string;
@@ -1675,6 +1676,7 @@ ${contextToSummarize}`,
       toolDefinitionTokens,
       maxTokens: this.maxContextTokens,
       contextWindow: this.provider.getContextWindow(),
+      effectiveLimit: this.maxContextTokens, // Always use the configured maxContextTokens
       outputReserve: this.contextConfig.maxOutputTokens,
       safetyBuffer: this.contextConfig.safetyBuffer,
       tierName: this.contextConfig.tierName,

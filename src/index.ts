@@ -3725,10 +3725,9 @@ Begin by analyzing the query and planning your research approach.`;
 
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
-      // Use maxTokens as the base for percentage calculations when there's an override
-      const calculationBase = info.maxTokens !== info.contextWindow ? info.maxTokens : info.contextWindow;
-      const usedPercent = (info.tokens / calculationBase) * 100; // Removed Math.min(100, ...) to show actual overage
-      const budgetPercent = (info.maxTokens / calculationBase) * 100;
+      // Use effectiveLimit which always returns the correct limit to calculate against
+      const usedPercent = (info.tokens / info.effectiveLimit) * 100; // Removed Math.min(100, ...) to show actual overage
+      const budgetPercent = (info.maxTokens / info.effectiveLimit) * 100;
 
       console.log(chalk.bold('\n📊 Context Status'));
       console.log(chalk.dim('─'.repeat(50)));
@@ -3744,7 +3743,7 @@ Begin by analyzing the query and planning your research approach.`;
       // Color based on usage level
       const percentColor = usedPercent >= 100 ? chalk.redBright : (usedPercent >= 75 ? chalk.yellow : chalk.green);
       console.log(`\n  ${bar} ${percentColor(usedPercent.toFixed(1) + '%')}`);
-      console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(calculationBase)} tokens`));
+      console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.effectiveLimit)} tokens`));
 
       // Token breakdown
       console.log(chalk.bold('\n  Token Breakdown:'));
@@ -3761,12 +3760,12 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.dim(`    Safety:       ${formatTokens(info.safetyBuffer).padStart(8)}`));
       
       // Calculate truly available tokens (what's left after current usage)
-      const trulyAvailable = Math.max(0, info.maxTokens - info.tokens);
+      const trulyAvailable = Math.max(0, info.effectiveLimit - info.tokens);
       console.log(chalk.green(`    Available:    ${formatTokens(trulyAvailable).padStart(8)}`));
       
-      // Show override info if maxTokens differs from contextWindow
-      if (info.maxTokens !== info.contextWindow) {
-        console.log(chalk.dim(`    Override:     Max ${formatTokens(info.maxTokens)} tokens`));
+      // Show override info if effectiveLimit differs from contextWindow
+      if (info.effectiveLimit !== info.contextWindow) {
+        console.log(chalk.dim(`    Override:     Effective limit ${formatTokens(info.effectiveLimit)} tokens`));
       }
 
       // Message breakdown

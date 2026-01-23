@@ -43,6 +43,7 @@ describe('GetContextStatusTool', () => {
             toolDefinitionTokens: 500,
             maxTokens: 100000,
             contextWindow: 200000,
+            effectiveLimit: 100000,
             outputReserve: 8192,
             safetyBuffer: 1000,
             tierName: 'large',
@@ -91,6 +92,7 @@ describe('GetContextStatusTool', () => {
           toolDefinitionTokens: 1000,
           maxTokens: 100000,
           contextWindow: 200000,
+          effectiveLimit: 100000,
           outputReserve: 8192,
           safetyBuffer: 1000,
           tierName: 'large',
@@ -119,6 +121,7 @@ describe('GetContextStatusTool', () => {
           toolDefinitionTokens: 1000,
           maxTokens: 100000,
           contextWindow: 200000,
+          effectiveLimit: 100000,
           outputReserve: 8192,
           safetyBuffer: 1000,
           tierName: 'large',
@@ -150,6 +153,7 @@ describe('GetContextStatusTool', () => {
           toolDefinitionTokens: 1000,
           maxTokens: 100000,
           contextWindow: 200000,
+          effectiveLimit: 100000,
           outputReserve: 8192,
           safetyBuffer: 1000,
           tierName: 'large',
@@ -234,7 +238,7 @@ describe('GetContextStatusTool', () => {
         expect(result).not.toContain('read_file_abc123');
       });
 
-      it('should show override in context window when maxTokens differs from contextWindow', async () => {
+      it('should show override in context window when effectiveLimit differs from contextWindow', async () => {
         mockProvider.getContextInfo = vi.fn().mockReturnValue({
           tokens: 10000,
           messageTokens: 8000,
@@ -242,6 +246,7 @@ describe('GetContextStatusTool', () => {
           toolDefinitionTokens: 500,
           maxTokens: 100000, // Override
           contextWindow: 200000, // Original window
+          effectiveLimit: 100000, // effectiveLimit matches maxTokens
           outputReserve: 8192,
           safetyBuffer: 1000,
           tierName: 'large',
@@ -261,7 +266,7 @@ describe('GetContextStatusTool', () => {
         expect(result).toContain('original large tier, override in effect');
       });
 
-      it('should show normal context window when maxTokens equals contextWindow', async () => {
+      it('should show normal context window when effectiveLimit equals contextWindow', async () => {
         mockProvider.getContextInfo = vi.fn().mockReturnValue({
           tokens: 10000,
           messageTokens: 8000,
@@ -269,6 +274,7 @@ describe('GetContextStatusTool', () => {
           toolDefinitionTokens: 500,
           maxTokens: 100000,
           contextWindow: 100000, // Same as maxTokens
+          effectiveLimit: 100000, // effectiveLimit matches both
           outputReserve: 8192,
           safetyBuffer: 1000,
           tierName: 'large',
@@ -318,6 +324,7 @@ describe('GetContextStatusTool', () => {
           toolDefinitionTokens: 2000,
           maxTokens: 200000,
           contextWindow: 200000,
+          effectiveLimit: 200000,
           outputReserve: 8192,
           safetyBuffer: 1000,
           tierName: 'xlarge',
