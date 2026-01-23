@@ -60,36 +60,49 @@ export class OllamaEmbeddingProvider extends BaseEmbeddingProvider {
     return MODEL_DIMENSIONS[this.model] || 768;
   }
 
+  /**
+   * Embed a single text and return its embedding.
+   */
+  private async embedSingle(text: string): Promise<number[]> {
+    const response = await fetch(`${this.baseUrl}/api/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.model,
+        prompt: text,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Ollama embedding request failed: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const data = (await response.json()) as OllamaEmbeddingResponse;
+
+    // Cache the dimensions from the first successful response
+    if (this.dimensions === null && data.embedding) {
+      this.dimensions = data.embedding.length;
+    }
+
+    return data.embedding;
+  }
+
   async embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
+    // Ollama's /api/embeddings endpoint only supports single prompts
+    // so we use parallel requests with a concurrency limit to improve throughput
+    const BATCH_SIZE = 5; // Limit concurrent requests to avoid overwhelming Ollama
     const embeddings: number[][] = [];
 
-    // Ollama's /api/embeddings endpoint only supports single prompts
-    // so we need to make multiple requests
-    for (const text of texts) {
-      const response = await fetch(`${this.baseUrl}/api/embeddings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.model,
-          prompt: text,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Ollama embedding request failed: ${response.status} ${response.statusText}`
-        );
-      }
-
-      const data = (await response.json()) as OllamaEmbeddingResponse;
-      embeddings.push(data.embedding);
-
-      // Cache the dimensions from the first successful response
-      if (this.dimensions === null && data.embedding) {
-        this.dimensions = data.embedding.length;
-      }
+    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+      const batch = texts.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map((text) => this.embedSingle(text))
+      );
+      embeddings.push(...batchResults);
     }
 
     return embeddings;

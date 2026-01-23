@@ -194,6 +194,23 @@ export class SymbolDatabase {
     this.db.close();
   }
 
+  /**
+   * Run VACUUM to reclaim disk space and optimize the database.
+   * Should be called periodically (e.g., after a full rebuild).
+   * Note: VACUUM requires exclusive access and may take time for large databases.
+   */
+  vacuum(): void {
+    this.db.exec('VACUUM');
+  }
+
+  /**
+   * Analyze tables to update query planner statistics.
+   * Faster than VACUUM and can be run more frequently.
+   */
+  analyze(): void {
+    this.db.exec('ANALYZE');
+  }
+
   // ============================================================================
   // File operations
   // ============================================================================

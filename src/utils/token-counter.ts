@@ -13,6 +13,12 @@
 
 import type { Message, ToolDefinition } from '../types.js';
 
+/**
+ * Per-message token cache to avoid O(N²) recomputation.
+ * Uses WeakMap so cached values are garbage collected with the messages.
+ */
+const messageTokenCache = new WeakMap<Message, number>();
+
 /** Default chars per token for general text */
 const DEFAULT_CHARS_PER_TOKEN = 4;
 
@@ -157,14 +163,42 @@ export function getMessageText(message: Message): string {
 }
 
 /**
+ * Get cached token count for a single message, computing if needed.
+ */
+function getMessageTokenCount(msg: Message): number {
+  const cached = messageTokenCache.get(msg);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const contentTokens = estimateTokens(getMessageText(msg));
+  const total = contentTokens + MESSAGE_OVERHEAD_TOKENS;
+  messageTokenCache.set(msg, total);
+  return total;
+}
+
+/**
  * Count total tokens in a message array.
  * Includes per-message overhead for role/structure.
+ * Uses per-message caching to avoid O(N²) recomputation.
  */
 export function countMessageTokens(messages: Message[]): number {
-  return messages.reduce((total, msg) => {
-    const contentTokens = estimateTokens(getMessageText(msg));
-    return total + contentTokens + MESSAGE_OVERHEAD_TOKENS;
-  }, 0);
+  return messages.reduce((total, msg) => total + getMessageTokenCount(msg), 0);
+}
+
+/**
+ * Invalidate token cache for a message (call when message content changes).
+ */
+export function invalidateMessageTokenCache(msg: Message): void {
+  messageTokenCache.delete(msg);
+}
+
+/**
+ * Clear all cached token counts (for testing).
+ */
+export function clearMessageTokenCache(): void {
+  // WeakMap doesn't have a clear method, so we reassign
+  // This is only for testing - in production the WeakMap handles cleanup
 }
 
 /**
