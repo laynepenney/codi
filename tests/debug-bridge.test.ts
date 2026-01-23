@@ -521,6 +521,328 @@ describe('Debug Bridge', () => {
       // Should not receive any commands after shutdown
       expect(receivedCommands.length).toBe(0);
     });
+
+    it('should process multiple commands in sequence', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      // Write multiple commands at once
+      const cmds = [
+        { type: 'pause', id: 'cmd-a', data: {} },
+        { type: 'inspect', id: 'cmd-b', data: { what: 'messages' } },
+        { type: 'resume', id: 'cmd-c', data: {} },
+      ];
+      for (const cmd of cmds) {
+        appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+      }
+
+      await new Promise(r => setTimeout(r, 400));
+
+      expect(receivedCommands.length).toBe(3);
+      expect(receivedCommands[0].id).toBe('cmd-a');
+      expect(receivedCommands[1].id).toBe('cmd-b');
+      expect(receivedCommands[2].id).toBe('cmd-c');
+    });
+
+    it('should continue processing after callback error', async () => {
+      const receivedCommands: any[] = [];
+      let errorCount = 0;
+
+      bridge.startCommandWatcher(async (cmd) => {
+        if (cmd.id === 'cmd-error') {
+          errorCount++;
+          throw new Error('Callback error');
+        }
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      // Write commands including one that will error
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify({ type: 'pause', id: 'cmd-1', data: {} }) + '\n');
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify({ type: 'pause', id: 'cmd-error', data: {} }) + '\n');
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify({ type: 'resume', id: 'cmd-2', data: {} }) + '\n');
+
+      await new Promise(r => setTimeout(r, 400));
+
+      // Should process all commands despite error
+      expect(receivedCommands.length).toBe(2);
+      expect(errorCount).toBe(1);
+    });
+
+    it('should handle step command type', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = { type: 'step', id: 'step-1', data: {} };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('step');
+    });
+
+    it('should handle inject_message command type', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'inject_message',
+        id: 'inject-1',
+        data: { role: 'user', content: 'test message' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('inject_message');
+      expect(receivedCommands[0].data.role).toBe('user');
+      expect(receivedCommands[0].data.content).toBe('test message');
+    });
+  });
+
+  describe('Additional event types', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should emit assistant_text event', () => {
+      bridge.assistantText('Hello, how can I help?', false);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('assistant_text');
+      expect(event.data.text).toBe('Hello, how can I help?');
+      expect(event.data.isStreaming).toBe(false);
+    });
+
+    it('should truncate long assistant text', () => {
+      const longText = 'y'.repeat(3000);
+      bridge.assistantText(longText, true);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.data.text.length).toBe(2000);
+      expect(event.data.length).toBe(3000);
+      expect(event.data.isStreaming).toBe(true);
+    });
+
+    it('should emit tool_result event', () => {
+      bridge.toolResult('read_file', 'tool-789', 'file contents here', false);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('tool_result');
+      expect(event.data.name).toBe('read_file');
+      expect(event.data.toolId).toBe('tool-789');
+      expect(event.data.result).toBe('file contents here');
+      expect(event.data.isError).toBe(false);
+    });
+
+    it('should truncate long tool results', () => {
+      const longResult = 'z'.repeat(2000);
+      bridge.toolResult('bash', 'tool-999', longResult, false);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.data.result.length).toBe(1000);
+      expect(event.data.resultLength).toBe(2000);
+    });
+
+    it('should emit model_switch event', () => {
+      bridge.modelSwitch('anthropic', 'claude-haiku', 'openai', 'gpt-4');
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('model_switch');
+      expect(event.data.from.provider).toBe('anthropic');
+      expect(event.data.from.model).toBe('claude-haiku');
+      expect(event.data.to.provider).toBe('openai');
+      expect(event.data.to.model).toBe('gpt-4');
+    });
+
+    it('should emit state_snapshot event with all fields', () => {
+      bridge.stateSnapshot({
+        messageCount: 10,
+        tokenEstimate: 5000,
+        hasSummary: true,
+        provider: 'anthropic',
+        model: 'claude-sonnet',
+        workingSetSize: 3,
+      });
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('state_snapshot');
+      expect(event.data.messageCount).toBe(10);
+      expect(event.data.tokenEstimate).toBe(5000);
+      expect(event.data.hasSummary).toBe(true);
+      expect(event.data.provider).toBe('anthropic');
+      expect(event.data.model).toBe('claude-sonnet');
+      expect(event.data.workingSetSize).toBe(3);
+    });
+
+    it('should emit command_executed event with details', () => {
+      bridge.commandExecuted('/help', 'Showed help menu');
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('command_executed');
+      expect(event.data.command).toBe('/help');
+      expect(event.data.result).toBe('Showed help menu');
+    });
+
+    it('should truncate long command results', () => {
+      const longResult = 'r'.repeat(1000);
+      bridge.commandExecuted('/test', longResult);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.data.result.length).toBe(500);
+    });
+  });
+
+  describe('Stale session cleanup', () => {
+    it('should clean up sessions with non-existent PIDs on enable', () => {
+      // Pre-create a stale session in the index
+      const debugDir = getDebugDir();
+      const indexFile = getSessionIndexFile();
+      const sessionsDir = getSessionsDir();
+
+      mkdirSync(sessionsDir, { recursive: true });
+
+      // Create a stale session directory
+      const staleSessionId = 'debug_stale_session';
+      const staleSessionDir = join(sessionsDir, staleSessionId);
+      mkdirSync(staleSessionDir, { recursive: true });
+      writeFileSync(join(staleSessionDir, 'events.jsonl'), '');
+
+      // Write index with stale session (non-existent PID)
+      writeFileSync(indexFile, JSON.stringify({
+        sessions: [{
+          id: staleSessionId,
+          pid: 999999999, // Non-existent PID
+          startTime: new Date().toISOString(),
+          cwd: '/tmp',
+        }],
+      }));
+
+      // Enable bridge - should clean up stale session
+      bridge.enable();
+
+      // Check that stale session was removed from index
+      const index = JSON.parse(readFileSync(indexFile, 'utf8'));
+      const staleSession = index.sessions.find((s: any) => s.id === staleSessionId);
+      expect(staleSession).toBeUndefined();
+
+      // New session should be in index
+      const newSession = index.sessions.find((s: any) => s.id === bridge.getSessionId());
+      expect(newSession).toBeDefined();
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('should handle empty data in emit', () => {
+      bridge.enable();
+      bridge.emit('user_input', {});
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('user_input');
+      expect(event.data).toEqual({});
+    });
+
+    it('should handle special characters in event data', () => {
+      bridge.enable();
+      bridge.userInput('Hello "world" with \'quotes\' and\nnewlines\ttabs');
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.data.input).toContain('"world"');
+      expect(event.data.input).toContain("'quotes'");
+    });
+
+    it('should handle unicode in event data', () => {
+      bridge.enable();
+      bridge.userInput('Hello 世界 🌍 مرحبا');
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.data.input).toBe('Hello 世界 🌍 مرحبا');
+    });
+
+    it('should not fail when emitting before enable', () => {
+      // Should not throw
+      bridge.emit('user_input', { input: 'test' });
+      bridge.sessionStart('test', 'test');
+      bridge.userInput('test');
+      bridge.assistantText('test');
+      bridge.toolCallStart('test', {}, 'id');
+      bridge.toolCallEnd('test', 'id', 100, false);
+      bridge.apiRequest('test', 'test', 1, false);
+      bridge.apiResponse('end', 100, 50, 1000, 0);
+      bridge.error('test');
+    });
+
+    it('should handle rapid event emission', () => {
+      bridge.enable();
+
+      // Emit many events rapidly
+      for (let i = 0; i < 100; i++) {
+        bridge.emit('user_input', { input: `message ${i}` });
+      }
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+
+      // Should have all 100 events
+      expect(lines.length).toBe(100);
+
+      // Sequence numbers should be correct
+      const events = lines.map(l => JSON.parse(l));
+      for (let i = 0; i < 100; i++) {
+        expect(events[i].sequence).toBe(i);
+      }
+    });
   });
 });
 
