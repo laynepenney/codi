@@ -77,13 +77,6 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-function truncatePlain(text: string, max: number): string {
-  if (max <= 0) return '';
-  if (text.length <= max) return text;
-  if (max <= 3) return text.slice(0, max);
-  return text.slice(0, max - 3) + '...';
-}
-
 function firstNonEmptyLine(text: string): string | null {
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
@@ -92,15 +85,44 @@ function firstNonEmptyLine(text: string): string | null {
   return null;
 }
 
-function getPromptLineLength(prompt: string): number {
-  const plain = stripAnsi(prompt);
-  const lastNewline = plain.lastIndexOf('\n');
-  return lastNewline === -1 ? plain.length : plain.length - lastNewline - 1;
+function measureTextPosition(text: string, columns: number): { row: number; col: number } {
+  const width = Math.max(1, columns);
+  let row = 0;
+  let col = 0;
+  for (const char of text) {
+    if (char === '\n') {
+      row += 1;
+      col = 0;
+      continue;
+    }
+    col += 1;
+    if (col >= width) {
+      row += 1;
+      col = 0;
+    }
+  }
+  return { row, col };
 }
 
-function getPromptLineOffset(prompt: string): number {
-  const plain = stripAnsi(prompt);
-  return plain.split('\n').length - 1;
+function getPromptLayout(
+  prompt: string,
+  line: string,
+  cursor: number,
+  columns: number
+): { cursorRow: number; cursorCol: number; endRow: number; endCol: number } {
+  const plainPrompt = stripAnsi(prompt);
+  const plainLine = stripAnsi(line);
+  const clampedCursor = Math.max(0, Math.min(cursor, plainLine.length));
+  const beforeCursor = plainPrompt + plainLine.slice(0, clampedCursor);
+  const beforeEnd = plainPrompt + plainLine;
+  const cursorPos = measureTextPosition(beforeCursor, columns);
+  const endPos = measureTextPosition(beforeEnd, columns);
+  return {
+    cursorRow: cursorPos.row,
+    cursorCol: cursorPos.col,
+    endRow: endPos.row,
+    endCol: endPos.col,
+  };
 }
 
 export class WorkerStatusUI {
@@ -276,8 +298,12 @@ export class WorkerStatusUI {
     }
 
     const prompt = this.rl.getPrompt();
-    const promptOffset = getPromptLineOffset(prompt);
-    const totalLinesToClear = this.renderedLines + promptOffset;
+    const columns = Math.max(1, this.output.columns || DEFAULT_COLUMNS);
+    const rlState = this.rl as unknown as { line?: string; cursor?: number };
+    const line = rlState.line ?? '';
+    const cursor = typeof rlState.cursor === 'number' ? rlState.cursor : line.length;
+    const layout = getPromptLayout(prompt, line, cursor, columns);
+    const totalLinesToClear = this.renderedLines + layout.cursorRow;
 
     cursorTo(this.output, 0);
     if (totalLinesToClear > 0) {
@@ -291,13 +317,13 @@ export class WorkerStatusUI {
     }
 
     if (renderPrompt) {
-      const rlState = this.rl as unknown as { line?: string; cursor?: number };
-      const line = rlState.line ?? '';
-      const cursor = typeof rlState.cursor === 'number' ? rlState.cursor : line.length;
-
       this.output.write(prompt);
       this.output.write(line);
-      cursorTo(this.output, getPromptLineLength(prompt) + cursor);
+      const deltaRows = layout.cursorRow - layout.endRow;
+      if (deltaRows !== 0) {
+        moveCursor(this.output, 0, deltaRows);
+      }
+      cursorTo(this.output, layout.cursorCol);
     } else if (totalLinesToClear > 0) {
       moveCursor(this.output, 0, totalLinesToClear);
     }

@@ -110,15 +110,32 @@ export class SessionSelector {
         return;
       }
 
-      const stdin = process.stdin as NodeJS.ReadStream & { isRaw?: boolean };
+      const stdin = process.stdin as NodeJS.ReadStream & {
+        isRaw?: boolean;
+        isPaused?: () => boolean;
+        pause?: () => void;
+        resume?: () => void;
+      };
       const wasRaw = Boolean(stdin.isRaw);
       const wasStdinPaused = typeof stdin.isPaused === 'function' ? stdin.isPaused() : false;
 
       // Save current readline state
       const input = (this.rl as { input?: NodeJS.ReadableStream }).input;
-      const wasPaused = typeof input?.isPaused === 'function' ? input.isPaused() : false;
+      const inputStream = input as NodeJS.ReadableStream & {
+        isPaused?: () => boolean;
+        pause?: () => void;
+        resume?: () => void;
+      };
+      const wasPaused = typeof inputStream?.isPaused === 'function' ? inputStream.isPaused() : false;
       if (!wasPaused) {
         this.rl.pause();
+      }
+
+      // Temporarily detach stdin from readline input to avoid leaking bytes
+      let inputWasPiped = false;
+      if (input && input !== process.stdin && typeof process.stdin.unpipe === 'function') {
+        process.stdin.unpipe(input as NodeJS.WritableStream);
+        inputWasPiped = true;
       }
 
       // Enable raw mode to capture individual key presses
@@ -129,53 +146,51 @@ export class SessionSelector {
       // Render initial selection
       this.renderSelection();
 
+      const restoreStreams = () => {
+        if (inputWasPiped && input && typeof process.stdin.pipe === 'function') {
+          process.stdin.pipe(input as NodeJS.WritableStream);
+        }
+        if (inputStream && typeof inputStream.pause === 'function' && typeof inputStream.resume === 'function') {
+          if (wasPaused) {
+            inputStream.pause();
+          } else {
+            inputStream.resume();
+          }
+        }
+        if (typeof stdin.pause === 'function' && typeof stdin.resume === 'function') {
+          if (wasStdinPaused) {
+            stdin.pause();
+          } else {
+            stdin.resume();
+          }
+        }
+      };
+
+      const finish = (result: SessionSelectionResult) => {
+        this.cleanup(wasRaw);
+        restoreStreams();
+        if (!wasPaused && this.rl.resume) {
+          this.rl.resume();
+        }
+        process.stdout.write('\n');
+        resolve(result);
+      };
+
       // Handle keypress events
       const handleKeypress = (chunk: Buffer, key: any) => {
         const rawInput = chunk.toString('utf8');
         if (!key) {
           if (rawInput === '\r' || rawInput === '\n') {
-            this.cleanup(wasRaw);
-            if (!wasPaused && this.rl.resume) {
-              this.rl.resume();
-            }
-            if (!wasStdinPaused) {
-              process.stdin.resume();
-            }
-            process.stdout.write('\n');
-            resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
+            finish({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
           } else if (rawInput === '\u0003') {
-            this.cleanup(wasRaw);
-            if (!wasPaused && this.rl.resume) {
-              this.rl.resume();
-            }
-            if (!wasStdinPaused) {
-              process.stdin.resume();
-            }
-            process.stdout.write('\n');
-            resolve({ session: null, cancelled: true });
+            finish({ session: null, cancelled: true });
           } else if (/^[1-9]$/.test(rawInput)) {
             const num = Number.parseInt(rawInput, 10);
             if (num >= 1 && num <= this.sessions.length) {
-              this.cleanup(wasRaw);
-              if (!wasPaused && this.rl.resume) {
-                this.rl.resume();
-              }
-              if (!wasStdinPaused) {
-                process.stdin.resume();
-              }
-              process.stdout.write('\n');
-              resolve({ session: this.sessions[num - 1] || null, cancelled: false });
+              finish({ session: this.sessions[num - 1] || null, cancelled: false });
             }
           } else if (rawInput.toLowerCase() === 'q') {
-            this.cleanup(wasRaw);
-            if (!wasPaused && this.rl.resume) {
-              this.rl.resume();
-            }
-            if (!wasStdinPaused) {
-              process.stdin.resume();
-            }
-            process.stdout.write('\n');
-            resolve({ session: null, cancelled: true });
+            finish({ session: null, cancelled: true });
           }
           return;
         }
@@ -195,43 +210,19 @@ export class SessionSelector {
 
         // Handle Enter to select
         if (key.name === 'return' || key.name === 'enter') {
-          this.cleanup(wasRaw);
-          if (!wasPaused && this.rl.resume) {
-            this.rl.resume();
-          }
-          if (!wasStdinPaused) {
-            process.stdin.resume();
-          }
-          process.stdout.write('\n');
-          resolve({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
+          finish({ session: this.sessions[this.selectedIndex] || null, cancelled: false });
           return;
         }
 
         // Handle Escape or 'q' to cancel
         if (key.name === 'escape' || (key.name === 'q' && !key.ctrl)) {
-          this.cleanup(wasRaw);
-          if (!wasPaused && this.rl.resume) {
-            this.rl.resume();
-          }
-          if (!wasStdinPaused) {
-            process.stdin.resume();
-          }
-          process.stdout.write('\n');
-          resolve({ session: null, cancelled: true });
+          finish({ session: null, cancelled: true });
           return;
         }
 
         // Handle Ctrl+C to cancel
         if (key.name === 'c' && key.ctrl) {
-          this.cleanup(wasRaw);
-          if (!wasPaused && this.rl.resume) {
-            this.rl.resume();
-          }
-          if (!wasStdinPaused) {
-            process.stdin.resume();
-          }
-          process.stdout.write('\n');
-          resolve({ session: null, cancelled: true });
+          finish({ session: null, cancelled: true });
           return;
         }
 
@@ -239,15 +230,7 @@ export class SessionSelector {
         if (key.name && /^\d$/.test(key.name)) {
           const num = Number.parseInt(key.name, 10);
           if (num >= 1 && num <= this.sessions.length) {
-            this.cleanup(wasRaw);
-            if (!wasPaused && this.rl.resume) {
-              this.rl.resume();
-            }
-            if (!wasStdinPaused) {
-              process.stdin.resume();
-            }
-            process.stdout.write('\n');
-            resolve({ session: this.sessions[num - 1] || null, cancelled: false });
+            finish({ session: this.sessions[num - 1] || null, cancelled: false });
             return;
           }
         }
