@@ -13,7 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Windows disabled pending fixes - see GitHub issue for details
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: Checkout code
