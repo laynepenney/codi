@@ -60,6 +60,8 @@ const MIN_LIVE_OUTPUT_LINES = 3;
 const LIVE_OUTPUT_FRACTION = 0.2;
 const MAX_LIVE_OUTPUT_LINES = 10;
 const MAX_LIVE_OUTPUT_FRACTION = 0.35;
+const SPINNER_FRAMES = ['-', '\\', '|', '/'];
+const INACTIVE_STATUSES = new Set(['idle', 'complete', 'failed', 'cancelled']);
 
 const STATUS_LABELS: Record<string, string> = {
   starting: 'STARTING',
@@ -82,6 +84,8 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'red',
   cancelled: 'gray',
 };
+
+const isActiveStatus = (status: string) => !INACTIVE_STATUSES.has(status);
 
 const MESSAGE_LABELS: Record<UiMessage['kind'], string> = {
   user: 'You',
@@ -113,6 +117,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const [showWorkerLogs, setShowWorkerLogs] = useState(true);
   const [showWorkerDetails, setShowWorkerDetails] = useState(true);
   const [activityScrollOffset, setActivityScrollOffset] = useState(0);
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [confirmation, setConfirmation] = useState<UiConfirmationRequest | null>(null);
   const [confirmIndex, setConfirmIndex] = useState(0);
   const [sessionSelection, setSessionSelection] = useState<UiSessionSelectionRequest | null>(null);
@@ -597,6 +602,24 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
 
   const workerCount = workerList.length;
   const readerCount = readerList.length;
+  const hasBackgroundProgress = useMemo(() => {
+    return workerList.some((worker) => isActiveStatus(worker.status)) ||
+      readerList.some((reader) => isActiveStatus(reader.status));
+  }, [workerList, readerList]);
+  const hasActiveProgress = Boolean(confirmation) ||
+    Boolean(status.activity && status.activity !== 'idle') ||
+    hasBackgroundProgress;
+
+  useEffect(() => {
+    if (!hasActiveProgress) {
+      setSpinnerFrame(0);
+      return;
+    }
+    const handle = setInterval(() => {
+      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, 120);
+    return () => clearInterval(handle);
+  }, [hasActiveProgress]);
 
   const activityPanel = useMemo(() => {
     const hasWorkers = workerList.length > 0;
@@ -617,7 +640,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     const detailMax = Math.max(24, contentWidth - 10);
     const activityLabel = formatActivity(status);
     const active = status.activity && status.activity !== 'idle';
-    const spinner = active ? '* ' : '';
+    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '';
     const agentColor =
       status.activity === 'confirm' ? 'yellow' : status.activity === 'tool' ? 'magenta' : 'cyan';
 
@@ -768,9 +791,11 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     readerResults,
     status,
     confirmation,
+    hasActiveProgress,
     contentWidth,
     stdout.rows,
     activityScrollOffset,
+    spinnerFrame,
   ]);
 
   useEffect(() => {
@@ -819,8 +844,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     const session = status.sessionName ? status.sessionName : 'none';
     const modelLabel = status.provider && status.model ? `${status.provider}/${status.model}` : 'unknown';
     const activityLabel = formatActivity(status);
-    const active = status.activity && status.activity !== 'idle';
-    const spinner = active ? '* ' : '';
+    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '';
     const activityLine = `${spinner}${activityLabel}`.trimEnd();
 
     const infoParts = [
@@ -837,7 +861,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
 
     const baseLines = combined.length <= contentWidth ? [combined] : [activityLine, infoLine];
     return wrapDisplayLines(baseLines, contentWidth);
-  }, [status, focus, contentWidth, workerCount, readerCount]);
+  }, [status, focus, contentWidth, workerCount, readerCount, hasActiveProgress, spinnerFrame]);
 
   const hintLine = useMemo(() => {
     if (confirmation) {

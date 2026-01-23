@@ -775,6 +775,44 @@ function startConsoleCapture(): {
   return { stdout, stderr, restore };
 }
 
+function startWriteCapture(): {
+  stdout: string[];
+  stderr: string[];
+  restore: () => void;
+} {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  const captureWrite = (target: string[]) =>
+    (chunk: unknown, encoding?: BufferEncoding, callback?: (err?: Error | null) => void) => {
+      let text = '';
+      if (typeof chunk === 'string') {
+        text = chunk;
+      } else if (chunk && typeof (chunk as Buffer).toString === 'function') {
+        text = (chunk as Buffer).toString(encoding ?? 'utf8');
+      }
+      if (text) {
+        target.push(text);
+      }
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return true;
+    };
+
+  (process.stdout.write as unknown as typeof process.stdout.write) = captureWrite(stdout);
+  (process.stderr.write as unknown as typeof process.stderr.write) = captureWrite(stderr);
+
+  const restore = () => {
+    (process.stdout.write as unknown as typeof process.stdout.write) = originalStdoutWrite;
+    (process.stderr.write as unknown as typeof process.stderr.write) = originalStderrWrite;
+  };
+
+  return { stdout, stderr, restore };
+}
+
 function emitCapturedOutput(
   inkController: InkUiController | null,
   captured: { stdout: string[]; stderr: string[] }
@@ -790,20 +828,38 @@ function emitCapturedOutput(
   }
 }
 
-function renderCommandOutput(
+function emitCapturedWrites(
   inkController: InkUiController | null,
-  handler: () => void
+  captured: { stdout: string[]; stderr: string[] }
 ): void {
+  if (!inkController) return;
+  const stdoutText = captured.stdout.join('');
+  const stderrText = captured.stderr.join('');
+  if (stdoutText.trim()) {
+    inkController.addMessage('system', `Output:\n${stdoutText}`);
+  }
+  if (stderrText.trim()) {
+    inkController.addMessage('system', `Error:\n${stderrText}`);
+  }
+}
+
+async function renderCommandOutput(
+  inkController: InkUiController | null,
+  handler: () => void | Promise<void>
+): Promise<void> {
   if (!inkController) {
-    handler();
+    await handler();
     return;
   }
   const captured = startConsoleCapture();
+  const capturedWrites = startWriteCapture();
   try {
-    handler();
+    await handler();
   } finally {
     captured.restore();
+    capturedWrites.restore();
     emitCapturedOutput(inkController, captured);
+    emitCapturedWrites(inkController, capturedWrites);
   }
 }
 
@@ -3891,15 +3947,21 @@ Begin by analyzing the query and planning your research approach.`;
 
             let result: string | null = null;
             let capturedOutput: ReturnType<typeof startConsoleCapture> | null = null;
+            let capturedWrites: ReturnType<typeof startWriteCapture> | null = null;
             try {
               if (useInkUi && inkController) {
                 capturedOutput = startConsoleCapture();
+                capturedWrites = startWriteCapture();
               }
               result = await command.execute(parsed.args, commandContext);
             } finally {
               if (capturedOutput) {
                 capturedOutput.restore();
                 emitCapturedOutput(inkController, capturedOutput);
+              }
+              if (capturedWrites) {
+                capturedWrites.restore();
+                emitCapturedWrites(inkController, capturedWrites);
               }
             }
 
@@ -3909,7 +3971,7 @@ Begin by analyzing the query and planning your research approach.`;
             if (result) {
               // Handle session command outputs (special format)
               if (result.startsWith('__SESSION_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleSessionOutput(result);
                 });
                 promptUser();
@@ -3917,7 +3979,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle config command outputs
               if (result.startsWith('__CONFIG_') || result.startsWith('__INIT_RESULT__')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleConfigOutput(result);
                 });
                 promptUser();
@@ -3925,7 +3987,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle history command outputs
               if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleHistoryOutput(result);
                 });
                 promptUser();
@@ -3933,7 +3995,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle usage command outputs
               if (result.startsWith('__USAGE_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleUsageOutput(result);
                 });
                 promptUser();
@@ -3941,7 +4003,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle plugin command outputs
               if (result.startsWith('__PLUGIN')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handlePluginOutput(result);
                 });
                 promptUser();
@@ -3949,7 +4011,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle models command outputs
               if (result.startsWith('__MODELS__')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleModelsOutput(result);
                 });
                 promptUser();
@@ -3957,7 +4019,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle switch command outputs
               if (result.startsWith('__SWITCH_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleSwitchOutput(result);
                 });
                 // Update session state on successful switch
@@ -3971,7 +4033,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle modelmap command outputs
               if (result.startsWith('__MODELMAP_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleModelMapOutput(result);
                 });
                 promptUser();
@@ -3981,314 +4043,316 @@ Begin by analyzing the query and planning your research approach.`;
               if (result.startsWith('__PIPELINE_')) {
                 // Special case: actually execute the pipeline
                 if (result.startsWith('__PIPELINE_EXECUTE__|')) {
-                  const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
-                  const pipelineName = parts[0];
+                  await renderCommandOutput(inkController, async () => {
+                    const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
+                    const pipelineName = parts[0];
 
-                  // Parse optional flags from parts
-                  let providerContext: string | undefined;
-                  let iterativeMode = false;
-                  let useTriage = false;
-                  let triageOnly = false;
-                  let concurrency = 4;
-                  let inputStartIndex = 1;
-
-                  // Parse all optional flags
-                  while (inputStartIndex < parts.length) {
-                    const part = parts[inputStartIndex];
-                    if (part?.startsWith('provider:')) {
-                      providerContext = part.slice('provider:'.length);
-                      inputStartIndex++;
-                    } else if (part?.startsWith('iterative:')) {
-                      iterativeMode = part.slice('iterative:'.length) === 'true';
-                      inputStartIndex++;
-                    } else if (part?.startsWith('triage:')) {
-                      useTriage = part.slice('triage:'.length) === 'true';
-                      inputStartIndex++;
-                    } else if (part?.startsWith('triageOnly:')) {
-                      triageOnly = part.slice('triageOnly:'.length) === 'true';
-                      inputStartIndex++;
-                    } else if (part?.startsWith('concurrency:')) {
-                      concurrency = parseInt(part.slice('concurrency:'.length), 10) || 4;
-                      inputStartIndex++;
-                    } else {
-                      break; // No more flags, rest is input
+                    // Parse optional flags from parts
+                    let providerContext: string | undefined;
+                    let iterativeMode = false;
+                    let useTriage = false;
+                    let triageOnly = false;
+                    let concurrency = 4;
+                    let inputStartIndex = 1;
+  
+                    // Parse all optional flags
+                    while (inputStartIndex < parts.length) {
+                      const part = parts[inputStartIndex];
+                      if (part?.startsWith('provider:')) {
+                        providerContext = part.slice('provider:'.length);
+                        inputStartIndex++;
+                      } else if (part?.startsWith('iterative:')) {
+                        iterativeMode = part.slice('iterative:'.length) === 'true';
+                        inputStartIndex++;
+                      } else if (part?.startsWith('triage:')) {
+                        useTriage = part.slice('triage:'.length) === 'true';
+                        inputStartIndex++;
+                      } else if (part?.startsWith('triageOnly:')) {
+                        triageOnly = part.slice('triageOnly:'.length) === 'true';
+                        inputStartIndex++;
+                      } else if (part?.startsWith('concurrency:')) {
+                        concurrency = parseInt(part.slice('concurrency:'.length), 10) || 4;
+                        inputStartIndex++;
+                      } else {
+                        break; // No more flags, rest is input
+                      }
                     }
-                  }
-
-                  const input = parts.slice(inputStartIndex).join('|');
-                  const modelMap = agent.getModelMap();
-
-                  if (!modelMap) {
-                    console.log(chalk.red('\nPipeline error: No model map loaded'));
-                    promptUser();
-                    return;
-                  }
-
-                  const pipeline = modelMap.config.pipelines?.[pipelineName];
-                  if (!pipeline) {
-                    console.log(chalk.red(`\nPipeline error: Unknown pipeline "${pipelineName}"`));
-                    promptUser();
-                    return;
-                  }
-
-                  const effectiveProvider = providerContext || pipeline.provider || 'openai';
-
-                  // Handle iterative mode
-                  if (iterativeMode) {
-                    const files = await resolveFileList(input);
-
-                    if (files.length === 0) {
-                      console.log(chalk.red(`\nNo files found matching: ${input}`));
+  
+                    const input = parts.slice(inputStartIndex).join('|');
+                    const modelMap = agent.getModelMap();
+  
+                    if (!modelMap) {
+                      console.log(chalk.red('\nPipeline error: No model map loaded'));
                       promptUser();
                       return;
                     }
-
-                    const modeLabel = triageOnly ? 'triage only' : useTriage ? 'with triage' : 'sequential';
-                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
-                    console.log(chalk.dim(`Provider: ${effectiveProvider}`));
-                    console.log(chalk.dim(`Files: ${files.length} total`));
-                    if (useTriage || triageOnly) {
-                      console.log(chalk.dim(`Concurrency: ${concurrency}`));
-                      console.log(chalk.dim(`Triage: enabled`));
+  
+                    const pipeline = modelMap.config.pipelines?.[pipelineName];
+                    if (!pipeline) {
+                      console.log(chalk.red(`\nPipeline error: Unknown pipeline "${pipelineName}"`));
+                      promptUser();
+                      return;
                     }
-                    console.log();
-
-                    try {
-                      // Choose triage or sequential algorithm
-                      let iterativeResult: import('./model-map/types.js').IterativeResult;
-
+  
+                    const effectiveProvider = providerContext || pipeline.provider || 'openai';
+  
+                    // Handle iterative mode
+                    if (iterativeMode) {
+                      const files = await resolveFileList(input);
+  
+                      if (files.length === 0) {
+                        console.log(chalk.red(`\nNo files found matching: ${input}`));
+                        promptUser();
+                        return;
+                      }
+  
+                      const modeLabel = triageOnly ? 'triage only' : useTriage ? 'with triage' : 'sequential';
+                      console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
+                      console.log(chalk.dim(`Provider: ${effectiveProvider}`));
+                      console.log(chalk.dim(`Files: ${files.length} total`));
                       if (useTriage || triageOnly) {
-                        // Triage mode: score and prioritize files before processing
-                        iterativeResult = await modelMap.executor.executeIterativeV3(pipeline, files, {
-                          providerContext: effectiveProvider,
-                          concurrency,
-                          enableTriage: true,
-                          triage: {
-                            role: 'fast',
-                            deepThreshold: 6,
-                            skipThreshold: 3,
-                          },
-                          callbacks: {
-                            onTriageStart: (totalFiles: number) => {
-                              console.log(chalk.yellow(`  🔍 Triaging ${totalFiles} files...`));
+                        console.log(chalk.dim(`Concurrency: ${concurrency}`));
+                        console.log(chalk.dim(`Triage: enabled`));
+                      }
+                      console.log();
+  
+                      try {
+                        // Choose triage or sequential algorithm
+                        let iterativeResult: import('./model-map/types.js').IterativeResult;
+  
+                        if (useTriage || triageOnly) {
+                          // Triage mode: score and prioritize files before processing
+                          iterativeResult = await modelMap.executor.executeIterativeV3(pipeline, files, {
+                            providerContext: effectiveProvider,
+                            concurrency,
+                            enableTriage: true,
+                            triage: {
+                              role: 'fast',
+                              deepThreshold: 6,
+                              skipThreshold: 3,
                             },
-                            onTriageComplete: (triageResult: import('./model-map/types.js').TriageResult) => {
-                              console.log(chalk.green(`  ✓ Triage complete`));
-                              console.log(chalk.dim(`    Critical: ${triageResult.criticalPaths.length} files`));
-                              console.log(chalk.dim(`    Normal: ${triageResult.normalPaths.length} files`));
-                              console.log(chalk.dim(`    Quick scan: ${triageResult.skipPaths.length} files`));
-                              if (triageResult.duration) {
-                                console.log(chalk.dim(`    Time: ${(triageResult.duration / 1000).toFixed(1)}s`));
-                              }
-                              // Show top critical files
-                              if (triageResult.criticalPaths.length > 0) {
-                                console.log(chalk.yellow(`\n  Critical files:`));
-                                for (const file of triageResult.criticalPaths.slice(0, 5)) {
-                                  const score = triageResult.scores.find(s => s.file === file);
-                                  if (score) {
-                                    console.log(chalk.dim(`    - ${file} [${score.risk}] ${score.reasoning}`));
+                            callbacks: {
+                              onTriageStart: (totalFiles: number) => {
+                                console.log(chalk.yellow(`  🔍 Triaging ${totalFiles} files...`));
+                              },
+                              onTriageComplete: (triageResult: import('./model-map/types.js').TriageResult) => {
+                                console.log(chalk.green(`  ✓ Triage complete`));
+                                console.log(chalk.dim(`    Critical: ${triageResult.criticalPaths.length} files`));
+                                console.log(chalk.dim(`    Normal: ${triageResult.normalPaths.length} files`));
+                                console.log(chalk.dim(`    Quick scan: ${triageResult.skipPaths.length} files`));
+                                if (triageResult.duration) {
+                                  console.log(chalk.dim(`    Time: ${(triageResult.duration / 1000).toFixed(1)}s`));
+                                }
+                                // Show top critical files
+                                if (triageResult.criticalPaths.length > 0) {
+                                  console.log(chalk.yellow(`\n  Critical files:`));
+                                  for (const file of triageResult.criticalPaths.slice(0, 5)) {
+                                    const score = triageResult.scores.find(s => s.file === file);
+                                    if (score) {
+                                      console.log(chalk.dim(`    - ${file} [${score.risk}] ${score.reasoning}`));
+                                    }
+                                  }
+                                  if (triageResult.criticalPaths.length > 5) {
+                                    console.log(chalk.dim(`    ... and ${triageResult.criticalPaths.length - 5} more`));
                                   }
                                 }
-                                if (triageResult.criticalPaths.length > 5) {
-                                  console.log(chalk.dim(`    ... and ${triageResult.criticalPaths.length - 5} more`));
+  
+                                // If triage-only mode, stop here
+                                if (triageOnly) {
+                                  console.log(chalk.bold('\n## Full Triage Results\n'));
+                                  console.log(chalk.bold(`Summary: ${triageResult.summary}\n`));
+                                  for (const score of triageResult.scores) {
+                                    const risk = score.risk === 'critical' ? chalk.red(score.risk) :
+                                                score.risk === 'high' ? chalk.yellow(score.risk) :
+                                                score.risk === 'medium' ? chalk.cyan(score.risk) :
+                                                chalk.dim(score.risk);
+                                    console.log(`${risk.padEnd(12)} ${score.file}`);
+                                    console.log(chalk.dim(`  complexity: ${score.complexity}, importance: ${score.importance}`));
+                                    console.log(chalk.dim(`  ${score.reasoning}`));
+                                    console.log();
+                                  }
                                 }
-                              }
-
-                              // If triage-only mode, stop here
-                              if (triageOnly) {
-                                console.log(chalk.bold('\n## Full Triage Results\n'));
-                                console.log(chalk.bold(`Summary: ${triageResult.summary}\n`));
-                                for (const score of triageResult.scores) {
-                                  const risk = score.risk === 'critical' ? chalk.red(score.risk) :
-                                              score.risk === 'high' ? chalk.yellow(score.risk) :
-                                              score.risk === 'medium' ? chalk.cyan(score.risk) :
-                                              chalk.dim(score.risk);
-                                  console.log(`${risk.padEnd(12)} ${score.file}`);
-                                  console.log(chalk.dim(`  complexity: ${score.complexity}, importance: ${score.importance}`));
-                                  console.log(chalk.dim(`  ${score.reasoning}`));
-                                  console.log();
+                              },
+                              onFileStart: (file: string, index: number, total: number) => {
+                                if (!triageOnly) {
+                                  console.log(chalk.dim(`    ▸ [${index + 1}/${total}] ${file}`));
                                 }
-                              }
+                              },
+                              onFileComplete: (_file: string, _result: string) => {
+                                // Minimal output
+                              },
+                              onAggregationStart: () => {
+                                if (!triageOnly) {
+                                  console.log(chalk.yellow('\n  🔗 Synthesizing results...'));
+                                }
+                              },
+                              onStepStart: (stepName: string, modelName: string) => {
+                                if (!triageOnly && stepName === 'v3-synthesis') {
+                                  console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                                }
+                              },
+                              onStepComplete: (stepName: string, _output: string) => {
+                                if (!triageOnly && stepName === 'v3-synthesis') {
+                                  console.log(chalk.dim(`    ✓ ${stepName}`));
+                                }
+                              },
+                              onStepText: (_stepName: string, _text: string) => {
+                                // Don't stream in iterative mode
+                              },
+                              onError: (stepName: string, error: Error) => {
+                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                              },
+                              onToolCall: (stepName: string, toolName: string, _input: unknown) => {
+                                console.log(chalk.dim(`    🔧 ${stepName} calling ${toolName}`));
+                              },
+                              onToolResult: (stepName: string, toolName: string, result: string) => {
+                                console.log(chalk.dim(`    ✓ ${stepName}/${toolName}: ${result.substring(0, 50)}...`));
+                              },
                             },
-                            onFileStart: (file: string, index: number, total: number) => {
-                              if (!triageOnly) {
-                                console.log(chalk.dim(`    ▸ [${index + 1}/${total}] ${file}`));
-                              }
+                            aggregation: {
+                              enabled: !triageOnly,
+                              role: 'capable',
                             },
-                            onFileComplete: (_file: string, _result: string) => {
-                              // Minimal output
-                            },
-                            onAggregationStart: () => {
-                              if (!triageOnly) {
-                                console.log(chalk.yellow('\n  🔗 Synthesizing results...'));
-                              }
-                            },
-                            onStepStart: (stepName: string, modelName: string) => {
-                              if (!triageOnly && stepName === 'v3-synthesis') {
+                          });
+  
+                          // If triage-only, we're done
+                          if (triageOnly) {
+                            promptUser();
+                            return;
+                          }
+                        } else {
+                          // V1: sequential with batched aggregation
+                          iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
+                            providerContext: effectiveProvider,
+                            callbacks: {
+                              onFileStart: (file: string, index: number, total: number) => {
+                                console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
+                              },
+                              onFileComplete: (file: string, _result: string) => {
+                                console.log(chalk.green(`  ✓ ${file}`));
+                              },
+                              onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
+                                console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
+                              },
+                              onBatchComplete: (batchIndex: number, _summary: string) => {
+                                console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
+                              },
+                              onMetaAggregationStart: (batchCount: number) => {
+                                console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
+                              },
+                              onAggregationStart: () => {
+                                console.log(chalk.yellow('\nAggregating results...'));
+                              },
+                              onStepStart: (stepName: string, modelName: string) => {
                                 console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                              }
-                            },
-                            onStepComplete: (stepName: string, _output: string) => {
-                              if (!triageOnly && stepName === 'v3-synthesis') {
+                              },
+                              onStepComplete: (stepName: string, _output: string) => {
                                 console.log(chalk.dim(`    ✓ ${stepName}`));
-                              }
+                              },
+                              onStepText: (_stepName: string, _text: string) => {
+                                // Don't stream text in iterative mode
+                              },
+                              onError: (stepName: string, error: Error) => {
+                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                              },
                             },
-                            onStepText: (_stepName: string, _text: string) => {
-                              // Don't stream in iterative mode
+                            aggregation: {
+                              enabled: true,
+                              role: 'capable',
+                              batchSize: 15,
                             },
-                            onError: (stepName: string, error: Error) => {
-                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                            },
-                            onToolCall: (stepName: string, toolName: string, _input: unknown) => {
-                              console.log(chalk.dim(`    🔧 ${stepName} calling ${toolName}`));
-                            },
-                            onToolResult: (stepName: string, toolName: string, result: string) => {
-                              console.log(chalk.dim(`    ✓ ${stepName}/${toolName}: ${result.substring(0, 50)}...`));
-                            },
-                          },
-                          aggregation: {
-                            enabled: !triageOnly,
-                            role: 'capable',
-                          },
-                        });
-
-                        // If triage-only, we're done
-                        if (triageOnly) {
-                          promptUser();
-                          return;
+                          });
                         }
-                      } else {
-                        // V1: sequential with batched aggregation
-                        iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
-                          providerContext: effectiveProvider,
-                          callbacks: {
-                            onFileStart: (file: string, index: number, total: number) => {
-                              console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
-                            },
-                            onFileComplete: (file: string, _result: string) => {
-                              console.log(chalk.green(`  ✓ ${file}`));
-                            },
-                            onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
-                              console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
-                            },
-                            onBatchComplete: (batchIndex: number, _summary: string) => {
-                              console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
-                            },
-                            onMetaAggregationStart: (batchCount: number) => {
-                              console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
-                            },
-                            onAggregationStart: () => {
-                              console.log(chalk.yellow('\nAggregating results...'));
-                            },
-                            onStepStart: (stepName: string, modelName: string) => {
-                              console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                            },
-                            onStepComplete: (stepName: string, _output: string) => {
-                              console.log(chalk.dim(`    ✓ ${stepName}`));
-                            },
-                            onStepText: (_stepName: string, _text: string) => {
-                              // Don't stream text in iterative mode
-                            },
-                            onError: (stepName: string, error: Error) => {
-                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                            },
-                          },
-                          aggregation: {
-                            enabled: true,
-                            role: 'capable',
-                            batchSize: 15,
-                          },
-                        });
-                      }
-
-                      console.log(chalk.bold.green('\n\nPipeline complete!'));
-                      console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
-
-                      // Show triage results if available
-                      if (iterativeResult.triageResult) {
-                        const tr = iterativeResult.triageResult;
-                        console.log(chalk.dim(`Triage: ${tr.criticalPaths.length} critical, ${tr.normalPaths.length} normal, ${tr.skipPaths.length} quick`));
-                      }
-
-                      // Show grouping/batching info if available
-                      if (iterativeResult.groups && iterativeResult.groups.length > 0) {
-                        console.log(chalk.dim(`Groups: ${iterativeResult.groups.length}`));
-                      }
-                      if (iterativeResult.batchSummaries && iterativeResult.batchSummaries.length > 0) {
-                        console.log(chalk.dim(`Batches aggregated: ${iterativeResult.batchSummaries.length}`));
-                      }
-                      if (iterativeResult.timing) {
-                        const t = iterativeResult.timing;
-                        const triageStr = t.triage ? `${(t.triage / 1000).toFixed(1)}s triage, ` : '';
-                        console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${triageStr}${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
-                      }
-                      console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
-
-                      if (iterativeResult.skippedFiles && iterativeResult.skippedFiles.length > 0) {
-                        console.log(chalk.yellow(`\nSkipped ${iterativeResult.skippedFiles.length} file(s):`));
-                        for (const { file, reason } of iterativeResult.skippedFiles.slice(0, 5)) {
-                          console.log(chalk.dim(`  - ${file}: ${reason}`));
+  
+                        console.log(chalk.bold.green('\n\nPipeline complete!'));
+                        console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
+  
+                        // Show triage results if available
+                        if (iterativeResult.triageResult) {
+                          const tr = iterativeResult.triageResult;
+                          console.log(chalk.dim(`Triage: ${tr.criticalPaths.length} critical, ${tr.normalPaths.length} normal, ${tr.skipPaths.length} quick`));
                         }
-                        if (iterativeResult.skippedFiles.length > 5) {
-                          console.log(chalk.dim(`  ... and ${iterativeResult.skippedFiles.length - 5} more`));
+  
+                        // Show grouping/batching info if available
+                        if (iterativeResult.groups && iterativeResult.groups.length > 0) {
+                          console.log(chalk.dim(`Groups: ${iterativeResult.groups.length}`));
                         }
+                        if (iterativeResult.batchSummaries && iterativeResult.batchSummaries.length > 0) {
+                          console.log(chalk.dim(`Batches aggregated: ${iterativeResult.batchSummaries.length}`));
+                        }
+                        if (iterativeResult.timing) {
+                          const t = iterativeResult.timing;
+                          const triageStr = t.triage ? `${(t.triage / 1000).toFixed(1)}s triage, ` : '';
+                          console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${triageStr}${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
+                        }
+                        console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
+  
+                        if (iterativeResult.skippedFiles && iterativeResult.skippedFiles.length > 0) {
+                          console.log(chalk.yellow(`\nSkipped ${iterativeResult.skippedFiles.length} file(s):`));
+                          for (const { file, reason } of iterativeResult.skippedFiles.slice(0, 5)) {
+                            console.log(chalk.dim(`  - ${file}: ${reason}`));
+                          }
+                          if (iterativeResult.skippedFiles.length > 5) {
+                            console.log(chalk.dim(`  ... and ${iterativeResult.skippedFiles.length - 5} more`));
+                          }
+                        }
+  
+                        console.log(chalk.bold('\n## Aggregated Results\n'));
+                        console.log(iterativeResult.aggregatedOutput || '(No output)');
+                      } catch (error) {
+                        console.log(chalk.red(`\nIterative pipeline failed: ${error instanceof Error ? error.message : String(error)}`));
                       }
-
-                      console.log(chalk.bold('\n## Aggregated Results\n'));
-                      console.log(iterativeResult.aggregatedOutput || '(No output)');
-                    } catch (error) {
-                      console.log(chalk.red(`\nIterative pipeline failed: ${error instanceof Error ? error.message : String(error)}`));
+  
+                      promptUser();
+                      return;
                     }
-
+  
+                    // Standard (non-iterative) execution
+                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
+                    console.log(chalk.dim(`Provider: ${effectiveProvider}`));
+                    console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
+  
+                    // Resolve file content if input looks like a glob pattern or file path
+                    const { resolvedInput, filesRead, truncated } = await resolvePipelineInput(input);
+                    if (filesRead > 0) {
+                      console.log(chalk.dim(`Files resolved: ${filesRead}${truncated ? ' (truncated)' : ''}`));
+                    }
+                    console.log();
+  
+                    try {
+                      const pipelineResult = await modelMap.executor.execute(pipeline, resolvedInput, {
+                        providerContext: effectiveProvider,
+                        callbacks: {
+                          onStepStart: (stepName: string, modelName: string) => {
+                            console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
+                          },
+                          onStepComplete: (stepName: string, _output: string) => {
+                            console.log(chalk.green(`  ✓ ${stepName} complete`));
+                          },
+                          onStepText: (_stepName: string, text: string) => {
+                            process.stdout.write(chalk.dim(text));
+                          },
+                          onError: (stepName: string, error: Error) => {
+                            console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                          },
+                        },
+                      });
+  
+                      console.log(chalk.bold.green('\n\nPipeline complete!'));
+                      console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')}`));
+                      console.log(chalk.bold('\nResult:'));
+                      console.log(pipelineResult.output);
+                    } catch (error) {
+                      console.log(chalk.red(`\nPipeline execution failed: ${error instanceof Error ? error.message : String(error)}`));
+                    }
                     promptUser();
                     return;
-                  }
-
-                  // Standard (non-iterative) execution
-                  console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
-                  console.log(chalk.dim(`Provider: ${effectiveProvider}`));
-                  console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
-
-                  // Resolve file content if input looks like a glob pattern or file path
-                  const { resolvedInput, filesRead, truncated } = await resolvePipelineInput(input);
-                  if (filesRead > 0) {
-                    console.log(chalk.dim(`Files resolved: ${filesRead}${truncated ? ' (truncated)' : ''}`));
-                  }
-                  console.log();
-
-                  try {
-                    const pipelineResult = await modelMap.executor.execute(pipeline, resolvedInput, {
-                      providerContext: effectiveProvider,
-                      callbacks: {
-                        onStepStart: (stepName: string, modelName: string) => {
-                          console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
-                        },
-                        onStepComplete: (stepName: string, _output: string) => {
-                          console.log(chalk.green(`  ✓ ${stepName} complete`));
-                        },
-                        onStepText: (_stepName: string, text: string) => {
-                          process.stdout.write(chalk.dim(text));
-                        },
-                        onError: (stepName: string, error: Error) => {
-                          console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
-                        },
-                      },
-                    });
-
-                    console.log(chalk.bold.green('\n\nPipeline complete!'));
-                    console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')}`));
-                    console.log(chalk.bold('\nResult:'));
-                    console.log(pipelineResult.output);
-                  } catch (error) {
-                    console.log(chalk.red(`\nPipeline execution failed: ${error instanceof Error ? error.message : String(error)}`));
-                  }
-
-                  promptUser();
+                  });
                   return;
                 }
 
                 // Other pipeline outputs (list, info, error)
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handlePipelineOutput(result);
                 });
                 promptUser();
@@ -4296,7 +4360,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle import command outputs
               if (result.startsWith('__IMPORT_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleImportOutput(result);
                 });
                 promptUser();
@@ -4304,7 +4368,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle memory command outputs
               if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleMemoryOutput(result);
                 });
                 promptUser();
@@ -4312,7 +4376,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle compression command outputs
               if (result.startsWith('COMPRESS_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleCompressionOutput(result);
                 });
                 promptUser();
@@ -4320,7 +4384,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle compact command outputs
               if (result.startsWith('COMPACT_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleCompactOutput(result);
                 });
                 promptUser();
@@ -4328,7 +4392,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle approval command outputs
               if (result.startsWith('__APPROVAL')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleApprovalOutput(result);
                 });
                 promptUser();
@@ -4336,7 +4400,7 @@ Begin by analyzing the query and planning your research approach.`;
               }
               // Handle symbols command outputs
               if (result.startsWith('__SYMBOLS_')) {
-                renderCommandOutput(inkController, () => {
+                await renderCommandOutput(inkController, () => {
                   handleSymbolsOutput(result);
                 });
                 promptUser();
@@ -4351,33 +4415,35 @@ Begin by analyzing the query and planning your research approach.`;
                 try {
                   const routing = modelMap.router.routeCommand(command.name);
                   if (routing.type === 'pipeline') {
-                    // Execute pipeline instead of sending to agent
-                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${routing.pipelineName}`));
-                    console.log(chalk.dim(`Input: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`));
-                    console.log();
+                    await renderCommandOutput(inkController, async () => {
+                      // Execute pipeline instead of sending to agent
+                      console.log(chalk.bold.magenta(`\nExecuting pipeline: ${routing.pipelineName}`));
+                      console.log(chalk.dim(`Input: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`));
+                      console.log();
 
-                    const startTime = Date.now();
-                    const pipelineResult = await modelMap.executor.execute(routing.pipeline, result, {
-                      onStepStart: (stepName: string, modelName: string) => {
-                        console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
-                      },
-                      onStepComplete: (stepName: string, _output: string) => {
-                        console.log(chalk.green(`  ✓ ${stepName} complete`));
-                      },
-                      onStepText: (_stepName: string, text: string) => {
-                        process.stdout.write(chalk.dim(text));
-                      },
-                      onError: (stepName: string, error: Error) => {
-                        console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
-                      },
+                      const startTime = Date.now();
+                      const pipelineResult = await modelMap.executor.execute(routing.pipeline, result, {
+                        onStepStart: (stepName: string, modelName: string) => {
+                          console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
+                        },
+                        onStepComplete: (stepName: string, _output: string) => {
+                          console.log(chalk.green(`  ✓ ${stepName} complete`));
+                        },
+                        onStepText: (_stepName: string, text: string) => {
+                          process.stdout.write(chalk.dim(text));
+                        },
+                        onError: (stepName: string, error: Error) => {
+                          console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                        },
+                      });
+
+                      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                      console.log(chalk.bold.green('\n\nPipeline complete!'));
+                      console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')} (${elapsed}s)`));
+                      console.log(chalk.bold('\nResult:'));
+                      console.log(pipelineResult.output);
+                      promptUser();
                     });
-
-                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                    console.log(chalk.bold.green('\n\nPipeline complete!'));
-                    console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')} (${elapsed}s)`));
-                    console.log(chalk.bold('\nResult:'));
-                    console.log(pipelineResult.output);
-                    promptUser();
                     return;
                   }
                 } catch (routingError) {
