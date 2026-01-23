@@ -430,6 +430,11 @@ export class SymbolIndexService {
     this.db.setMetadata('last_update', now);
     this.db.setMetadata('deep_index', deepIndex ? 'true' : 'false');
 
+    // Run VACUUM to reclaim space and optimize after full rebuild
+    this.db.vacuum();
+    // Update query planner statistics
+    this.db.analyze();
+
     return {
       filesProcessed,
       symbolsExtracted,
