@@ -10,11 +10,28 @@
  * Usage:
  *   codi --debug-bridge
  *
- * Events are written to: ~/.codi/debug/events.jsonl
- * Commands are read from: ~/.codi/debug/commands.jsonl (Phase 2)
+ * Directory structure:
+ *   ~/.codi/debug/
+ *   ├── sessions/
+ *   │   ├── debug_20260123_131000_abc1/
+ *   │   │   ├── events.jsonl
+ *   │   │   ├── commands.jsonl
+ *   │   │   └── session.json
+ *   │   └── ...
+ *   ├── current -> sessions/debug_20260123_131000_abc1  (symlink)
+ *   └── index.json  (list of active sessions)
  */
 
-import { existsSync, mkdirSync, appendFileSync, writeFileSync, watchFile, unwatchFile, readFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  appendFileSync,
+  writeFileSync,
+  readFileSync,
+  symlinkSync,
+  unlinkSync,
+  rmSync,
+} from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { Message, ToolCall } from './types.js';
@@ -22,14 +39,31 @@ import type { Message, ToolCall } from './types.js';
 /** Debug directory */
 const DEBUG_DIR = join(homedir(), '.codi', 'debug');
 
-/** Events file - Codi writes, debugger reads */
-const EVENTS_FILE = join(DEBUG_DIR, 'events.jsonl');
+/** Sessions directory */
+const SESSIONS_DIR = join(DEBUG_DIR, 'sessions');
 
-/** Commands file - debugger writes, Codi reads (Phase 2) */
-const COMMANDS_FILE = join(DEBUG_DIR, 'commands.jsonl');
+/** Symlink to current session */
+const CURRENT_LINK = join(DEBUG_DIR, 'current');
 
-/** Session info file - metadata about current session */
-const SESSION_FILE = join(DEBUG_DIR, 'session.json');
+/** Session index file */
+const INDEX_FILE = join(DEBUG_DIR, 'index.json');
+
+/**
+ * Session index entry.
+ */
+interface SessionIndexEntry {
+  id: string;
+  pid: number;
+  startTime: string;
+  cwd: string;
+}
+
+/**
+ * Session index structure.
+ */
+interface SessionIndex {
+  sessions: SessionIndexEntry[];
+}
 
 /**
  * Event types emitted by the debug bridge.
@@ -89,6 +123,7 @@ export interface DebugCommand {
 export class DebugBridge {
   private enabled: boolean = false;
   private sessionId: string;
+  private sessionDir: string = '';
   private sequence: number = 0;
   private startTime: number;
   private paused: boolean = false;
@@ -105,11 +140,15 @@ export class DebugBridge {
    */
   enable(): void {
     this.enabled = true;
-    this.ensureDebugDir();
-    this.clearEvents();
+    this.sessionDir = join(SESSIONS_DIR, this.sessionId);
+    this.ensureSessionDir();
+    this.cleanupStaleSessions();
+    this.registerSession();
+    this.updateCurrentSymlink();
+    this.initializeFiles();
     this.writeSessionInfo();
     console.log(`\n🔧 Debug bridge enabled`);
-    console.log(`   Events: ${EVENTS_FILE}`);
+    console.log(`   Events: ${this.getEventsFile()}`);
     console.log(`   Session: ${this.sessionId}\n`);
   }
 
@@ -124,14 +163,28 @@ export class DebugBridge {
    * Get the events file path.
    */
   getEventsFile(): string {
-    return EVENTS_FILE;
+    return join(this.sessionDir, 'events.jsonl');
   }
 
   /**
    * Get the commands file path.
    */
   getCommandsFile(): string {
-    return COMMANDS_FILE;
+    return join(this.sessionDir, 'commands.jsonl');
+  }
+
+  /**
+   * Get the session file path.
+   */
+  getSessionFile(): string {
+    return join(this.sessionDir, 'session.json');
+  }
+
+  /**
+   * Get the session directory path.
+   */
+  getSessionDir(): string {
+    return this.sessionDir;
   }
 
   /**
@@ -149,15 +202,100 @@ export class DebugBridge {
     return `debug_${date}_${time}_${rand}`;
   }
 
-  private ensureDebugDir(): void {
-    if (!existsSync(DEBUG_DIR)) {
-      mkdirSync(DEBUG_DIR, { recursive: true });
+  private ensureSessionDir(): void {
+    if (!existsSync(this.sessionDir)) {
+      mkdirSync(this.sessionDir, { recursive: true });
     }
   }
 
-  private clearEvents(): void {
-    writeFileSync(EVENTS_FILE, '');
-    writeFileSync(COMMANDS_FILE, '');
+  private initializeFiles(): void {
+    writeFileSync(this.getEventsFile(), '');
+    writeFileSync(this.getCommandsFile(), '');
+  }
+
+  private updateCurrentSymlink(): void {
+    try {
+      // Remove existing symlink if present
+      if (existsSync(CURRENT_LINK)) {
+        unlinkSync(CURRENT_LINK);
+      }
+      // Create symlink to current session
+      symlinkSync(this.sessionDir, CURRENT_LINK);
+    } catch {
+      // Symlinks may fail on Windows or due to permissions, ignore
+    }
+  }
+
+  private registerSession(): void {
+    const index = this.loadSessionIndex();
+    index.sessions.push({
+      id: this.sessionId,
+      pid: process.pid,
+      startTime: new Date(this.startTime).toISOString(),
+      cwd: process.cwd(),
+    });
+    this.saveSessionIndex(index);
+  }
+
+  private unregisterSession(): void {
+    const index = this.loadSessionIndex();
+    index.sessions = index.sessions.filter(s => s.id !== this.sessionId);
+    this.saveSessionIndex(index);
+  }
+
+  private loadSessionIndex(): SessionIndex {
+    if (!existsSync(INDEX_FILE)) {
+      return { sessions: [] };
+    }
+    try {
+      return JSON.parse(readFileSync(INDEX_FILE, 'utf8'));
+    } catch {
+      return { sessions: [] };
+    }
+  }
+
+  private saveSessionIndex(index: SessionIndex): void {
+    // Ensure debug directory exists
+    if (!existsSync(DEBUG_DIR)) {
+      mkdirSync(DEBUG_DIR, { recursive: true });
+    }
+    writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2));
+  }
+
+  /**
+   * Clean up stale sessions (processes that no longer exist).
+   */
+  private cleanupStaleSessions(): void {
+    const index = this.loadSessionIndex();
+    const activeSessions: SessionIndexEntry[] = [];
+
+    for (const session of index.sessions) {
+      if (this.isProcessRunning(session.pid)) {
+        activeSessions.push(session);
+      } else {
+        // Process no longer running, remove session directory
+        const sessionDir = join(SESSIONS_DIR, session.id);
+        try {
+          rmSync(sessionDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+
+    if (activeSessions.length !== index.sessions.length) {
+      this.saveSessionIndex({ sessions: activeSessions });
+    }
+  }
+
+  private isProcessRunning(pid: number): boolean {
+    try {
+      // Sending signal 0 checks if process exists without killing it
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private writeSessionInfo(): void {
@@ -166,10 +304,10 @@ export class DebugBridge {
       startTime: new Date(this.startTime).toISOString(),
       pid: process.pid,
       cwd: process.cwd(),
-      eventsFile: EVENTS_FILE,
-      commandsFile: COMMANDS_FILE,
+      eventsFile: this.getEventsFile(),
+      commandsFile: this.getCommandsFile(),
     };
-    writeFileSync(SESSION_FILE, JSON.stringify(info, null, 2));
+    writeFileSync(this.getSessionFile(), JSON.stringify(info, null, 2));
   }
 
   /**
@@ -187,7 +325,7 @@ export class DebugBridge {
     };
 
     try {
-      appendFileSync(EVENTS_FILE, JSON.stringify(event) + '\n');
+      appendFileSync(this.getEventsFile(), JSON.stringify(event) + '\n');
     } catch {
       // Ignore write errors to avoid disrupting the session
     }
@@ -388,8 +526,41 @@ export class DebugBridge {
   shutdown(): void {
     if (!this.enabled) return;
     this.sessionEnd();
+    this.unregisterSession();
     this.enabled = false;
   }
+}
+
+// ============================================
+// Utility functions for external access
+// ============================================
+
+/**
+ * Get the debug directory path.
+ */
+export function getDebugDir(): string {
+  return DEBUG_DIR;
+}
+
+/**
+ * Get the sessions directory path.
+ */
+export function getSessionsDir(): string {
+  return SESSIONS_DIR;
+}
+
+/**
+ * Get the current session symlink path.
+ */
+export function getCurrentSessionLink(): string {
+  return CURRENT_LINK;
+}
+
+/**
+ * Get the session index file path.
+ */
+export function getSessionIndexFile(): string {
+  return INDEX_FILE;
 }
 
 // ============================================
