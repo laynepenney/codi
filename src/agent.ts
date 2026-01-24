@@ -1173,7 +1173,7 @@ ${contextToSummarize}`,
             }
           }
 
-          // Security model validation (async, runs in parallel with user review time)
+          // Security model validation (runs before user confirmation prompt)
           let securityWarning: SecurityWarning | undefined;
           if (this.securityValidator && this.securityValidator.shouldValidate(toolCall.name)) {
             try {

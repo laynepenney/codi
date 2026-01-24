@@ -395,29 +395,21 @@ async function main(): Promise<void> {
     modelToUse = modelArg;
     console.log(`  Model: ${modelArg} (specified)`);
   } else {
-    // Try xploiter first, then fallback
-    const xploiterAvailable = await checkModelAvailable('xploiter');
-    if (xploiterAvailable) {
-      modelToUse = 'xploiter';
-      console.log('  Model: xploiter available');
-    } else {
-      console.log('\x1b[33m  xploiter not found, looking for alternatives...\x1b[0m');
-
-      // Try alternative models
-      const alternatives = ['llama3.2', 'qwen3:8b', 'mistral', 'codellama'];
-      modelToUse = '';
-      for (const alt of alternatives) {
-        if (await checkModelAvailable(alt)) {
-          console.log(`  Found alternative: ${alt}`);
-          modelToUse = alt;
-          break;
-        }
+    // Try recommended models in order of preference
+    const preferredModels = ['llama3.2', 'qwen3:8b', 'mistral', 'codellama'];
+    modelToUse = '';
+    for (const model of preferredModels) {
+      if (await checkModelAvailable(model)) {
+        console.log(`  Model: ${model} (auto-detected)`);
+        modelToUse = model;
+        break;
       }
+    }
 
-      if (!modelToUse) {
-        console.error('\x1b[31mError: No suitable models found.\x1b[0m');
-        process.exit(1);
-      }
+    if (!modelToUse) {
+      console.error('\x1b[31mError: No suitable models found.\x1b[0m');
+      console.error('Install a model with: ollama pull llama3.2');
+      process.exit(1);
     }
   }
 
