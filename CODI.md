@@ -440,6 +440,8 @@ All git commands are consolidated under `/git <subcommand>` with convenient alia
 | `/sessions info [name]` | Show details about a session |
 | `/sessions delete <name>` | Delete a saved session |
 | `/sessions clear` | Delete all saved sessions |
+| `/label [text]` | Set/show conversation label |
+| `/label clear` | Remove the conversation label |
 
 **Key Features**:
 - Sessions stored in `~/.codi/sessions/` as JSON
@@ -448,6 +450,8 @@ All git commands are consolidated under `/git <subcommand>` with convenient alia
 - Fuzzy search for session names
 - Load session on startup with `-s/--session <name>` CLI option
 - Auto-saves to current session name if one is loaded
+- Conversation labels displayed as `[label] You:` prompt prefix
+- Labels persist and restore with session save/load
 
 #### 3. Workspace Configuration - IMPLEMENTED
 

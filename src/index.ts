@@ -574,6 +574,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
+  console.log(chalk.dim('  /label [text]      - Set/show conversation label'));
   console.log(chalk.dim('  /exit              - Exit the assistant'));
 
   console.log(chalk.bold('\nCode Assistance:'));
@@ -1085,6 +1086,7 @@ function autoSaveSession(context: CommandContext, agent: Agent): void {
       projectName: context.projectInfo?.name || '',
       provider: provider.getName(),
       model: provider.getModel(),
+      label: context.sessionState?.label || undefined,
       openFilesState: context.openFilesManager?.toJSON(),
     });
   } catch (error) {
@@ -1178,6 +1180,7 @@ function handleSessionOutput(output: string): void {
         const info = JSON.parse(infoJson);
         console.log(chalk.bold('\nSession Info:'));
         console.log(chalk.dim(`  Name: ${info.name}`));
+        if (info.label) console.log(chalk.dim(`  Label: ${info.label}`));
         console.log(chalk.dim(`  Messages: ${info.messages}`));
         console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
         if (info.project) console.log(chalk.dim(`  Project: ${info.project}`));
@@ -3169,6 +3172,9 @@ Begin by analyzing the query and planning your research approach.`;
   // Session name tracking for prompt display
   let currentSession: string | null = null;
 
+  // Conversation label for context reminder
+  let currentLabel: string | null = null;
+
   // Dynamic prompt mode tracking
   type PromptMode = 'normal' | 'shell' | 'help';
   let currentPromptMode: PromptMode = 'normal';
@@ -3189,15 +3195,20 @@ Begin by analyzing the query and planning your research approach.`;
   const getPromptText = (mode: PromptMode): string => {
     const baseText = getBasePromptText(mode);
     let colorFn = chalk.bold.cyan;
-    
+
     // Use different colors for different modes
     if (mode === 'shell') {
       colorFn = chalk.bold.yellow;
     } else if (mode === 'help') {
       colorFn = chalk.bold.green;
     }
-    
-    return colorFn(`\n${baseText}: `);
+
+    // Show label as a prefix if set (only in normal mode)
+    const labelPrefix = currentLabel && mode === 'normal'
+      ? chalk.dim(`[${currentLabel}] `)
+      : '';
+
+    return `\n${labelPrefix}${colorFn(`${baseText}: `)}`;
   };
 
   // Update the readline prompt
@@ -3223,6 +3234,13 @@ Begin by analyzing the query and planning your research approach.`;
       inkController?.setStatus({ sessionName: name });
       if (commandContext.sessionState) {
         commandContext.sessionState.currentName = name;
+      }
+    },
+    setLabel: (label: string | null) => {
+      currentLabel = label;
+      updatePrompt(currentPromptMode);
+      if (commandContext.sessionState) {
+        commandContext.sessionState.label = label;
       }
     },
     selectSession: inkController
@@ -3856,6 +3874,7 @@ Begin by analyzing the query and planning your research approach.`;
     currentName: null,
     provider: provider.getName(),
     model: provider.getModel(),
+    label: currentLabel,
   };
 
   // Set indexed files from RAG for code relevance scoring
@@ -3914,6 +3933,14 @@ Begin by analyzing the query and planning your research approach.`;
         inkController?.setStatus({ sessionName: session.name });
         if (commandContext.sessionState) {
           commandContext.sessionState.currentName = session.name;
+        }
+
+        // Restore label if it exists in the session
+        if (session.label) {
+          currentLabel = session.label;
+          if (commandContext.sessionState) {
+            commandContext.sessionState.label = session.label;
+          }
         }
 
         // Restore working set if it exists in the session
@@ -4275,6 +4302,31 @@ Begin by analyzing the query and planning your research approach.`;
         console.log(formatProjectContext(projectInfo));
       } else {
         console.log(chalk.dim('\nNo project detected in current directory.'));
+      }
+      promptUser();
+      return;
+    }
+
+    if (trimmed === '/label' || trimmed.startsWith('/label ')) {
+      const labelArg = trimmed.slice(6).trim();
+
+      if (labelArg === '' || labelArg === 'show') {
+        // Show current label
+        if (currentLabel) {
+          console.log(chalk.dim(`\nLabel: ${chalk.cyan(currentLabel)}`));
+        } else {
+          console.log(chalk.dim('\nNo label set. Use /label <text> to set one.'));
+        }
+      } else if (labelArg === 'clear' || labelArg === 'reset') {
+        // Clear the label
+        currentLabel = null;
+        updatePrompt(currentPromptMode);
+        console.log(chalk.dim('Label cleared.'));
+      } else {
+        // Set the label
+        currentLabel = labelArg;
+        updatePrompt(currentPromptMode);
+        console.log(chalk.dim(`Label set to: ${chalk.cyan(currentLabel)}`));
       }
       promptUser();
       return;
