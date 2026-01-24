@@ -126,8 +126,10 @@ export interface WorkspaceConfig {
   rag?: {
     /** Enable RAG code indexing and search */
     enabled?: boolean;
-    /** Embedding provider: 'openai', 'ollama', or 'auto' */
-    embeddingProvider?: 'openai' | 'ollama' | 'auto';
+    /** Embedding provider: 'openai', 'ollama', 'modelmap', or 'auto' */
+    embeddingProvider?: 'openai' | 'ollama' | 'modelmap' | 'auto';
+    /** Task name from model map for embeddings (default: "embeddings") */
+    embeddingTask?: string;
     /** OpenAI embedding model (default: text-embedding-3-small) */
     openaiModel?: string;
     /** Ollama embedding model (default: nomic-embed-text) */
