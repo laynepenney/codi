@@ -3225,6 +3225,7 @@ Begin by analyzing the query and planning your research approach.`;
     auditLogger: auditLogger.isEnabled() ? auditLogger : null,
     toolRegistry: globalRegistry,
     systemPrompt,
+    contextOptimization: resolvedConfig.contextOptimization,
     useTools,
     extractToolsFromText: resolvedConfig.extractToolsFromText,
     autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,

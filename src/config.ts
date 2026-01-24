@@ -99,6 +99,8 @@ export interface WorkspaceConfig {
     minRecentMessages?: number;
     /** Importance score threshold for keeping messages (0-1) */
     importanceThreshold?: number;
+    /** Maximum multiplier for output reserve scaling (default: 3) */
+    maxOutputReserveScale?: number;
     /** Custom importance weights */
     weights?: {
       recency?: number;
@@ -244,6 +246,7 @@ export interface ResolvedConfig {
   summarizeModel?: string;
   /** Per-tool configuration */
   toolsConfig: ToolsConfig;
+  contextOptimization: WorkspaceConfig['contextOptimization'];
 }
 
 /** Default configuration values */
@@ -264,6 +267,13 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   toolsConfig: {
     disabled: [],
     defaults: {},
+  },
+  contextOptimization: {
+    mergeCaseVariants: true,
+    mergeSimilarNames: true,
+    minRecentMessages: 3,
+    importanceThreshold: 0.4,
+    maxOutputReserveScale: 3,
   },
 };
 
@@ -624,6 +634,7 @@ export function getExampleConfig(): string {
       mergeSimilarNames: true,
       minRecentMessages: 3,
       importanceThreshold: 0.4,
+      maxOutputReserveScale: 3,
     },
     rag: {
       enabled: true,

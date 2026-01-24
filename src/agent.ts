@@ -113,6 +113,9 @@ export interface AgentOptions {
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
   maxContextTokens?: number; // Maximum context tokens before compaction
+  contextOptimization?: {
+    maxOutputReserveScale?: number;
+  }; // Context optimization settings
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
@@ -148,6 +151,7 @@ export class Agent {
   private maxContextTokens: number;
   private maxContextTokensExplicit: boolean; // True if user explicitly set maxContextTokens
   private contextConfig: ComputedContextConfig; // Tier-based context config
+  private contextOptimization: AgentOptions['contextOptimization'];
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -216,6 +220,7 @@ export class Agent {
     this.enableCompression = options.enableCompression ?? false;
     // Track if user explicitly set maxContextTokens (so we preserve it on provider switch)
     this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
+    this.contextOptimization = options.contextOptimization;
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
 
@@ -1684,7 +1689,7 @@ ${contextToSummarize}`,
     }
 
     // Compute scaled config based on effective limit
-    const scaledConfig = computeScaledContextConfig(this.contextConfig, this.maxContextTokens);
+    const scaledConfig = computeScaledContextConfig(this.contextConfig, this.maxContextTokens, this.contextOptimization);
 
     return {
       tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,
