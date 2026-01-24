@@ -18,6 +18,7 @@ import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { format as formatUtil } from 'util';
 import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
+import { isPathWithinProject } from './utils/path-validation.js';
 import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
@@ -107,11 +108,25 @@ async function resolvePipelineInput(
   if (input.includes('*') || input.includes('?')) {
     // It's a glob pattern
     for await (const file of glob(input, { cwd })) {
-      files.push(file);
+      // Validate each file is within project (handles symlinks)
+      const fullPath = join(cwd, file);
+      if (isPathWithinProject(fullPath, cwd)) {
+        files.push(file);
+      }
     }
   } else {
     // It's a direct file path
     const fullPath = input.startsWith('/') ? input : join(cwd, input);
+
+    // Validate path is within project directory (prevent path traversal)
+    if (!isPathWithinProject(fullPath, cwd)) {
+      return {
+        resolvedInput: `Security error: Path "${input}" resolves outside the project directory.`,
+        filesRead: 0,
+        truncated: false
+      };
+    }
+
     if (existsSync(fullPath)) {
       try {
         const stat = statSync(fullPath);
@@ -120,7 +135,11 @@ async function resolvePipelineInput(
         } else if (stat.isDirectory()) {
           // If it's a directory, glob for common code files
           for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
-            files.push(file);
+            // Validate each file is within project (handles symlinks)
+            const filePath = join(cwd, file);
+            if (isPathWithinProject(filePath, cwd)) {
+              files.push(file);
+            }
           }
         }
       } catch {
@@ -147,6 +166,12 @@ async function resolvePipelineInput(
 
   for (const file of filesToRead) {
     const fullPath = file.startsWith('/') ? file : join(cwd, file);
+
+    // Defense in depth: validate path again before reading
+    if (!isPathWithinProject(fullPath, cwd)) {
+      contents.push(`\n### File: ${file}\n\`\`\`\n[Skipped: path resolves outside project directory]\n\`\`\`\n`);
+      continue;
+    }
 
     try {
       const stat = statSync(fullPath);
@@ -211,6 +236,10 @@ async function resolveFileList(
     // Glob pattern
     for await (const file of glob(input, { cwd })) {
       const fullPath = join(cwd, file);
+      // Validate path is within project (handles symlinks)
+      if (!isPathWithinProject(fullPath, cwd)) {
+        continue;
+      }
       try {
         const stat = statSync(fullPath);
         if (stat.isFile() && stat.size <= maxFileSize) {
@@ -223,6 +252,12 @@ async function resolveFileList(
   } else {
     // Direct file path
     const fullPath = input.startsWith('/') ? input : join(cwd, input);
+
+    // Validate path is within project directory (prevent path traversal)
+    if (!isPathWithinProject(fullPath, cwd)) {
+      return []; // Return empty list for invalid paths
+    }
+
     if (existsSync(fullPath)) {
       try {
         const stat = statSync(fullPath);
@@ -232,6 +267,10 @@ async function resolveFileList(
           // If directory, glob for code files
           for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
             const filePath = join(cwd, file);
+            // Validate each file is within project (handles symlinks)
+            if (!isPathWithinProject(filePath, cwd)) {
+              continue;
+            }
             try {
               const fileStat = statSync(filePath);
               if (fileStat.isFile() && fileStat.size <= maxFileSize) {
@@ -251,7 +290,8 @@ async function resolveFileList(
   return files.sort();
 }
 
-import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
+import { Agent, type ToolConfirmation, type ConfirmationResult, type SecurityWarning } from './agent.js';
+import { SecurityValidator, createSecurityValidator } from './security-validator.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
 import { shutdownAllRateLimiters } from './providers/rate-limiter.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
@@ -574,6 +614,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
+  console.log(chalk.dim('  /label [text|update|clear] - Set/show/regenerate conversation label'));
   console.log(chalk.dim('  /exit              - Exit the assistant'));
 
   console.log(chalk.bold('\nCode Assistance:'));
@@ -671,13 +712,29 @@ function showHelp(projectInfo: ProjectInfo | null): void {
  * Format a tool confirmation for display.
  */
 function formatConfirmation(confirmation: ToolConfirmation): string {
-  const { toolName, input, isDangerous, dangerReason, diffPreview, approvalSuggestions } = confirmation;
+  const { toolName, input, isDangerous, dangerReason, diffPreview, approvalSuggestions, securityWarning } = confirmation;
 
   let display = '';
 
   if (isDangerous) {
     display += chalk.red.bold('⚠️  DANGEROUS OPERATION\n');
     display += chalk.red(`   Reason: ${dangerReason}\n\n`);
+  }
+
+  // Display security model warning if present
+  if (securityWarning) {
+    const riskColor = securityWarning.riskScore >= 7 ? chalk.red :
+                      securityWarning.riskScore >= 4 ? chalk.yellow : chalk.green;
+    display += chalk.magenta.bold('🔒 Security Analysis\n');
+    display += riskColor(`   Risk: ${securityWarning.riskScore}/10`);
+    display += chalk.dim(` (${securityWarning.latencyMs}ms)\n`);
+    if (securityWarning.threats.length > 0) {
+      display += chalk.yellow(`   Threats: ${securityWarning.threats.slice(0, 3).join(', ')}\n`);
+    }
+    if (securityWarning.reasoning) {
+      display += chalk.dim(`   ${securityWarning.reasoning.slice(0, 100)}${securityWarning.reasoning.length > 100 ? '...' : ''}\n`);
+    }
+    display += '\n';
   }
 
   display += chalk.yellow(`Tool: ${toolName}\n`);
@@ -1085,6 +1142,7 @@ function autoSaveSession(context: CommandContext, agent: Agent): void {
       projectName: context.projectInfo?.name || '',
       provider: provider.getName(),
       model: provider.getModel(),
+      label: context.sessionState?.label || undefined,
       openFilesState: context.openFilesManager?.toJSON(),
     });
   } catch (error) {
@@ -1178,6 +1236,7 @@ function handleSessionOutput(output: string): void {
         const info = JSON.parse(infoJson);
         console.log(chalk.bold('\nSession Info:'));
         console.log(chalk.dim(`  Name: ${info.name}`));
+        if (info.label) console.log(chalk.dim(`  Label: ${info.label}`));
         console.log(chalk.dim(`  Messages: ${info.messages}`));
         console.log(chalk.dim(`  Has summary: ${info.hasSummary ? 'yes' : 'no'}`));
         if (info.project) console.log(chalk.dim(`  Project: ${info.project}`));
@@ -3169,6 +3228,9 @@ Begin by analyzing the query and planning your research approach.`;
   // Session name tracking for prompt display
   let currentSession: string | null = null;
 
+  // Conversation label for context reminder
+  let currentLabel: string | null = null;
+
   // Dynamic prompt mode tracking
   type PromptMode = 'normal' | 'shell' | 'help';
   let currentPromptMode: PromptMode = 'normal';
@@ -3189,15 +3251,20 @@ Begin by analyzing the query and planning your research approach.`;
   const getPromptText = (mode: PromptMode): string => {
     const baseText = getBasePromptText(mode);
     let colorFn = chalk.bold.cyan;
-    
+
     // Use different colors for different modes
     if (mode === 'shell') {
       colorFn = chalk.bold.yellow;
     } else if (mode === 'help') {
       colorFn = chalk.bold.green;
     }
-    
-    return colorFn(`\n${baseText}: `);
+
+    // Show label as a prefix if set (only in normal mode)
+    const labelPrefix = currentLabel && mode === 'normal'
+      ? chalk.dim(`[${currentLabel}] `)
+      : '';
+
+    return `\n${labelPrefix}${colorFn(`${baseText}: `)}`;
   };
 
   // Update the readline prompt
@@ -3223,6 +3290,13 @@ Begin by analyzing the query and planning your research approach.`;
       inkController?.setStatus({ sessionName: name });
       if (commandContext.sessionState) {
         commandContext.sessionState.currentName = name;
+      }
+    },
+    setLabel: (label: string | null) => {
+      currentLabel = label;
+      updatePrompt(currentPromptMode);
+      if (commandContext.sessionState) {
+        commandContext.sessionState.label = label;
       }
     },
     selectSession: inkController
@@ -3254,6 +3328,13 @@ Begin by analyzing the query and planning your research approach.`;
 
   // Get custom dangerous patterns from config
   const customDangerousPatterns = getCustomDangerousPatterns(resolvedConfig);
+
+  // Create security validator if configured
+  let securityValidator: SecurityValidator | null = null;
+  if (resolvedConfig.securityModel?.enabled) {
+    securityValidator = createSecurityValidator(resolvedConfig.securityModel);
+    logger.verbose(`Security model enabled: ${resolvedConfig.securityModel.model}`);
+  }
 
   let rl: Interface | null = null;
   let workerStatusUI: WorkerStatusUI | null = null;
@@ -3648,6 +3729,7 @@ Begin by analyzing the query and planning your research approach.`;
     approvedPathPatterns: resolvedConfig.approvedPathPatterns,
     approvedPathCategories: resolvedConfig.approvedPathCategories,
     customDangerousPatterns,
+    securityValidator,
     logLevel,
     enableCompression: options.compress ?? resolvedConfig.enableCompression,
     maxContextTokens: resolvedConfig.maxContextTokens,
@@ -3856,6 +3938,7 @@ Begin by analyzing the query and planning your research approach.`;
     currentName: null,
     provider: provider.getName(),
     model: provider.getModel(),
+    label: currentLabel,
   };
 
   // Set indexed files from RAG for code relevance scoring
@@ -3914,6 +3997,14 @@ Begin by analyzing the query and planning your research approach.`;
         inkController?.setStatus({ sessionName: session.name });
         if (commandContext.sessionState) {
           commandContext.sessionState.currentName = session.name;
+        }
+
+        // Restore label if it exists in the session
+        if (session.label) {
+          currentLabel = session.label;
+          if (commandContext.sessionState) {
+            commandContext.sessionState.label = session.label;
+          }
         }
 
         // Restore working set if it exists in the session
@@ -4275,6 +4366,50 @@ Begin by analyzing the query and planning your research approach.`;
         console.log(formatProjectContext(projectInfo));
       } else {
         console.log(chalk.dim('\nNo project detected in current directory.'));
+      }
+      promptUser();
+      return;
+    }
+
+    if (trimmed === '/label' || trimmed.startsWith('/label ')) {
+      const labelArg = trimmed.slice(6).trim();
+
+      if (labelArg === '' || labelArg === 'show') {
+        // Show current label
+        if (currentLabel) {
+          console.log(chalk.dim(`\nLabel: ${chalk.cyan(currentLabel)}`));
+        } else {
+          console.log(chalk.dim('\nNo label set. Use /label <text> to set one.'));
+        }
+      } else if (labelArg === 'clear' || labelArg === 'reset') {
+        // Clear the label
+        currentLabel = null;
+        updatePrompt(currentPromptMode);
+        console.log(chalk.dim('Label cleared.'));
+      } else if (labelArg === 'update' || labelArg === 'refresh' || labelArg === 'auto') {
+        // Regenerate label from conversation
+        if (agent.getHistory().length < 2) {
+          console.log(chalk.dim('\nNeed at least one exchange to generate a label.'));
+        } else {
+          console.log(chalk.dim('\nGenerating label...'));
+          const newLabel = await agent.generateAutoLabel();
+          if (newLabel) {
+            currentLabel = newLabel;
+            updatePrompt(currentPromptMode);
+            if (commandContext.sessionState) {
+              commandContext.sessionState.label = newLabel;
+            }
+            autoSaveSession(commandContext, agent);
+            console.log(chalk.dim(`Label updated to: ${chalk.cyan(newLabel)}`));
+          } else {
+            console.log(chalk.dim('Could not generate a label.'));
+          }
+        }
+      } else {
+        // Set the label
+        currentLabel = labelArg;
+        updatePrompt(currentPromptMode);
+        console.log(chalk.dim(`Label set to: ${chalk.cyan(currentLabel)}`));
       }
       promptUser();
       return;
@@ -4969,6 +5104,20 @@ Begin by analyzing the query and planning your research approach.`;
         }
       }
       autoSaveSession(commandContext, agent);
+
+      // Auto-generate label after first exchange if not set
+      if (!currentLabel && agent.getHistory().length >= 2) {
+        const autoLabel = await agent.generateAutoLabel();
+        if (autoLabel) {
+          currentLabel = autoLabel;
+          updatePrompt(currentPromptMode);
+          if (commandContext.sessionState) {
+            commandContext.sessionState.label = autoLabel;
+          }
+          // Save again to persist the auto-generated label
+          autoSaveSession(commandContext, agent);
+        }
+      }
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);

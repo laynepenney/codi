@@ -193,6 +193,24 @@ export interface WorkspaceConfig {
     /** Enable parameter aliasing (default: true) */
     parameterAliasing?: boolean;
   };
+
+  /** Security model validation settings */
+  securityModel?: {
+    /** Enable security model validation (default: false) */
+    enabled?: boolean;
+    /** Ollama model to use for validation (default: llama3.2) */
+    model?: string;
+    /** Risk score threshold for blocking (7-10, default: 8) */
+    blockThreshold?: number;
+    /** Risk score threshold for warning (4-6, default: 5) */
+    warnThreshold?: number;
+    /** Tools to validate (default: ['bash']) */
+    tools?: string[];
+    /** Ollama base URL (default: http://localhost:11434) */
+    baseUrl?: string;
+    /** Timeout for validation in milliseconds (default: 10000) */
+    timeout?: number;
+  };
 }
 
 /**
@@ -247,6 +265,16 @@ export interface ResolvedConfig {
   /** Per-tool configuration */
   toolsConfig: ToolsConfig;
   contextOptimization: WorkspaceConfig['contextOptimization'];
+  /** Security model validation settings */
+  securityModel?: {
+    enabled: boolean;
+    model: string;
+    blockThreshold: number;
+    warnThreshold: number;
+    tools: string[];
+    baseUrl: string;
+    timeout: number;
+  };
 }
 
 /** Default configuration values */
@@ -471,6 +499,17 @@ export function mergeConfig(
     if (globalConfig.models?.summarize?.model) config.summarizeModel = globalConfig.models.summarize.model;
     if (globalConfig.tools?.disabled) config.toolsConfig.disabled = globalConfig.tools.disabled;
     if (globalConfig.tools?.defaults) config.toolsConfig.defaults = globalConfig.tools.defaults;
+    if (globalConfig.securityModel) {
+      config.securityModel = {
+        enabled: globalConfig.securityModel.enabled ?? false,
+        model: globalConfig.securityModel.model ?? 'llama3.2',
+        blockThreshold: globalConfig.securityModel.blockThreshold ?? 8,
+        warnThreshold: globalConfig.securityModel.warnThreshold ?? 5,
+        tools: globalConfig.securityModel.tools ?? ['bash'],
+        baseUrl: globalConfig.securityModel.baseUrl ?? 'http://localhost:11434',
+        timeout: globalConfig.securityModel.timeout ?? 10000,
+      };
+    }
   }
 
   // Apply workspace config (overrides global)
@@ -503,6 +542,17 @@ export function mergeConfig(
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
     if (workspaceConfig.tools?.disabled) config.toolsConfig.disabled = workspaceConfig.tools.disabled;
     if (workspaceConfig.tools?.defaults) config.toolsConfig.defaults = workspaceConfig.tools.defaults;
+    if (workspaceConfig.securityModel) {
+      config.securityModel = {
+        enabled: workspaceConfig.securityModel.enabled ?? config.securityModel?.enabled ?? false,
+        model: workspaceConfig.securityModel.model ?? config.securityModel?.model ?? 'llama3.2',
+        blockThreshold: workspaceConfig.securityModel.blockThreshold ?? config.securityModel?.blockThreshold ?? 8,
+        warnThreshold: workspaceConfig.securityModel.warnThreshold ?? config.securityModel?.warnThreshold ?? 5,
+        tools: workspaceConfig.securityModel.tools ?? config.securityModel?.tools ?? ['bash'],
+        baseUrl: workspaceConfig.securityModel.baseUrl ?? config.securityModel?.baseUrl ?? 'http://localhost:11434',
+        timeout: workspaceConfig.securityModel.timeout ?? config.securityModel?.timeout ?? 10000,
+      };
+    }
   }
 
   // Merge local config approvals (adds to workspace config approvals)
@@ -670,6 +720,15 @@ export function getExampleConfig(): string {
           timeout: 120,
         },
       },
+    },
+    securityModel: {
+      enabled: false,
+      model: 'llama3.2',
+      blockThreshold: 8,
+      warnThreshold: 5,
+      tools: ['bash'],
+      // baseUrl: 'http://localhost:11434',
+      // timeout: 10000,
     },
   };
 

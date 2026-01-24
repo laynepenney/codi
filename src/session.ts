@@ -23,6 +23,12 @@ export interface Session {
   conversationSummary: string | null;
 
   /**
+   * User-defined label/topic for the conversation.
+   * Displayed in the prompt to help identify what the session is about.
+   */
+  label?: string;
+
+  /**
    * Persistent list of user/agent "open" files (pinned + recent).
    * Used for context injection and for preserving relevant history.
    */
@@ -42,6 +48,7 @@ export interface SessionInfo {
   model?: string;
   messageCount: number;
   hasSummary: boolean;
+  label?: string;
 }
 
 /**
@@ -84,6 +91,7 @@ export function saveSession(
     projectName?: string;
     provider?: string;
     model?: string;
+    label?: string;
     openFilesState?: import('./open-files.js').OpenFilesState;
   } = {}
 ): { path: string; isNew: boolean } {
@@ -93,12 +101,14 @@ export function saveSession(
   const isNew = !fs.existsSync(sessionPath);
   const now = new Date().toISOString();
 
-  // Load existing session to preserve createdAt
+  // Load existing session to preserve createdAt and label (if not overridden)
   let createdAt = now;
+  let existingLabel: string | undefined;
   if (!isNew) {
     try {
       const existing = JSON.parse(fs.readFileSync(sessionPath, 'utf-8')) as Session;
       createdAt = existing.createdAt;
+      existingLabel = existing.label;
     } catch {
       // Ignore errors, use current time
     }
@@ -114,6 +124,7 @@ export function saveSession(
     model: options.model,
     messages,
     conversationSummary,
+    label: options.label ?? existingLabel,
     openFilesState: options.openFilesState,
   };
 
@@ -327,6 +338,7 @@ export function listSessions(): SessionInfo[] {
           model: session.model,
           messageCount: session.messages.length,
           hasSummary: session.conversationSummary !== null,
+          label: session.label,
         });
       } catch {
         // Skip invalid session files
@@ -372,6 +384,9 @@ export function formatSessionInfo(info: SessionInfo): string {
   const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   let display = `${info.name}`;
+  if (info.label) {
+    display += `: "${info.label}"`;
+  }
   display += ` (${info.messageCount} msgs`;
   if (info.hasSummary) display += ', has summary';
   display += ')';

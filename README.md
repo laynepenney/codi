@@ -334,6 +334,7 @@ Sessions auto-save after each response; use `/save` to name or snapshot a sessio
 | `/sessions` | List all saved sessions |
 | `/sessions info [name]` | Show session details |
 | `/sessions delete <name>` | Delete a saved session |
+| `/label [text]` | Set/show conversation label (displayed in prompt) |
 
 </details>
 

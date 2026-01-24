@@ -440,6 +440,8 @@ All git commands are consolidated under `/git <subcommand>` with convenient alia
 | `/sessions info [name]` | Show details about a session |
 | `/sessions delete <name>` | Delete a saved session |
 | `/sessions clear` | Delete all saved sessions |
+| `/label [text]` | Set/show conversation label |
+| `/label clear` | Remove the conversation label |
 
 **Key Features**:
 - Sessions stored in `~/.codi/sessions/` as JSON
@@ -448,6 +450,8 @@ All git commands are consolidated under `/git <subcommand>` with convenient alia
 - Fuzzy search for session names
 - Load session on startup with `-s/--session <name>` CLI option
 - Auto-saves to current session name if one is loaded
+- Conversation labels displayed as `[label] You:` prompt prefix
+- Labels persist and restore with session save/load
 
 #### 3. Workspace Configuration - IMPLEMENTED
 
@@ -1317,6 +1321,7 @@ For maximum impact with reasonable effort:
 12. ~~**Multi-Model Orchestration** - Use cheaper models for summarization~~ DONE
 13. ~~**Model Map** - Docker-compose style multi-model config~~ DONE (Phases 1-3 complete)
 14. ~~**Multi-Agent Orchestration** - Parallel agents with IPC permission bubbling~~ DONE
+15. ~~**Security Model Validation** - AI-powered security analysis for bash commands~~ DONE
 
 ## Security Guidelines
 
@@ -1421,3 +1426,30 @@ See `workflow-status-roadmap.md` for detailed roadmap:
 **Status**: ✅ **Production Ready** - Workflow execution fully functional
 
 Previous versions had a vulnerability where chained commands like `!echo "?" | pnpm dev --quiet` only required permission for the first command (`echo`) but would silently execute subsequent commands (`pnpm`). This has been fixed by requiring explicit permission for ALL commands in a chain.
+
+### AI-Powered Security Model Validation
+
+Codi supports optional AI-powered security analysis for bash commands using a local Ollama model. When enabled, commands are analyzed for security risks before user confirmation.
+
+**Configuration** (in `.codi.json`):
+```json
+{
+  "securityModel": {
+    "enabled": true,
+    "model": "llama3.2",
+    "blockThreshold": 8,
+    "warnThreshold": 5,
+    "tools": ["bash"]
+  }
+}
+```
+
+**Behavior:**
+- Commands with risk score >= `blockThreshold` (default 8) are automatically blocked
+- Commands with risk score >= `warnThreshold` (default 5) show security warnings
+- Falls back gracefully if Ollama is unavailable
+
+**Files:**
+- `src/security-validator.ts` - Core SecurityValidator class
+- `scripts/test-security-model.ts` - Testing script for security models
+- See `docs/PLAN-security-model-validation.md` for full documentation

@@ -68,6 +68,22 @@ import {
   type ApprovedPathPattern,
 } from './approvals.js';
 import { batchToolCalls, getBatchStats, executeWithConcurrencyLimit } from './tool-executor.js';
+import {
+  SecurityValidator,
+  type SecurityValidatorConfig,
+  type SecurityValidationResult,
+} from './security-validator.js';
+
+/**
+ * Security validation result for display in confirmation.
+ */
+export interface SecurityWarning {
+  riskScore: number;
+  threats: string[];
+  reasoning: string;
+  recommendation: 'allow' | 'warn' | 'block';
+  latencyMs: number;
+}
 
 /**
  * Information about a tool call for confirmation.
@@ -84,6 +100,8 @@ export interface ToolConfirmation {
     suggestedPattern: string;
     matchedCategories: Array<{ id: string; name: string; description: string }>;
   };
+  /** Security model validation result */
+  securityWarning?: SecurityWarning;
 }
 
 /**
@@ -119,6 +137,7 @@ export interface AgentOptions {
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
+  securityValidator?: SecurityValidator | null; // Optional security validator for tool calls
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onReasoningChunk?: (chunk: string) => void; // Streaming reasoning output
@@ -146,6 +165,7 @@ export class Agent {
   private approvedPathPatterns: ApprovedPathPattern[];
   private approvedPathCategories: string[];
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
+  private securityValidator: SecurityValidator | null = null;
   private logLevel: LogLevel;
   private enableCompression: boolean;
   private maxContextTokens: number;
@@ -215,6 +235,7 @@ export class Agent {
     this.approvedPathPatterns = options.approvedPathPatterns ?? [];
     this.approvedPathCategories = options.approvedPathCategories ?? [];
     this.customDangerousPatterns = options.customDangerousPatterns ?? [];
+    this.securityValidator = options.securityValidator ?? null;
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
@@ -1152,6 +1173,42 @@ ${contextToSummarize}`,
             }
           }
 
+          // Security model validation (runs before user confirmation prompt)
+          let securityWarning: SecurityWarning | undefined;
+          if (this.securityValidator && this.securityValidator.shouldValidate(toolCall.name)) {
+            try {
+              const securityResult = await this.securityValidator.validate(toolCall);
+
+              if (securityResult.recommendation === 'block') {
+                // Security model recommends blocking - reject without user prompt
+                toolResults.push({
+                  tool_use_id: toolCall.id,
+                  content: `Security policy blocked this command.\nRisk Score: ${securityResult.riskScore}/10\nThreats: ${securityResult.threats.join(', ')}\nReasoning: ${securityResult.reasoning}`,
+                  is_error: true,
+                });
+                continue;
+              }
+
+              if (securityResult.recommendation === 'warn' || securityResult.riskScore >= 4) {
+                securityWarning = {
+                  riskScore: securityResult.riskScore,
+                  threats: securityResult.threats,
+                  reasoning: securityResult.reasoning,
+                  recommendation: securityResult.recommendation,
+                  latencyMs: securityResult.latencyMs,
+                };
+                // Elevate to dangerous if security model flagged it
+                if (!isDangerous && securityResult.riskScore >= 6) {
+                  isDangerous = true;
+                  dangerReason = `Security model: ${securityResult.reasoning}`;
+                }
+              }
+            } catch (error) {
+              // Security validation failed - continue with normal flow
+              logger.debug(`Security validation failed: ${error instanceof Error ? error.message : error}`);
+            }
+          }
+
           const confirmation: ToolConfirmation = {
             toolName: toolCall.name,
             input: toolCall.input,
@@ -1159,6 +1216,7 @@ ${contextToSummarize}`,
             dangerReason,
             diffPreview,
             approvalSuggestions,
+            securityWarning,
           };
 
           const result = await this.callbacks.onConfirm!(confirmation);
@@ -1540,6 +1598,21 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Clear only the conversation context (messages and summary), keeping the working set.
+   */
+  clearContext(): void {
+    this.messages = [];
+    this.conversationSummary = null;
+  }
+
+  /**
+   * Clear only the working set (tracked files and entities), keeping conversation history.
+   */
+  clearWorkingSet(): void {
+    this.workingSet = createWorkingSet();
+  }
+
+  /**
    * Get the conversation history.
    */
   getHistory(): Message[] {
@@ -1551,6 +1624,66 @@ ${contextToSummarize}`,
    */
   getSummary(): string | null {
     return this.conversationSummary;
+  }
+
+  /**
+   * Generate an auto-label for the conversation based on the first exchange.
+   * Uses the secondary provider (if available) to minimize cost.
+   * Returns null if there's not enough context or an error occurs.
+   */
+  async generateAutoLabel(): Promise<string | null> {
+    // Need at least one user message and one assistant response
+    if (this.messages.length < 2) {
+      return null;
+    }
+
+    // Get the first user message
+    const firstUserMsg = this.messages.find(m => m.role === 'user');
+    if (!firstUserMsg) {
+      return null;
+    }
+
+    // Extract text content from the message
+    const userContent = typeof firstUserMsg.content === 'string'
+      ? firstUserMsg.content
+      : firstUserMsg.content
+          .filter(block => block.type === 'text')
+          .map(block => (block as { type: 'text'; text: string }).text)
+          .join(' ');
+
+    // Truncate if too long
+    const truncatedContent = userContent.length > 500
+      ? userContent.slice(0, 500) + '...'
+      : userContent;
+
+    try {
+      const labelProvider = this.getSummaryProvider();
+      const response = await labelProvider.chat([
+        {
+          role: 'user',
+          content: `Generate a very short label (3-5 words max) that describes the topic of this conversation. Reply with ONLY the label, nothing else.
+
+User's request: "${truncatedContent}"
+
+Label:`,
+        },
+      ]);
+
+      // Clean up the response - remove quotes, trim, limit length
+      let label = response.content.trim();
+      label = label.replace(/^["']|["']$/g, ''); // Remove surrounding quotes
+      label = label.replace(/^Label:\s*/i, ''); // Remove "Label:" prefix if present
+
+      // Limit to reasonable length for prompt display
+      if (label.length > 40) {
+        label = label.slice(0, 40).trim();
+      }
+
+      return label || null;
+    } catch (error) {
+      logger.debug(`Failed to generate auto-label: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   /**

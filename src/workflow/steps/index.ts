@@ -1,13 +1,24 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+<<<<<<< HEAD
 import type { WorkflowStep, WorkflowState, ConditionalStep, CheckFileExistsStep, LoopStep } from '../types.js';
 import { executeSwitchModelStep, validateSwitchModelStep } from './switch-model.js';
 import { executeConditionalStep, validateConditionalStep } from './conditional.js';
 import { executeCheckFileExistsStep, validateCheckFileExistsStep } from './file-exists.js';
 import { executeLoopStep, validateLoopStep } from './loop.js';
+=======
+import type { WorkflowStep, WorkflowState, ConditionalStep, CheckFileExistsStep } from '../types.js';
+import { executeSwitchModelStep, validateSwitchModelStep } from './switch-model.js';
+import { executeConditionalStep, validateConditionalStep } from './conditional.js';
+import { executeCheckFileExistsStep, validateCheckFileExistsStep } from './file-exists.js';
+>>>>>>> origin/main
 
-/**
+import type { WorkflowStep, WorkflowState, ConditionalStep, CheckFileExistsStep, LoopStep } from '../types.js';
+import { executeSwitchModelStep, validateSwitchModelStep } from './switch-model.js';
+import { executeConditionalStep, validateConditionalStep } from './conditional.js';
+import { executeCheckFileExistsStep, validateCheckFileExistsStep } from './file-exists.js';
+import { executeLoopStep, validateLoopStep } from './loop.js';
  * Execute any workflow step
  */
 export async function executeStep(

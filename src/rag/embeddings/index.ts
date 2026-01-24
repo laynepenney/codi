@@ -7,6 +7,7 @@
  * Auto-detects and creates the appropriate embedding provider.
  */
 
+import chalk from 'chalk';
 import { BaseEmbeddingProvider } from './base.js';
 import { OpenAIEmbeddingProvider } from './openai.js';
 import { OllamaEmbeddingProvider } from './ollama.js';
@@ -88,18 +89,22 @@ function createEmbeddingProviderFromModelMap(
   const task: TaskDefinition | undefined = modelMap.tasks?.[taskName];
 
   if (!task || !task.model) {
-    throw new Error(
-      `Embedding task '${taskName}' not found in model map. ` +
-      `Available tasks: ${Object.keys(modelMap.tasks || {}).join(', ')}`
-    );
+    // Fallback to auto detection instead of throwing error
+    console.log(chalk.yellow(
+      `Warning: Embedding task '${taskName}' not found in model map.` +
+      ` Falling back to auto-detection.`
+    ));
+    return createEmbeddingProvider({ ...config, embeddingProvider: 'auto' }, modelMap);
   }
 
   const modelDef = modelMap.models[task.model];
   if (!modelDef) {
-    throw new Error(
-      `Model '${task.model}' not found in model map. ` +
-      `Referenced by task '${taskName}'`
-    );
+    // Fallback to auto detection instead of throwing error
+    console.log(chalk.yellow(
+      `Warning: Model '${task.model}' not found in model map.` +
+      ` Falling back to auto-detection.`
+    ));
+    return createEmbeddingProvider({ ...config, embeddingProvider: 'auto' }, modelMap);
   }
 
   return createEmbeddingProviderFromModelDef(modelDef);

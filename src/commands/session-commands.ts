@@ -59,6 +59,7 @@ export const saveCommand: Command = {
       projectName: context.projectInfo?.name || '',
       provider: context.sessionState?.provider || '',
       model: context.sessionState?.model || '',
+      label: context.sessionState?.label || undefined,
       openFilesState: context.openFilesManager?.toJSON(),
     });
 
@@ -158,6 +159,11 @@ function applyLoadedSession(session: Session, context: CommandContext): string {
 
   currentSessionName = session.name;
   context.setSessionName?.(session.name);
+
+  // Restore conversation label if present
+  if (session.label) {
+    context.setLabel?.(session.label);
+  }
 
   return `__SESSION_LOADED__:${session.name}:${session.messages.length}:${session.conversationSummary ? 'yes' : 'no'}`;
 }
@@ -334,6 +340,7 @@ export const sessionsCommand: Command = {
 
         return `__SESSION_INFO__:${JSON.stringify({
           name: session.name,
+          label: session.label || null,
           messages: session.messages.length,
           hasSummary: !!session.conversationSummary,
           project: session.projectName,

@@ -12,6 +12,6 @@
     "declaration": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*", "!src/ui/**/*"],
+  "exclude": ["node_modules", "dist", "src/ui/**/*", "src/ui/**/*.ts", "src/ui/**/*.tsx"]
 }
