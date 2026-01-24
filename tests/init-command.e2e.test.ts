@@ -63,7 +63,7 @@ describe('/init command E2E', () => {
     });
 
     // Wait for prompt
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
 
     // Run /init command
     proc.writeLine('/init');
@@ -97,7 +97,7 @@ describe('/init command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/init --config');
 
     await proc.waitFor(/Created.*\.codi\.json|config:created/i);
@@ -117,7 +117,7 @@ describe('/init command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/init --modelmap');
 
     await proc.waitFor(/Created.*codi-models\.yaml|modelmap:created/i);
@@ -141,7 +141,7 @@ describe('/init command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/init');
 
     // Should report files already exist
@@ -157,7 +157,7 @@ describe('/init command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/init --help');
 
     // Should show usage information

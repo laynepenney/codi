@@ -53,7 +53,7 @@ describe('/prompt explain command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/prompt explain test.ts');
 
     // Should send to AI for explanation
@@ -89,7 +89,7 @@ describe('/refactor command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/refactor legacy.ts to use const');
 
     await proc.waitFor(/refactor|const|modern/i);
@@ -124,7 +124,7 @@ describe('/fix command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/fix buggy.ts');
 
     await proc.waitFor(/bug|fix|undefined/i);
@@ -159,7 +159,7 @@ describe('/test command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/test utils.ts');
 
     await proc.waitFor(/test|multiply|generate/i);
@@ -194,7 +194,7 @@ describe('/prompt review command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/prompt review code.ts');
 
     await proc.waitFor(/review|function|descriptive/i);
@@ -229,7 +229,7 @@ describe('/code doc command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/code doc api.ts');
 
     await proc.waitFor(/doc|JSDoc|documentation/i);
@@ -264,7 +264,7 @@ describe('/code optimize command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/code optimize slow.ts');
 
     await proc.waitFor(/optimize|loop|removing/i);

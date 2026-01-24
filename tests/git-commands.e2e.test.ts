@@ -60,7 +60,7 @@ describe('/commit command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/commit');
 
     // Should generate commit message
@@ -98,7 +98,7 @@ describe('/branch command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/branch list');
 
     // Should show branch list or AI response about branches
@@ -136,7 +136,7 @@ describe('/diff command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/diff');
 
     // Should show diff or AI analysis
@@ -172,7 +172,7 @@ describe('/gitstatus command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/gitstatus');
 
     // Should show status
@@ -209,7 +209,7 @@ describe('/log command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/log');
 
     // Should show log
@@ -246,7 +246,7 @@ describe('/stash command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/stash list');
 
     // Should show stash list or empty message
@@ -283,7 +283,7 @@ describe('/pr command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/pr');
 
     // Should generate PR description

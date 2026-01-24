@@ -313,8 +313,10 @@ export class IPCClient extends EventEmitter {
   /**
    * Send a message to the server.
    */
-  private send(message: IPCMessage): void {
-    if (!this.socket || !this.connected || !this.handshakeComplete) {
+  private send(message: IPCMessage, options?: { allowDuringHandshake?: boolean }): void {
+    const allowDuringHandshake =
+      options?.allowDuringHandshake && this.handshaking && message.type === 'handshake';
+    if (!this.socket || (!allowDuringHandshake && (!this.connected || !this.handshakeComplete))) {
       throw new Error('Not connected to IPC server');
     }
     this.socket.write(serialize(message));
@@ -326,7 +328,8 @@ export class IPCClient extends EventEmitter {
   private async sendAndWait<T extends IPCMessage>(
     message: IPCMessage,
     responseType: string,
-    timeoutMs: number
+    timeoutMs: number,
+    options?: { allowDuringHandshake?: boolean }
   ): Promise<T> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -340,7 +343,7 @@ export class IPCClient extends EventEmitter {
         timeout,
       });
 
-      this.send(message);
+      this.send(message, options);
     });
   }
 
@@ -360,7 +363,8 @@ export class IPCClient extends EventEmitter {
     const response = await this.sendAndWait<HandshakeAckMessage>(
       handshake,
       'handshake_ack',
-      10000 // 10 second timeout for handshake
+      10000, // 10 second timeout for handshake
+      { allowDuringHandshake: true }
     );
 
     if (!response.accepted) {

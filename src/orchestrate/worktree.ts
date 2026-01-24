@@ -62,10 +62,47 @@ export class WorktreeManager {
     }
 
     const worktreePath = join(this.worktreeDir, `${this.prefix}${branchName}`);
+    const existingEntries = await this.getWorktreeEntries();
 
     // Check if directory already exists
     if (existsSync(worktreePath)) {
-      throw new Error(`Directory already exists: ${worktreePath}`);
+      const existing = existingEntries.find((entry) => entry.path === worktreePath);
+      if (existing) {
+        if (!existing.branch) {
+          throw new Error(
+            `Existing worktree at ${worktreePath} is detached and cannot be reused for ${branchName}`
+          );
+        }
+        if (existing.branch !== branchName) {
+          throw new Error(
+            `Worktree path ${worktreePath} is already used by branch '${existing.branch}'`
+          );
+        }
+
+        const info: WorktreeInfo = {
+          path: worktreePath,
+          branch: branchName,
+          managed: true,
+          createdAt: new Date(),
+        };
+        this.activeWorktrees.set(branchName, info);
+        return info;
+      }
+
+      throw new Error(`Directory already exists but is not a git worktree: ${worktreePath}`);
+    }
+
+    const existingBranch = existingEntries.find((entry) => entry.branch === branchName);
+    if (existingBranch) {
+      throw new Error(`Branch '${branchName}' is already checked out at ${existingBranch.path}`);
+    }
+
+    const branchConflict = await this.findBranchNameConflict(branchName);
+    if (branchConflict) {
+      throw new Error(
+        `Branch name '${branchName}' conflicts with existing branch '${branchConflict}'. ` +
+        `Choose a different name (e.g. '${branchName}-worker' or 'workers/${branchName}').`
+      );
     }
 
     // Check if branch already exists
@@ -99,6 +136,45 @@ export class WorktreeManager {
 
     this.activeWorktrees.set(branchName, info);
     return info;
+  }
+
+  /**
+   * Parse git worktree list output.
+   */
+  private async getWorktreeEntries(): Promise<Array<{ path: string; branch?: string }>> {
+    const { stdout } = await execAsync('git worktree list --porcelain', {
+      cwd: this.repoRoot,
+    });
+
+    const entries: Array<{ path: string; branch?: string }> = [];
+    const lines = stdout.trim().split('\n');
+
+    let currentPath = '';
+    let currentBranch = '';
+
+    for (const line of lines) {
+      if (line.startsWith('worktree ')) {
+        if (currentPath) {
+          entries.push({ path: currentPath, branch: currentBranch || undefined });
+        }
+        currentPath = line.slice(9);
+        currentBranch = '';
+      } else if (line.startsWith('branch refs/heads/')) {
+        currentBranch = line.slice(18);
+      } else if (line === '') {
+        if (currentPath) {
+          entries.push({ path: currentPath, branch: currentBranch || undefined });
+        }
+        currentPath = '';
+        currentBranch = '';
+      }
+    }
+
+    if (currentPath) {
+      entries.push({ path: currentPath, branch: currentBranch || undefined });
+    }
+
+    return entries;
   }
 
   /**
@@ -239,6 +315,40 @@ export class WorktreeManager {
     } catch {
       return false;
     }
+  }
+
+  private async listLocalBranches(): Promise<string[]> {
+    try {
+      const { stdout } = await execAsync('git for-each-ref refs/heads --format="%(refname:short)"', {
+        cwd: this.repoRoot,
+      });
+      return stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+    } catch {
+      return [];
+    }
+  }
+
+  private async findBranchNameConflict(branchName: string): Promise<string | null> {
+    const branches = await this.listLocalBranches();
+    const prefixConflict = branches.find((name) => name.startsWith(`${branchName}/`));
+    if (prefixConflict) {
+      return prefixConflict;
+    }
+    if (!branchName.includes('/')) {
+      return null;
+    }
+    const parts = branchName.split('/');
+    let prefix = '';
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      prefix = prefix ? `${prefix}/${parts[i]}` : parts[i];
+      if (branches.includes(prefix)) {
+        return prefix;
+      }
+    }
+    return null;
   }
 
   /**
