@@ -104,6 +104,8 @@ export interface WorkerState {
   progress?: number;
   /** Token usage */
   tokensUsed?: { input: number; output: number };
+  /** Human-friendly status message */
+  statusMessage?: string;
   /** Number of restart attempts */
   restartCount: number;
   /** Error message if failed */
@@ -194,7 +196,7 @@ export interface WorkerResult {
  * Options for the orchestrator.
  */
 export interface OrchestratorOptions {
-  /** Path to the Unix socket (default: ~/.codi/orchestrator.sock) */
+  /** Path to the Unix socket (default: ~/.codi/orchestrator.sock; may fall back to /tmp for long paths) */
   socketPath?: string;
   /** Maximum concurrent workers (default: 4) */
   maxWorkers?: number;

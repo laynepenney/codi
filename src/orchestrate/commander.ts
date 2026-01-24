@@ -10,7 +10,7 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { existsSync } from 'fs';
 import { EventEmitter } from 'events';
 
@@ -20,8 +20,13 @@ import { EventEmitter } from 'events';
  * Child processes need the compiled .js file since they run with node directly.
  */
 function resolveCodiPath(inputPath: string): string {
-  // If it's a .ts file, convert to the compiled .js equivalent
+  // If it's a .ts file, prefer source in dev unless explicitly forced to dist.
   if (inputPath.endsWith('.ts')) {
+    const preferSource = process.env.CODI_USE_DIST !== '1';
+    if (preferSource) {
+      return inputPath;
+    }
+
     // Convert src/index.ts -> dist/index.js
     const compiledPath = inputPath
       .replace(/\/src\//, '/dist/')
@@ -42,7 +47,20 @@ function resolveCodiPath(inputPath: string): string {
 
   return inputPath;
 }
+
+const MAX_SOCKET_PATH_BYTES = 100;
+
+function getDefaultSocketPath(): string {
+  const homeSocket = join(homedir(), '.codi', 'orchestrator.sock');
+  if (Buffer.byteLength(homeSocket, 'utf8') <= MAX_SOCKET_PATH_BYTES) {
+    return homeSocket;
+  }
+
+  const tmpBase = existsSync('/tmp') ? '/tmp' : tmpdir();
+  return join(tmpBase, `codi-orchestrator-${process.pid}.sock`);
+}
 import type { Interface as ReadlineInterface } from 'readline';
+import { createRequire } from 'module';
 import chalk from 'chalk';
 
 import { IPCServer } from './ipc/server.js';
@@ -81,6 +99,8 @@ export interface OrchestratorEvents {
   workerCompleted: (workerId: string, result: WorkerResult) => void;
   /** Worker failed */
   workerFailed: (workerId: string, error: string) => void;
+  /** Log message from worker */
+  workerLog: (workerId: string, log: LogMessage) => void;
   /** Permission request from worker */
   permissionRequest: (workerId: string, confirmation: ToolConfirmation) => void;
   /** All workers completed */
@@ -93,6 +113,8 @@ export interface OrchestratorEvents {
   readerCompleted: (readerId: string, result: ReaderResult) => void;
   /** Reader failed */
   readerFailed: (readerId: string, error: string) => void;
+  /** Reader log message */
+  readerLog: (readerId: string, log: LogMessage) => void;
 }
 
 /**
@@ -118,7 +140,7 @@ export interface OrchestratorConfig extends OrchestratorOptions {
   onPermissionRequest?: PermissionPromptCallback | undefined;
   /** Repository root path */
   repoRoot: string;
-  /** Path to codi executable */
+  /** Path to codi entrypoint (script) */
   codiPath?: string;
   /** Default provider for spawned agents (inherited from parent) */
   defaultProvider?: string;
@@ -126,6 +148,10 @@ export interface OrchestratorConfig extends OrchestratorOptions {
   defaultModel?: string;
   /** Callback to generate background context for agents */
   contextProvider?: ContextProviderCallback;
+  /** Executable to run the entrypoint (default: process.execPath) */
+  codiExecPath?: string;
+  /** Extra exec args for the runtime (default: process.execArgv) */
+  codiExecArgs?: string[];
 }
 
 /**
@@ -146,6 +172,8 @@ interface ResolvedOrchestratorConfig {
   contextProvider: ContextProviderCallback | undefined;
   defaultProvider: string | undefined;
   defaultModel: string | undefined;
+  codiExecPath: string;
+  codiExecArgs: string[];
 }
 
 /**
@@ -165,14 +193,17 @@ export class Orchestrator extends EventEmitter {
   }> = new Map();
   private results: WorkerResult[] = [];
   private readerResults: ReaderResult[] = [];
+  private resultsByWorker: Map<string, WorkerResult> = new Map();
+  private logBuffers: Map<string, string> = new Map();
   private started = false;
+  private static readonly MAX_LOG_CHARS = 12000;
 
   constructor(config: OrchestratorConfig) {
     super();
 
     // Apply defaults
     this.config = {
-      socketPath: config.socketPath || join(homedir(), '.codi', 'orchestrator.sock'),
+      socketPath: config.socketPath || getDefaultSocketPath(),
       maxWorkers: config.maxWorkers || 4,
       worktreeDir: config.worktreeDir || '',
       worktreePrefix: config.worktreePrefix || 'codi-worker-',
@@ -186,6 +217,8 @@ export class Orchestrator extends EventEmitter {
       defaultProvider: config.defaultProvider,
       defaultModel: config.defaultModel,
       contextProvider: config.contextProvider,
+      codiExecPath: config.codiExecPath || process.execPath,
+      codiExecArgs: config.codiExecArgs || process.execArgv,
     };
 
     // Initialize IPC server
@@ -273,7 +306,7 @@ export class Orchestrator extends EventEmitter {
     config: WorkerConfig,
     worktreePath: string
   ): Promise<void> {
-    const args = [
+    const childArgs = [
       '--child-mode',
       '--socket-path', this.config.socketPath,
       '--child-id', workerId,
@@ -285,16 +318,17 @@ export class Orchestrator extends EventEmitter {
     const provider = config.provider || this.config.defaultProvider;
 
     if (model) {
-      args.push('--model', model);
+      childArgs.push('--model', model);
     }
     if (provider) {
-      args.push('--provider', provider);
+      childArgs.push('--provider', provider);
     }
     if (config.autoApprove?.length) {
-      args.push('--auto-approve', config.autoApprove.join(','));
+      childArgs.push('--auto-approve', config.autoApprove.join(','));
     }
 
-    const proc = spawn('node', [this.config.codiPath, ...args], {
+    const { command, args } = this.resolveChildCommand(childArgs);
+    const proc = spawn(command, args, {
       cwd: worktreePath,
       env: {
         ...process.env,
@@ -307,25 +341,66 @@ export class Orchestrator extends EventEmitter {
 
     this.processes.set(workerId, proc);
 
-    // Handle stdout (for debugging)
+    // Handle stdout/stderr from the child process (debugging and early failures)
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+    const flushLogBuffer = (buffer: string, level: LogMessage['level']) => {
+      const lines = buffer.replace(/\r/g, '').split('\n');
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(workerId, createMessage<LogMessage>('log', {
+          childId: workerId,
+          level,
+          content: text,
+        }));
+      }
+    };
+    const flushPendingLogs = () => {
+      if (stdoutBuffer) {
+        flushLogBuffer(stdoutBuffer, 'info');
+        stdoutBuffer = '';
+      }
+      if (stderrBuffer) {
+        flushLogBuffer(stderrBuffer, 'error');
+        stderrBuffer = '';
+      }
+    };
+
     proc.stdout?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.log(chalk.dim(`[${config.branch}] ${text}`));
+      stdoutBuffer += data.toString();
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(workerId, createMessage<LogMessage>('log', {
+          childId: workerId,
+          level: 'info',
+          content: text,
+        }));
       }
     });
 
-    // Handle stderr
     proc.stderr?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.error(chalk.red(`[${config.branch}] ${text}`));
+      stderrBuffer += data.toString();
+      const lines = stderrBuffer.split('\n');
+      stderrBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(workerId, createMessage<LogMessage>('log', {
+          childId: workerId,
+          level: 'error',
+          content: text,
+        }));
       }
     });
 
     // Handle exit
     proc.on('exit', (code) => {
       this.processes.delete(workerId);
+      flushPendingLogs();
       const state = this.workers.get(workerId);
 
       if (state && state.status !== 'complete' && state.status !== 'failed') {
@@ -336,6 +411,49 @@ export class Orchestrator extends EventEmitter {
         }
       }
     });
+  }
+
+  /**
+   * Resolve the runtime command/args for child agents.
+   */
+  private resolveChildCommand(childArgs: string[]): { command: string; args: string[] } {
+    const execArgs = [...this.config.codiExecArgs];
+    const entrypoint = this.config.codiPath;
+
+    if (!entrypoint) {
+      throw new Error('Unable to resolve codi entrypoint');
+    }
+
+    if (entrypoint.endsWith('.ts') && !this.hasRuntimeLoader(execArgs)) {
+      const tsxLoader = this.resolveTsxLoader();
+      if (tsxLoader) {
+        execArgs.push('--loader', tsxLoader);
+      }
+    }
+
+    return {
+      command: this.config.codiExecPath,
+      args: [...execArgs, entrypoint, ...childArgs],
+    };
+  }
+
+  private hasRuntimeLoader(execArgs: string[]): boolean {
+    return execArgs.some((arg) =>
+      arg === '--loader' ||
+      arg.startsWith('--loader=') ||
+      arg === '--import' ||
+      arg.startsWith('--import=') ||
+      arg.includes('tsx')
+    );
+  }
+
+  private resolveTsxLoader(): string | null {
+    try {
+      const require = createRequire(import.meta.url);
+      return require.resolve('tsx');
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -410,7 +528,8 @@ export class Orchestrator extends EventEmitter {
     }
     // Note: scope is not a CLI flag - it should be included in the query itself
 
-    const proc = spawn('node', [this.config.codiPath, ...args], {
+    const { command, args: childArgs } = this.resolveChildCommand(args);
+    const proc = spawn(command, childArgs, {
       cwd: this.config.repoRoot, // Run in main repo, not a worktree
       env: {
         ...process.env,
@@ -424,25 +543,70 @@ export class Orchestrator extends EventEmitter {
 
     this.processes.set(readerId, proc);
 
-    // Handle stdout (for debugging)
+    // Handle stdout/stderr for debugging or failures (readers report via IPC)
+    const showReaderStdout = process.env.CODI_READER_STDIO === '1';
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+    const flushLogBuffer = (buffer: string, level: LogMessage['level']) => {
+      const lines = buffer.replace(/\r/g, '').split('\n');
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(readerId, createMessage<LogMessage>('log', {
+          childId: readerId,
+          level,
+          content: text,
+        }));
+      }
+    };
+    const flushPendingLogs = () => {
+      if (showReaderStdout && stdoutBuffer) {
+        flushLogBuffer(stdoutBuffer, 'info');
+        stdoutBuffer = '';
+      }
+      if (stderrBuffer) {
+        flushLogBuffer(stderrBuffer, 'error');
+        stderrBuffer = '';
+      }
+    };
+
     proc.stdout?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.log(chalk.dim(`[reader:${readerId.slice(-5)}] ${text}`));
+      stdoutBuffer += data.toString();
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop() || '';
+      if (!showReaderStdout) {
+        return;
+      }
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(readerId, createMessage<LogMessage>('log', {
+          childId: readerId,
+          level: 'info',
+          content: text,
+        }));
       }
     });
 
-    // Handle stderr
     proc.stderr?.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.error(chalk.red(`[reader:${readerId.slice(-5)}] ${text}`));
+      stderrBuffer += data.toString();
+      const lines = stderrBuffer.split('\n');
+      stderrBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        this.handleLog(readerId, createMessage<LogMessage>('log', {
+          childId: readerId,
+          level: 'error',
+          content: text,
+        }));
       }
     });
 
     // Handle exit
     proc.on('exit', (code) => {
       this.processes.delete(readerId);
+      flushPendingLogs();
       const state = this.readers.get(readerId);
 
       if (state && state.status !== 'complete' && state.status !== 'failed') {
@@ -515,6 +679,20 @@ export class Orchestrator extends EventEmitter {
   }
 
   /**
+   * Get the last completed result for a worker.
+   */
+  getResult(workerId: string): WorkerResult | undefined {
+    return this.resultsByWorker.get(workerId);
+  }
+
+  /**
+   * Get accumulated log output for a worker.
+   */
+  getLogs(workerId: string): string | undefined {
+    return this.logBuffers.get(workerId);
+  }
+
+  /**
    * Get active (non-completed) workers.
    */
   getActiveWorkers(): WorkerState[] {
@@ -583,8 +761,8 @@ export class Orchestrator extends EventEmitter {
     const workerState = this.workers.get(childId);
     if (workerState) {
       workerState.status = 'idle';
+      workerState.statusMessage = undefined;
       this.emit('workerStatus', childId, workerState);
-
       // Send background context if provider is configured
       if (this.config.contextProvider) {
         const context = this.config.contextProvider(childId, workerState.config.task);
@@ -618,8 +796,8 @@ export class Orchestrator extends EventEmitter {
     if (workerState && workerState.status !== 'complete' && workerState.status !== 'failed') {
       workerState.status = 'failed';
       workerState.error = 'Worker disconnected unexpectedly';
+      workerState.statusMessage = undefined;
       this.emit('workerFailed', childId, workerState.error);
-      return;
     }
 
     const readerState = this.readers.get(childId);
@@ -644,8 +822,8 @@ export class Orchestrator extends EventEmitter {
 
     state.status = 'waiting_permission';
     state.currentTool = request.confirmation.toolName;
-
     if (workerState) {
+      workerState.statusMessage = `Waiting for permission: ${request.confirmation.toolName}`;
       this.emit('workerStatus', childId, workerState);
     } else if (readerState) {
       this.emit('readerStatus', childId, readerState);
@@ -675,6 +853,7 @@ export class Orchestrator extends EventEmitter {
 
     state.status = 'thinking';
     if (workerState) {
+      workerState.statusMessage = undefined;
       this.emit('workerStatus', childId, workerState);
     } else if (readerState) {
       this.emit('readerStatus', childId, readerState);
@@ -690,6 +869,7 @@ export class Orchestrator extends EventEmitter {
       workerState.status = status.status;
       workerState.currentTool = status.currentTool;
       workerState.progress = status.progress;
+      workerState.statusMessage = status.message;
       if (status.tokensUsed) {
         workerState.tokensUsed = status.tokensUsed;
       }
@@ -717,6 +897,7 @@ export class Orchestrator extends EventEmitter {
     if (workerState) {
       workerState.status = 'complete';
       workerState.completedAt = new Date();
+      workerState.statusMessage = undefined;
 
       const workerResult: WorkerResult = {
         workerId: childId,
@@ -725,6 +906,8 @@ export class Orchestrator extends EventEmitter {
 
       this.results.push(workerResult);
       this.emit('workerCompleted', childId, workerResult);
+
+      this.resultsByWorker.set(childId, workerResult);
 
       // Check if all done
       if (this.getActiveWorkers().length === 0) {
@@ -763,7 +946,7 @@ export class Orchestrator extends EventEmitter {
       workerState.status = 'failed';
       workerState.error = error.error.message;
       workerState.completedAt = new Date();
-
+      workerState.statusMessage = undefined;
       this.emit('workerFailed', childId, error.error.message);
 
       // Check if all done
@@ -784,11 +967,42 @@ export class Orchestrator extends EventEmitter {
   }
 
   /**
+   * Append a log entry to the worker's log buffer with size limits.
+   */
+  private appendLog(childId: string, log: LogMessage): void {
+    const existing = this.logBuffers.get(childId) || '';
+    let entry = log.content;
+    if (log.level !== 'text') {
+      entry = `[${log.level}] ${entry}\n`;
+    }
+    let combined = existing + entry;
+    if (combined.length > Orchestrator.MAX_LOG_CHARS) {
+      combined = combined.slice(-Orchestrator.MAX_LOG_CHARS);
+    }
+    this.logBuffers.set(childId, combined);
+  }
+
+  /**
    * Handle log from worker or reader.
    */
   private handleLog(childId: string, log: LogMessage): void {
     const workerState = this.workers.get(childId);
+    if (workerState) {
+      this.appendLog(childId, log);
+      if (this.listenerCount('workerLog') > 0) {
+        this.emit('workerLog', childId, log);
+        return;
+      }
+    }
+
     const readerState = this.readers.get(childId);
+    if (readerState) {
+      this.appendLog(childId, log);
+      if (this.listenerCount('readerLog') > 0) {
+        this.emit('readerLog', childId, log);
+        return;
+      }
+    }
     const prefix = workerState
       ? `[${workerState.config.branch}]`
       : readerState

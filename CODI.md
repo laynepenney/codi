@@ -1353,8 +1353,6 @@ The bash tool includes built-in dangerous command detection with customizable pa
 
 ### ✅ What's Implemented
 
-### ✅ What's Implemented
-
 **Phase 1-2 Features (Working)**:
 - Workflow discovery in `./workflows/`, `~/.codi/workflows/`
 - YAML parsing with schema validation
@@ -1403,7 +1401,6 @@ See `workflow-status-roadmap.md` for detailed roadmap:
 2. Use `/workflow validate <name>` to check syntax
 3. Execute with `/workflow-run <name>`
 
-
 ### 🔍 Verification
 
 **Command Testing**:
@@ -1422,7 +1419,5 @@ See `workflow-status-roadmap.md` for detailed roadmap:
 ```
 
 **Status**: ✅ **Production Ready** - Workflow execution fully functional
-
----
 
 Previous versions had a vulnerability where chained commands like `!echo "?" | pnpm dev --quiet` only required permission for the first command (`echo`) but would silently execute subsequent commands (`pnpm`). This has been fixed by requiring explicit permission for ALL commands in a chain.

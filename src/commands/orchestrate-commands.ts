@@ -11,6 +11,7 @@ import chalk from 'chalk';
 import { registerCommand, type Command, type CommandContext } from './index.js';
 import { Orchestrator } from '../orchestrate/commander.js';
 import type { WorkerConfig, WorkerState } from '../orchestrate/types.js';
+import { getProviderTypes } from '../providers/index.js';
 
 // Global orchestrator instance (initialized lazily)
 let orchestrator: Orchestrator | null = null;
@@ -45,6 +46,27 @@ function generateWorkerId(): string {
   return `worker_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function normalizeProviderType(name: string): string {
+  const lowered = name.trim().toLowerCase();
+  if (lowered === 'ollama cloud') return 'ollama-cloud';
+  return lowered.replace(/\s+/g, '-');
+}
+
+function getParentProviderDefaults(context: CommandContext): { provider?: string; model?: string } {
+  const provider = context.agent?.getProvider();
+  if (!provider) {
+    return {};
+  }
+
+  const providerType = normalizeProviderType(provider.getName());
+  const knownProviders = getProviderTypes();
+
+  return {
+    provider: knownProviders.includes(providerType) ? providerType : undefined,
+    model: provider.getModel(),
+  };
+}
+
 /**
  * Format worker state for display.
  */
@@ -67,6 +89,8 @@ function formatWorkerState(state: WorkerState): string {
 
   if (state.currentTool) {
     line += ` - ${state.currentTool}`;
+  } else if (state.statusMessage) {
+    line += ` - ${state.statusMessage}`;
   }
 
   if (state.progress !== undefined) {
@@ -118,7 +142,7 @@ export const delegateCommand: Command = {
 
     const providerMatch = task.match(/--provider\s+(\S+)/);
     if (providerMatch) {
-      provider = providerMatch[1];
+      provider = normalizeProviderType(providerMatch[1]);
       task = task.replace(providerMatch[0], '').trim();
     }
 
@@ -130,12 +154,15 @@ export const delegateCommand: Command = {
       return null;
     }
 
+    const parentDefaults = getParentProviderDefaults(context);
+    const resolvedProvider = provider ?? parentDefaults.provider;
+    const resolvedModel = model ?? (provider ? undefined : parentDefaults.model);
     const config: WorkerConfig = {
       id: generateWorkerId(),
       branch,
       task,
-      model,
-      provider,
+      model: resolvedModel,
+      provider: resolvedProvider,
     };
 
     try {
@@ -160,8 +187,8 @@ export const workersCommand: Command = {
   name: 'workers',
   aliases: ['wk'],
   description: 'List and manage worker agents',
-  usage: '/workers [list|status|cancel <id>|wait]',
-  subcommands: ['list', 'status', 'cancel', 'wait', 'cleanup'],
+  usage: '/workers [list|status|output <id>|logs <id>|cancel <id>|wait]',
+  subcommands: ['list', 'status', 'output', 'logs', 'cancel', 'wait', 'cleanup'],
 
   execute: async (args, context): Promise<string | null> => {
     if (!orchestrator) {
@@ -211,6 +238,66 @@ export const workersCommand: Command = {
         return null;
       }
 
+      case 'output': {
+        const workerId = rest[0];
+        if (!workerId) {
+          console.log(chalk.red('Usage: /workers output <worker-id or branch>'));
+          return null;
+        }
+
+        const workers = orchestrator.getWorkers();
+        const worker = workers.find(
+          (w) => w.config.id === workerId || w.config.branch === workerId
+        );
+
+        if (!worker) {
+          console.log(chalk.red(`Worker not found: ${workerId}`));
+          return null;
+        }
+
+        const result = orchestrator.getResult(worker.config.id);
+        if (!result?.response?.trim()) {
+          if (worker.error) {
+            console.log(chalk.red(`No output available. Error: ${worker.error}`));
+          } else {
+            console.log(chalk.yellow('No output available yet for this worker'));
+          }
+          return null;
+        }
+
+        console.log(chalk.bold(`\nOutput from ${worker.config.branch}:`));
+        console.log(result.response.trimEnd());
+        return null;
+      }
+
+      case 'logs': {
+        const workerId = rest[0];
+        if (!workerId) {
+          console.log(chalk.red('Usage: /workers logs <worker-id or branch>'));
+          return null;
+        }
+
+        const workers = orchestrator.getWorkers();
+        const worker = workers.find(
+          (w) => w.config.id === workerId || w.config.branch === workerId
+        );
+
+        if (!worker) {
+          console.log(chalk.red(`Worker not found: ${workerId}`));
+          return null;
+        }
+
+        const logs = orchestrator.getLogs(worker.config.id);
+        if (!logs?.trim()) {
+          console.log(chalk.yellow('No logs available for this worker yet'));
+          return null;
+        }
+
+        console.log(chalk.bold(`\nLogs from ${worker.config.branch}:`));
+        console.log(logs.trimEnd());
+        return null;
+      }
+
       case 'wait': {
         const active = orchestrator.getActiveWorkers();
         if (active.length === 0) {
@@ -245,7 +332,7 @@ export const workersCommand: Command = {
 
       default:
         console.log(chalk.yellow(`Unknown action: ${action}`));
-        console.log(chalk.dim('Available: list, status, cancel, wait, cleanup'));
+        console.log(chalk.dim('Available: list, status, output, logs, cancel, wait, cleanup'));
         return null;
     }
   },

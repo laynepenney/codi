@@ -7,7 +7,7 @@ import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
 import { recordUsage } from './usage.js';
 import { AGENT_CONFIG, TOOL_CATEGORIES, CONTEXT_OPTIMIZATION, type DangerousPattern } from './constants.js';
-import { computeContextConfig, FIXED_CONFIG, type ComputedContextConfig } from './context-config.js';
+import { computeContextConfig, computeScaledContextConfig, FIXED_CONFIG, type ComputedContextConfig } from './context-config.js';
 import type { ModelMap } from './model-map/index.js';
 import {
   compressContext,
@@ -113,6 +113,9 @@ export interface AgentOptions {
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
   maxContextTokens?: number; // Maximum context tokens before compaction
+  contextOptimization?: {
+    maxOutputReserveScale?: number;
+  }; // Context optimization settings
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
@@ -148,6 +151,7 @@ export class Agent {
   private maxContextTokens: number;
   private maxContextTokensExplicit: boolean; // True if user explicitly set maxContextTokens
   private contextConfig: ComputedContextConfig; // Tier-based context config
+  private contextOptimization: AgentOptions['contextOptimization'];
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -216,6 +220,7 @@ export class Agent {
     this.enableCompression = options.enableCompression ?? false;
     // Track if user explicitly set maxContextTokens (so we preserve it on provider switch)
     this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
+    this.contextOptimization = options.contextOptimization;
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
 
@@ -1641,6 +1646,7 @@ ${contextToSummarize}`,
     // Limits and budget
     maxTokens: number;
     contextWindow: number;
+    effectiveLimit: number; // The actual limit to use (maxTokens if set, otherwise contextWindow)
     outputReserve: number;
     safetyBuffer: number;
     tierName: string;
@@ -1682,6 +1688,9 @@ ${contextToSummarize}`,
       }
     }
 
+    // Compute scaled config based on effective limit
+    const scaledConfig = computeScaledContextConfig(this.contextConfig, this.maxContextTokens, this.contextOptimization);
+
     return {
       tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,
       messageTokens,
@@ -1689,9 +1698,10 @@ ${contextToSummarize}`,
       toolDefinitionTokens,
       maxTokens: this.maxContextTokens,
       contextWindow: this.provider.getContextWindow(),
-      outputReserve: this.contextConfig.maxOutputTokens,
-      safetyBuffer: this.contextConfig.safetyBuffer,
-      tierName: this.contextConfig.tierName,
+      effectiveLimit: this.maxContextTokens, // Always use the configured maxContextTokens
+      outputReserve: scaledConfig.maxOutputTokens,
+      safetyBuffer: scaledConfig.safetyBuffer,
+      tierName: scaledConfig.tierName,
       messages: this.messages.length,
       userMessages,
       assistantMessages,

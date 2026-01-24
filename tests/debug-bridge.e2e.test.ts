@@ -12,23 +12,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { spawn, type ChildProcess, execSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { setupMockE2E, cleanupMockE2E, textResponse, toolResponse, toolCall, type MockE2ESession } from './helpers/mock-e2e.js';
+import { ProcessHarness, TEST_TIMEOUT, WAIT_TIMEOUT, distEntry } from './helpers/process-harness.js';
 
-// Platform-aware timeouts - Windows is significantly slower for process spawning
+// Platform-aware timeouts for debug-specific operations
 const isWindows = process.platform === 'win32';
 const isMacOS = process.platform === 'darwin';
-const TEST_TIMEOUT = isWindows ? 90000 : (isMacOS ? 60000 : 30000);
-const WAIT_TIMEOUT = isWindows ? 30000 : 15000;
 const EXEC_TIMEOUT = isWindows ? 30000 : 10000;
 const STARTUP_WAIT = isWindows ? 2000 : (isMacOS ? 1000 : 500);
 
 // Set longer timeout for E2E tests
 vi.setConfig({ testTimeout: TEST_TIMEOUT });
-
-function distEntry(): string {
-  return path.resolve(process.cwd(), 'dist', 'index.js');
-}
 
 function debugCliEntry(): string {
   return path.resolve(process.cwd(), 'dist', 'debug-cli.js');
@@ -58,93 +53,6 @@ function execDebugCli(command: string, opts: { cwd: string; env: NodeJS.ProcessE
     encoding: 'utf8',
     timeout: EXEC_TIMEOUT,
   });
-}
-
-/**
- * Process harness for E2E tests.
- */
-class ProcessHarness {
-  private proc: ChildProcess;
-  private output = '';
-  private exitPromise: Promise<number | null>;
-
-  constructor(command: string, args: string[], opts?: { cwd?: string; env?: NodeJS.ProcessEnv }) {
-    this.proc = spawn(command, args, {
-      cwd: opts?.cwd,
-      env: {
-        ...process.env,
-        ...opts?.env,
-        NO_COLOR: '1',
-        FORCE_COLOR: '0',
-        CI: '1',
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    this.proc.stdout?.on('data', (data) => {
-      this.output += data.toString();
-    });
-
-    this.proc.stderr?.on('data', (data) => {
-      this.output += data.toString();
-    });
-
-    this.exitPromise = new Promise((resolve) => {
-      this.proc.on('exit', (code) => resolve(code));
-      this.proc.on('error', () => resolve(null));
-    });
-  }
-
-  write(data: string): void {
-    this.proc.stdin?.write(data);
-  }
-
-  writeLine(data: string): void {
-    this.write(data + '\n');
-  }
-
-  getOutput(): string {
-    return this.output;
-  }
-
-  clearOutput(): void {
-    this.output = '';
-  }
-
-  async waitFor(pattern: string | RegExp, timeoutMs = WAIT_TIMEOUT): Promise<string> {
-    const re = typeof pattern === 'string'
-      ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      : pattern;
-
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (re.test(this.output)) {
-        return this.output;
-      }
-      await new Promise(r => setTimeout(r, 50));
-    }
-
-    throw new Error(`Timeout waiting for pattern: ${pattern}\n\nOutput:\n${this.output}`);
-  }
-
-  kill(): void {
-    this.proc.kill('SIGTERM');
-  }
-
-  async waitForExit(timeoutMs = 5000): Promise<number | null> {
-    const timeout = new Promise<number | null>((resolve) => {
-      setTimeout(() => {
-        this.kill();
-        resolve(null);
-      }, timeoutMs);
-    });
-
-    return Promise.race([this.exitPromise, timeout]);
-  }
-
-  get pid(): number | undefined {
-    return this.proc.pid;
-  }
 }
 
 describe('Debug Bridge E2E', () => {
