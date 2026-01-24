@@ -83,7 +83,7 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 
 ### High Priority
 
-- [ ] **Windows CI runner** - Test native module compilation on Windows (see #134)
+- [ ] **Windows support** - Not currently supported; use WSL2 (see #134)
 - [ ] **npm publish workflow** - Automated releases on tag push (`.github/workflows/release.yml`)
 - [ ] **Command unit tests** - memory-commands, orchestrate-commands, rag-commands, compact-commands
 
