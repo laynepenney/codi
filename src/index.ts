@@ -575,7 +575,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
-  console.log(chalk.dim('  /label [text]      - Set/show conversation label'));
+  console.log(chalk.dim('  /label [text|update|clear] - Set/show/regenerate conversation label'));
   console.log(chalk.dim('  /exit              - Exit the assistant'));
 
   console.log(chalk.bold('\nCode Assistance:'));
@@ -4347,6 +4347,25 @@ Begin by analyzing the query and planning your research approach.`;
         currentLabel = null;
         updatePrompt(currentPromptMode);
         console.log(chalk.dim('Label cleared.'));
+      } else if (labelArg === 'update' || labelArg === 'refresh' || labelArg === 'auto') {
+        // Regenerate label from conversation
+        if (agent.getHistory().length < 2) {
+          console.log(chalk.dim('\nNeed at least one exchange to generate a label.'));
+        } else {
+          console.log(chalk.dim('\nGenerating label...'));
+          const newLabel = await agent.generateAutoLabel();
+          if (newLabel) {
+            currentLabel = newLabel;
+            updatePrompt(currentPromptMode);
+            if (commandContext.sessionState) {
+              commandContext.sessionState.label = newLabel;
+            }
+            autoSaveSession(commandContext, agent);
+            console.log(chalk.dim(`Label updated to: ${chalk.cyan(newLabel)}`));
+          } else {
+            console.log(chalk.dim('Could not generate a label.'));
+          }
+        }
       } else {
         // Set the label
         currentLabel = labelArg;
