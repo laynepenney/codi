@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { executeSwitchModelStep } from '../../src/workflow/steps/switch-model.js';
-import { WorkflowState } from '../../src/workflow/types.js';
+import { executeSwitchModelStep } from '../src/workflow/steps/switch-model.js';
+import { WorkflowState } from '../src/workflow/types.js';
 
 // Mock Agent class
 class MockAgent {
@@ -21,7 +21,7 @@ class MockAgent {
 }
 
 // Mock createProvider
-vi.mock('../../../src/providers/index.js', () => ({
+vi.mock('../src/providers/index.js', () => ({
   createProvider: vi.fn((options) => ({
     type: options.type,
     model: options.model,
