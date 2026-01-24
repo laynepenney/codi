@@ -68,6 +68,22 @@ import {
   type ApprovedPathPattern,
 } from './approvals.js';
 import { batchToolCalls, getBatchStats, executeWithConcurrencyLimit } from './tool-executor.js';
+import {
+  SecurityValidator,
+  type SecurityValidatorConfig,
+  type SecurityValidationResult,
+} from './security-validator.js';
+
+/**
+ * Security validation result for display in confirmation.
+ */
+export interface SecurityWarning {
+  riskScore: number;
+  threats: string[];
+  reasoning: string;
+  recommendation: 'allow' | 'warn' | 'block';
+  latencyMs: number;
+}
 
 /**
  * Information about a tool call for confirmation.
@@ -84,6 +100,8 @@ export interface ToolConfirmation {
     suggestedPattern: string;
     matchedCategories: Array<{ id: string; name: string; description: string }>;
   };
+  /** Security model validation result */
+  securityWarning?: SecurityWarning;
 }
 
 /**
@@ -119,6 +137,7 @@ export interface AgentOptions {
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
+  securityValidator?: SecurityValidator | null; // Optional security validator for tool calls
   onText?: (text: string) => void;
   onReasoning?: (reasoning: string) => void; // Called with reasoning trace from reasoning models
   onReasoningChunk?: (chunk: string) => void; // Streaming reasoning output
@@ -146,6 +165,7 @@ export class Agent {
   private approvedPathPatterns: ApprovedPathPattern[];
   private approvedPathCategories: string[];
   private customDangerousPatterns: Array<{ pattern: RegExp; description: string }>;
+  private securityValidator: SecurityValidator | null = null;
   private logLevel: LogLevel;
   private enableCompression: boolean;
   private maxContextTokens: number;
@@ -215,6 +235,7 @@ export class Agent {
     this.approvedPathPatterns = options.approvedPathPatterns ?? [];
     this.approvedPathCategories = options.approvedPathCategories ?? [];
     this.customDangerousPatterns = options.customDangerousPatterns ?? [];
+    this.securityValidator = options.securityValidator ?? null;
     // Support both logLevel and deprecated debug option
     this.logLevel = options.logLevel ?? (options.debug ? LogLevel.DEBUG : LogLevel.NORMAL);
     this.enableCompression = options.enableCompression ?? false;
@@ -1152,6 +1173,42 @@ ${contextToSummarize}`,
             }
           }
 
+          // Security model validation (runs before user confirmation prompt)
+          let securityWarning: SecurityWarning | undefined;
+          if (this.securityValidator && this.securityValidator.shouldValidate(toolCall.name)) {
+            try {
+              const securityResult = await this.securityValidator.validate(toolCall);
+
+              if (securityResult.recommendation === 'block') {
+                // Security model recommends blocking - reject without user prompt
+                toolResults.push({
+                  tool_use_id: toolCall.id,
+                  content: `Security policy blocked this command.\nRisk Score: ${securityResult.riskScore}/10\nThreats: ${securityResult.threats.join(', ')}\nReasoning: ${securityResult.reasoning}`,
+                  is_error: true,
+                });
+                continue;
+              }
+
+              if (securityResult.recommendation === 'warn' || securityResult.riskScore >= 4) {
+                securityWarning = {
+                  riskScore: securityResult.riskScore,
+                  threats: securityResult.threats,
+                  reasoning: securityResult.reasoning,
+                  recommendation: securityResult.recommendation,
+                  latencyMs: securityResult.latencyMs,
+                };
+                // Elevate to dangerous if security model flagged it
+                if (!isDangerous && securityResult.riskScore >= 6) {
+                  isDangerous = true;
+                  dangerReason = `Security model: ${securityResult.reasoning}`;
+                }
+              }
+            } catch (error) {
+              // Security validation failed - continue with normal flow
+              logger.debug(`Security validation failed: ${error instanceof Error ? error.message : error}`);
+            }
+          }
+
           const confirmation: ToolConfirmation = {
             toolName: toolCall.name,
             input: toolCall.input,
@@ -1159,6 +1216,7 @@ ${contextToSummarize}`,
             dangerReason,
             diffPreview,
             approvalSuggestions,
+            securityWarning,
           };
 
           const result = await this.callbacks.onConfirm!(confirmation);
