@@ -799,7 +799,7 @@ codi/
 6. Push (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as CLAUDE.md for AI assistant compatibility).
+See [CODI.md](./CODI.md) for detailed contribution guidelines.
 
 
 ## 🗺️ Roadmap

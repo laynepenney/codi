@@ -1,6 +1,6 @@
-# CLAUDE.md - AI Assistant Context
+# CODI.md - Codi Project Context
 
-This file provides context for AI assistants working on the Codi codebase.
+This file provides context for Codi, the AI coding wingman, when working on the Codi codebase.
 
 ## Project Overview
 
@@ -13,12 +13,12 @@ When changing this area:
 - keep `OpenFilesState` backwards-compatible (old sessions may not have it)
 - update tests that assert on session serialization/deserialization
 
-### Codi Agent Capabilities
+### Codi's Capabilities
 
-This project is designed to work optimally with Codi, an AI coding assistant that can directly interact with the codebase through a rich set of tools. When using Codi with this project, you have access to:
+This project is designed to work optimally with Codi, your AI coding wingman. Codi provides direct access to codebase tools:
 
 #### Direct Tool Access
-Codi agents can call tools directly by mentioning them in conversation:
+Codi can call tools directly by mentioning them in conversation:
 - `get_context_status()`: Check token usage and context status in real-time
 - `read_file(path)`: Read file contents efficiently with caching
 - `search_codebase(query)`: Semantic search across the entire codebase
@@ -35,7 +35,7 @@ Monitor and optimize resource usage:
 - Tier-based configuration adapting to model context window size
 
 #### Example Usage
-As a Codi agent, you can work with this codebase efficiently:
+Using Codi with this codebase:
 ```
 "I need to understand the session management system"
 find_symbol("SessionInfo") // Locates all definitions
