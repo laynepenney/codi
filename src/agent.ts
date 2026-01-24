@@ -1553,6 +1553,21 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Clear only the conversation context (messages and summary), keeping the working set.
+   */
+  clearContext(): void {
+    this.messages = [];
+    this.conversationSummary = null;
+  }
+
+  /**
+   * Clear only the working set (tracked files and entities), keeping conversation history.
+   */
+  clearWorkingSet(): void {
+    this.workingSet = createWorkingSet();
+  }
+
+  /**
    * Get the conversation history.
    */
   getHistory(): Message[] {
