@@ -68,11 +68,15 @@ export interface InteractiveStep extends WorkflowStep {
 }
 
 // Action types
+export interface CheckFileExistsStep extends WorkflowStep {
+  action: 'check-file-exists';
+  file?: string;
+}
+
 export interface ShellActionStep extends WorkflowStep {
   action: 'shell';
   command: string;
 }
-
 export interface AiPromptActionStep extends WorkflowStep {
   action: 'ai-prompt';
   prompt: string;

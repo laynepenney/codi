@@ -135,8 +135,7 @@ export class WorkflowManager {
   private determineNextStep(step: WorkflowStep, result: any, workflow: Workflow): string | null {
     switch (step.action) {
       case 'conditional':
-        const conditionResult = this.evaluateCondition(step.check as string, result);
-        return conditionResult ? step.onTrue as string : (step.onFalse as string || null);
+        return result.nextStep || null;
       
       case 'loop':
         const shouldLoop = this.evaluateCondition(step.condition as string, {

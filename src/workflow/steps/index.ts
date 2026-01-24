@@ -1,8 +1,10 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { WorkflowStep, WorkflowState } from '../types.js';
+import type { WorkflowStep, WorkflowState, ConditionalStep, CheckFileExistsStep } from '../types.js';
 import { executeSwitchModelStep, validateSwitchModelStep } from './switch-model.js';
+import { executeConditionalStep, validateConditionalStep } from './conditional.js';
+import { executeCheckFileExistsStep, validateCheckFileExistsStep } from './file-exists.js';
 
 /**
  * Execute any workflow step
@@ -18,7 +20,10 @@ export async function executeStep(
       return executeSwitchModelStep(step, state, agent, availableModels);
     
     case 'conditional':
-      return { condition: (step as any).check };
+      return executeConditionalStep(step as ConditionalStep, state, agent);
+    
+    case 'check-file-exists':
+      return executeCheckFileExistsStep(step as CheckFileExistsStep, state, agent);
     
     case 'loop':
       return { 
@@ -63,12 +68,11 @@ export function validateStep(step: WorkflowStep): void {
       break;
     
     case 'conditional':
-      if (!(step as any).check || typeof (step as any).check !== 'string') {
-        throw new Error(`Conditional step ${step.id} must specify a check`);
-      }
-      if (!(step as any).onTrue || typeof (step as any).onTrue !== 'string') {
-        throw new Error(`Conditional step ${step.id} must specify onTrue target`);
-      }
+      validateConditionalStep(step as ConditionalStep);
+      break;
+    
+    case 'check-file-exists':
+      validateCheckFileExistsStep(step as CheckFileExistsStep);
       break;
     
     case 'loop':
