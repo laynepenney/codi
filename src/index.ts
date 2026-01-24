@@ -18,7 +18,7 @@ import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { format as formatUtil } from 'util';
 import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
-import { validateAndResolvePath, isPathWithinProject } from './utils/path-validation.js';
+import { isPathWithinProject } from './utils/path-validation.js';
 import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
