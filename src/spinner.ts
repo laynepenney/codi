@@ -17,6 +17,7 @@ class SpinnerManager {
   private spinner: Ora | null = null;
   private enabled: boolean = true;
   private streaming: boolean = false;
+  private promptActive: boolean = false;
 
   constructor() {
     // Disable spinners in non-TTY environments (piped output)
@@ -37,7 +38,7 @@ class SpinnerManager {
    * Check if spinners are currently enabled.
    */
   isEnabled(): boolean {
-    return this.enabled && !this.streaming;
+    return this.enabled && !this.streaming && !this.promptActive;
   }
 
   /**
@@ -46,6 +47,17 @@ class SpinnerManager {
   setStreaming(streaming: boolean): void {
     this.streaming = streaming;
     if (streaming && this.spinner) {
+      this.stop();
+    }
+  }
+
+  /**
+   * Mark that the readline prompt is active (disables spinner to avoid interrupting input).
+   * Background indexing and other async operations should not update the spinner while prompt is active.
+   */
+  setPromptActive(active: boolean): void {
+    this.promptActive = active;
+    if (active && this.spinner) {
       this.stop();
     }
   }
