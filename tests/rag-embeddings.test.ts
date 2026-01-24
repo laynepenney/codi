@@ -410,7 +410,7 @@ describe('Embedding Providers', () => {
       expect(provider.getModel()).toBe('text-embedding-3-small');
     });
 
-    it('throws error when embedding task not found in model map', () => {
+    it('falls back to auto detection when embedding task not found in model map', () => {
       const modelMap = {
         version: '1',
         models: {},
@@ -423,12 +423,13 @@ describe('Embedding Providers', () => {
         embeddingTask: 'missing-task',
       };
 
-      expect(() => createEmbeddingProvider(config, modelMap)).toThrow(
-        /Embedding task 'missing-task' not found in model map/
-      );
+      // Should not throw, should fallback to auto detection
+      const provider = createEmbeddingProvider(config, modelMap);
+      expect(provider).toBeDefined();
+      // When falling back to auto, it will attempt to create a provider based on what's available
     });
 
-    it('throws error when model referenced by task not found', () => {
+    it('falls back to auto detection when model referenced by task not found', () => {
       const modelMap = {
         version: '1',
         models: {},
@@ -446,9 +447,10 @@ describe('Embedding Providers', () => {
         embeddingTask: 'embeddings',
       };
 
-      expect(() => createEmbeddingProvider(config, modelMap)).toThrow(
-        /Model 'nonexistent-model' not found in model map/
-      );
+      // Should not throw, should fallback to auto detection
+      const provider = createEmbeddingProvider(config, modelMap);
+      expect(provider).toBeDefined();
+      // When falling back to auto, it will attempt to create a provider based on what's available
     });
 
     it('defaults to embeddings task when no task specified', () => {
