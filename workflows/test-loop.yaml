@@ -1,0 +1,28 @@
+name: test-loop-iteration
+description: Test workflow with loop iteration
+version: 1.0
+interactive: false
+persistent: false
+
+steps:
+  - id: setup
+    action: shell
+    description: Initialize counter variable
+    command: "echo 'Initializing loop counter'
+
+  - id: loop-start
+    action: loop
+    description: Loop until counter reaches 3
+    condition: "iteration < 3"
+    to: increment-counter
+    maxIterations: 5
+
+  - id: increment-counter
+    action: shell
+    description: Increment the counter
+    command: "echo 'Iteration completed'
+
+  - id: loop-end
+    action: shell
+    description: Loop completed
+    command: "echo 'Loop completed successfully'"

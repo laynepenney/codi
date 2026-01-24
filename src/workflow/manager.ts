@@ -138,11 +138,7 @@ export class WorkflowManager {
         return result.nextStep || null;
       
       case 'loop':
-        const shouldLoop = this.evaluateCondition(step.condition as string, {
-          iteration: result?.iterationCount,
-          result
-        });
-        return shouldLoop ? step.to as string : null;
+        return result.shouldLoop ? step.to as string : null;
       
       default:
         // Linear execution - find next step by index
