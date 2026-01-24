@@ -5,8 +5,8 @@ import {
   Workflow,
   WorkflowState,
   WorkflowStep,
-  WorkflowError,
-  StepExecution
+  StepExecution,
+  WorkflowError
 } from './types.js';
 import { WorkflowExecutor } from './executor.js';
 import { WorkflowStateManager } from './state.js';
