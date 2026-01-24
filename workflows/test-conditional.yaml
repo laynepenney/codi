@@ -1,0 +1,33 @@
+name: test-conditional-branch
+description: Test workflow with conditional branching
+version: 1.0
+interactive: false
+persistent: false
+
+steps:
+  - id: step-1
+    action: shell
+    description: Create a test file
+    command: "echo 'test content' > test-file.txt"
+
+  - id: check-file
+    action: check-file-exists
+    description: Check if file was created successfully
+    file: "test-file.txt"
+
+  - id: conditional-branch
+    action: conditional
+    description: Branch based on file existence
+    check: "file-exists"
+    onTrue: step-success
+    onFalse: step-failure
+
+  - id: step-success
+    action: shell
+    description: File creation succeeded
+    command: "echo 'File created successfully!'"
+
+  - id: step-failure
+    action: shell
+    description: File creation failed
+    command: "echo 'File creation failed!'"
