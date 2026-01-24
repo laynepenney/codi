@@ -77,17 +77,66 @@ pnpm dev -- --provider ollama --model llama3.2
 
 ```bash
 # Start new work (from main or dev if using worktrees)
-git checkout -b feat/my-feature    # or fix/my-bugfix
+git checkout main                  # Always start from main
+git pull origin main --rebase      # Rebase to stay current
+git checkout -b feat/my-feature    # Create feature branch for actual work
 # ... make changes ...
 git add -A && git commit -m "feat: description"
 git push -u origin feat/my-feature
+
+# When feature branch needs to sync with main (before PR or to resolve conflicts)
+git checkout feat/my-feature
+git rebase origin/main            # Use rebase, NEVER merge
+git push origin feat/my-feature --force-with-lease  # Force push after rebase
 
 # Create PR (always targets main)
 gh pr create --title "feat: description" --body "Summary of changes"
 
 # After PR is approved and merged
-git checkout main                  # or dev if using worktrees
-git pull origin main               # or: git fetch origin && git merge origin/main
+# Switch back to main and delete the feature branch
+git checkout main
+git pull origin main --rebase      # Get latest changes
+git branch -d feat/my-feature      # Delete local branch
+git push origin --delete feat/my-feature  # Delete remote branch
+```
+
+### Branch Strategy
+
+**Main Branch (`main`)**
+- Production-ready code
+- Protected with PR requirements and CI checks
+- All PRs must target `main`
+- Use `git pull origin main --rebase` to stay current
+
+**Dev Branch (if using worktrees)**
+- **Purpose Only**: Stays in the worktree directory
+- **No Development**: All actual work happens on feature branches  
+- **Keep Synced**: Rebase regularly with `origin/main`
+- ```bash
+  # If using dev branch in worktree:
+  git checkout dev
+  git rebase origin/main            # Keep dev synced
+  git push origin dev
+  ```
+- **Never commit work directly to dev** - create feature branches instead
+
+**Feature Branches (`feat/*`, `fix/*`, `chore/*`)**
+- All development happens here
+- Short-lived, deleted after merge
+- Always rebase from `origin/main`, never merge
+- Clean merge history when rebased properly
+
+### Rebase vs Merge
+
+**✅ Use REBASE** (correct):
+```bash
+git rebase origin/main           # Keeps history linear
+git push --force-with-lease      # Safe force-push after rebase
+```
+
+**❌ DO NOT Use MERGE** (incorrect):
+```bash
+git merge origin/main            # Creates unnecessary merge commits
 ```
 
 ### Branch Naming
@@ -170,10 +219,12 @@ This ensures:
 If you're working in a directory on the `dev` branch instead of `main`, it's likely because multiple worktrees are in use. Git doesn't allow the same branch to be checked out in multiple worktrees simultaneously.
 
 **When on `dev` branch:**
-- Keep `dev` synced with `main`: `git fetch origin && git merge origin/main`
-- Create feature branches from `dev` (which should mirror `main`)
-- PRs still target `main` as the base branch
-- After PR merges, sync `dev` again: `git fetch origin && git merge origin/main && git push origin dev`
+- **Keep `dev` synced with `main` using rebase**: `git fetch origin && git rebase origin/main`
+- **Never merge** - only rebase to keep history clean
+- Create feature branches from `main`, not `dev` (switch to main first)
+- PRs always target `main` as the base branch
+- After feature branches merge, sync `dev` with: `git fetch origin && git rebase origin/main && git push origin dev`
+- **Remember**: `dev` is just a placeholder for the worktree - all actual work happens on feature branches
 
 **Check worktree setup:**
 ```bash
