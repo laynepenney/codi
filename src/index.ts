@@ -5021,6 +5021,20 @@ Begin by analyzing the query and planning your research approach.`;
         }
       }
       autoSaveSession(commandContext, agent);
+
+      // Auto-generate label after first exchange if not set
+      if (!currentLabel && agent.getHistory().length >= 2) {
+        const autoLabel = await agent.generateAutoLabel();
+        if (autoLabel) {
+          currentLabel = autoLabel;
+          updatePrompt(currentPromptMode);
+          if (commandContext.sessionState) {
+            commandContext.sessionState.label = autoLabel;
+          }
+          // Save again to persist the auto-generated label
+          autoSaveSession(commandContext, agent);
+        }
+      }
     } catch (error) {
       spinner.stop();
       logger.error(error instanceof Error ? error.message : String(error), error instanceof Error ? error : undefined);
