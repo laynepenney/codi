@@ -52,6 +52,7 @@ interface CacheMetadata {
 const CACHE_DIR = join(homedir(), '.codi', 'tool-cache');
 const MAX_CACHE_SIZE_MB = 100; // Maximum cache size in MB
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+let lastCacheTimestamp = 0;
 
 /**
  * Ensure cache directory exists.
@@ -91,6 +92,12 @@ export function cacheToolResult(
 ): string {
   ensureCacheDir();
 
+  let cachedAt = Date.now();
+  if (cachedAt <= lastCacheTimestamp) {
+    cachedAt = lastCacheTimestamp + 1;
+  }
+  lastCacheTimestamp = cachedAt;
+
   const id = generateCacheId(toolName, content);
   const contentBuffer = Buffer.from(content, 'utf-8');
 
@@ -112,7 +119,7 @@ export function cacheToolResult(
     toolName,
     toolInput,
     isError,
-    cachedAt: Date.now(),
+    cachedAt,
     summary,
     estimatedTokens,
     contentLength: content.length,

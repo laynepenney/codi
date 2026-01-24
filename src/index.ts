@@ -16,7 +16,7 @@ import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
-import { promptSessionSelection } from './session-selection.js';
+import { format as formatUtil } from 'util';
 import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
 import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
@@ -312,9 +312,14 @@ import {
   formatSessionInfo,
   type SessionInfo,
 } from './session.js';
+import { promptSessionSelection } from './session-selection.js';
 import { runChildAgent } from './orchestrate/child-agent.js';
 import { Orchestrator } from './orchestrate/commander.js';
 import { READER_ALLOWED_TOOLS } from './orchestrate/types.js';
+import { WorkerStatusUI } from './orchestrate/worker-status-ui.js';
+import { runInkUi } from './ui/ink/run-ink-ui.js';
+import { InkUiController } from './ui/ink/controller.js';
+import { attachInkTranscriptWriter } from './ui/ink/transcript.js';
 import {
   loadWorkspaceConfig,
   loadLocalConfig,
@@ -361,15 +366,29 @@ program
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
   .option('-q, --quiet', 'Suppress spinners and progress output (for scripting)')
+  .option('--ui <mode>', 'UI mode: classic or ink (default: classic)', 'classic')
   // Child mode options (for multi-agent orchestration)
   .option('--child-mode', 'Run as child agent (connects to commander via IPC)')
   .option('--reader-mode', 'Run as reader agent (read-only tools only)')
   .option('--socket-path <path>', 'IPC socket path (for child mode)')
   .option('--child-id <id>', 'Unique child identifier (for child mode)')
   .option('--child-task <task>', 'Task to execute (for child mode)')
-  .parse();
+  .parse(
+    (() => {
+      const rawArgv = process.argv.slice(2);
+      const cleanedArgv = rawArgv[0] === '--' ? rawArgv.slice(1) : rawArgv;
+      return ['node', 'codi', ...cleanedArgv];
+    })(),
+    { from: 'node' }
+  );
 
 const options = program.opts();
+const requestedUiMode = String(options.ui || 'classic').toLowerCase();
+const supportedUiModes = new Set(['classic', 'ink']);
+if (!supportedUiModes.has(requestedUiMode)) {
+  console.error(chalk.red(`Unknown UI mode: ${requestedUiMode}. Use "classic" or "ink".`));
+  process.exit(1);
+}
 
 /**
  * Builds the system prompt given to the agent.
@@ -551,7 +570,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
-  console.log(chalk.dim('  /clear             - Clear conversation history'));
+  console.log(chalk.dim('  /clear [what]      - Clear conversation (all|context|workingset)'));
   console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
@@ -744,6 +763,164 @@ function formatConfirmation(confirmation: ToolConfirmation): string {
   return display;
 }
 
+function formatConfirmationDetail(confirmation: ToolConfirmation): string | null {
+  const input = confirmation.input as Record<string, unknown>;
+  const command = typeof input.command === 'string' ? input.command : null;
+  if (command) {
+    return `command: ${command}`;
+  }
+  const filePath = typeof input.file_path === 'string' ? input.file_path : null;
+  if (filePath) {
+    return `file: ${filePath}`;
+  }
+  const path = typeof input.path === 'string' ? input.path : null;
+  if (path) {
+    return `path: ${path}`;
+  }
+  return null;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function startConsoleCapture(): {
+  stdout: string[];
+  stderr: string[];
+  restore: () => void;
+} {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const original = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+  };
+
+  const capture = (target: string[], args: unknown[]) => {
+    const line = stripAnsi(formatUtil(...args));
+    for (const part of line.split('\n')) {
+      target.push(part);
+    }
+  };
+
+  console.log = (...args: unknown[]) => capture(stdout, args);
+  console.info = (...args: unknown[]) => capture(stdout, args);
+  console.warn = (...args: unknown[]) => capture(stderr, args);
+  console.error = (...args: unknown[]) => capture(stderr, args);
+
+  const restore = () => {
+    console.log = original.log;
+    console.info = original.info;
+    console.warn = original.warn;
+    console.error = original.error;
+  };
+
+  return { stdout, stderr, restore };
+}
+
+function startWriteCapture(): {
+  stdout: string[];
+  stderr: string[];
+  restore: () => void;
+} {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  const captureWrite = (target: string[]) => {
+    return (
+      chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((err?: Error | null) => void),
+      callback?: (err?: Error | null) => void
+    ): boolean => {
+      let encoding: BufferEncoding | undefined;
+      let cb = callback;
+      if (typeof encodingOrCallback === 'function') {
+        cb = encodingOrCallback;
+      } else {
+        encoding = encodingOrCallback;
+      }
+
+      let text = '';
+      if (typeof chunk === 'string') {
+        text = chunk;
+      } else if (chunk) {
+        text = Buffer.from(chunk).toString(encoding ?? 'utf8');
+      }
+      if (text) {
+        target.push(text);
+      }
+      if (typeof cb === 'function') {
+        cb();
+      }
+      return true;
+    };
+  };
+
+  (process.stdout.write as unknown as typeof process.stdout.write) = captureWrite(stdout);
+  (process.stderr.write as unknown as typeof process.stderr.write) = captureWrite(stderr);
+
+  const restore = () => {
+    (process.stdout.write as unknown as typeof process.stdout.write) = originalStdoutWrite;
+    (process.stderr.write as unknown as typeof process.stderr.write) = originalStderrWrite;
+  };
+
+  return { stdout, stderr, restore };
+}
+
+function emitCapturedOutput(
+  inkController: InkUiController | null,
+  captured: { stdout: string[]; stderr: string[] }
+): void {
+  if (!inkController) return;
+  const stdoutText = captured.stdout.join('\n');
+  const stderrText = captured.stderr.join('\n');
+  if (stdoutText.trim()) {
+    inkController.addMessage('system', `Output:\n${stdoutText}`);
+  }
+  if (stderrText.trim()) {
+    inkController.addMessage('system', `Error:\n${stderrText}`);
+  }
+}
+
+function emitCapturedWrites(
+  inkController: InkUiController | null,
+  captured: { stdout: string[]; stderr: string[] }
+): void {
+  if (!inkController) return;
+  const stdoutText = captured.stdout.join('');
+  const stderrText = captured.stderr.join('');
+  if (stdoutText.trim()) {
+    inkController.addMessage('system', `Output:\n${stdoutText}`);
+  }
+  if (stderrText.trim()) {
+    inkController.addMessage('system', `Error:\n${stderrText}`);
+  }
+}
+
+async function renderCommandOutput(
+  inkController: InkUiController | null,
+  handler: () => void | Promise<void>
+): Promise<void> {
+  if (!inkController) {
+    await handler();
+    return;
+  }
+  const captured = startConsoleCapture();
+  const capturedWrites = startWriteCapture();
+  try {
+    await handler();
+  } finally {
+    captured.restore();
+    capturedWrites.restore();
+    emitCapturedOutput(inkController, captured);
+    emitCapturedWrites(inkController, capturedWrites);
+  }
+}
+
 /**
  * Prompt user for confirmation using readline.
  */
@@ -841,10 +1018,12 @@ async function resolveResumeSessionName(
   resumeOption: string | boolean,
   cwd: string,
   rl: Interface | null,
-  interactive: boolean
+  interactive: boolean,
+  inkController?: InkUiController | null
 ): Promise<string | null> {
   const trimmed = typeof resumeOption === 'string' ? resumeOption.trim() : '';
   const canPrompt = Boolean(interactive && rl && process.stdin.isTTY && process.stdout.isTTY);
+  const canInkPrompt = Boolean(interactive && inkController && process.stdin.isTTY && process.stdout.isTTY);
 
   if (trimmed) {
     const exact = listSessions().find((session) => session.name === trimmed);
@@ -857,6 +1036,10 @@ async function resolveResumeSessionName(
       return matches[0].name;
     }
     if (matches.length > 1) {
+      if (canInkPrompt && inkController) {
+        const selection = await inkController.requestSessionSelection(matches);
+        return selection?.name ?? matches[0].name;
+      }
       if (canPrompt && rl) {
         const selection = await promptSessionSelection(rl, matches);
         return selection?.name ?? matches[0].name;
@@ -870,12 +1053,18 @@ async function resolveResumeSessionName(
   if (candidates.length === 0) {
     return null;
   }
-  if (candidates.length === 1 || !canPrompt || !rl) {
+  if (candidates.length === 1) {
     return candidates[0].name;
   }
-
-  const selection = await promptSessionSelection(rl, candidates);
-  return selection?.name ?? candidates[0].name;
+  if (canInkPrompt && inkController) {
+    const selection = await inkController.requestSessionSelection(candidates);
+    return selection?.name ?? candidates[0].name;
+  }
+  if (canPrompt && rl) {
+    const selection = await promptSessionSelection(rl, candidates);
+    return selection?.name ?? candidates[0].name;
+  }
+  return candidates[0].name;
 }
 
 function autoSaveSession(context: CommandContext, agent: Agent): void {
@@ -2949,88 +3138,32 @@ Begin by analyzing the query and planning your research approach.`;
     return;
   }
 
-  // Enable bracketed paste mode for better paste detection
-  enableBracketedPaste();
+  const canUseInkUi =
+    requestedUiMode === 'ink' &&
+    process.stdout.isTTY &&
+    process.stdin.isTTY &&
+    !options.prompt;
+  const useInkUi = canUseInkUi;
+  if (requestedUiMode === 'ink' && !useInkUi && !options.prompt) {
+    console.log(chalk.dim('Ink UI requires a TTY. Falling back to classic.'));
+  }
 
-  // Create paste interceptor to capture paste markers before readline strips them
-  const pasteInterceptor = createPasteInterceptor();
-  process.stdin.pipe(pasteInterceptor);
-
-  // Create readline interface with history and tab completion
-  const history = loadHistory();
-  const completer = createCompleter();
-  const rl = createInterface({
-    input: pasteInterceptor, // Use interceptor instead of raw stdin
-    output: process.stdout,
-    history,
-    historySize: MAX_HISTORY_SIZE,
-    terminal: true,
-    prompt: chalk.bold.cyan('\nYou: '),
-    completer,
-  });
-
-  // Track if readline is closed (for piped input)
-  let rlClosed = false;
-  
-  // Initialize interrupt handler for ESC key cancellation
-  const interruptHandler = getInterruptHandler();
-  interruptHandler.initialize(rl);
-  interruptHandler.setCallback(() => {
-    // Show interruption message
-    console.log(chalk.yellow('\n\n🚫 Interrupted!'));
-    console.log(chalk.dim('Press Ctrl+C to exit or continue typing...\n'));
-    
-    // Stop any active spinner
-    spinner.stop();
-    
-    // Clear any ongoing streaming state
-    isStreaming = false;
-    
-    // Reset to prompt
-    resetPrompt();
-    rl.prompt();
-  });
-  
-  rl.on('close', () => {
-    rlClosed = true;
-    
-    // Cleanup interrupt handler
-    destroyInterruptHandler();
-    
-    // Don't exit here if in non-interactive mode - runNonInteractive handles its own cleanup
-    if (options.prompt) {
-      return;
-    }
-    // Disable bracketed paste mode before exit
-    disableBracketedPaste();
-    // Shutdown RAG indexer if running
-    if (ragIndexer) {
-      ragIndexer.shutdown();
-    }
-    // Cleanup MCP connections
-    if (mcpManager) {
-      mcpManager.disconnectAll().catch(() => {});
-    }
-    // Cleanup orchestrator (stop IPC server, cleanup worktrees)
-    const orch = getOrchestratorInstance();
-    if (orch) {
-      orch.stop().catch(() => {});
-    }
-    // Close symbol index database
-    const symbolIndex = getSymbolIndexService();
-    if (symbolIndex) {
-      symbolIndex.close();
-    }
-    // Shutdown all rate limiters
-    shutdownAllRateLimiters();
-    console.log(chalk.dim('\nGoodbye!'));
-    process.exit(0);
-  });
-
-  // Handle readline errors
-  rl.on('error', (err) => {
-    logger.error(`Readline error: ${err.message}`, err);
-  });
+  const inkController = useInkUi ? new InkUiController() : null;
+  if (inkController) {
+    inkController.setStatus({
+      provider: provider.getName(),
+      model: provider.getModel(),
+      activity: 'idle',
+    });
+  }
+  const transcriptWriter = inkController
+    ? attachInkTranscriptWriter({
+        controller: inkController,
+        status: inkController.getStatus(),
+        projectName: projectInfo?.name,
+        projectPath: projectInfo?.rootPath,
+      })
+    : null;
 
   // Session name tracking for prompt display
   let currentSession: string | null = null;
@@ -3069,7 +3202,7 @@ Begin by analyzing the query and planning your research approach.`;
   // Update the readline prompt
   const updatePrompt = (mode: PromptMode) => {
     currentPromptMode = mode;
-    rl.setPrompt(getPromptText(mode));
+    rl?.setPrompt(getPromptText(mode));
   };
 
   // Reset prompt to normal mode
@@ -3086,10 +3219,14 @@ Begin by analyzing the query and planning your research approach.`;
     setSessionName: (name: string | null) => {
       currentSession = name;
       setCurrentSessionName(name);
+      inkController?.setStatus({ sessionName: name });
       if (commandContext.sessionState) {
         commandContext.sessionState.currentName = name;
       }
     },
+    selectSession: inkController
+      ? (sessions, prompt) => inkController.requestSessionSelection(sessions, prompt)
+      : undefined,
     openFilesManager, // Add OpenFilesManager to command context
   };
 
@@ -3117,6 +3254,118 @@ Begin by analyzing the query and planning your research approach.`;
   // Get custom dangerous patterns from config
   const customDangerousPatterns = getCustomDangerousPatterns(resolvedConfig);
 
+  let rl: Interface | null = null;
+  let workerStatusUI: WorkerStatusUI | null = null;
+  let rlClosed = false;
+  let promptUser: (preserveCursor?: boolean) => void = () => {};
+  let exitApp: () => void = () => {};
+  let inkUiPromise: Promise<void> | null = null;
+  let inkSubmitHandler: ((input: string) => Promise<void>) | null = null;
+  const pendingInkInputs: string[] = [];
+  const interruptHandler = getInterruptHandler();
+  const handleInkSubmit = async (input: string) => {
+    if (inkSubmitHandler) {
+      await inkSubmitHandler(input);
+    } else {
+      pendingInkInputs.push(input);
+    }
+  };
+
+  const shutdown = () => {
+    workerStatusUI?.clear();
+    transcriptWriter?.dispose();
+    // Disable bracketed paste mode before exit
+    disableBracketedPaste();
+    // Shutdown RAG indexer if running
+    if (ragIndexer) {
+      ragIndexer.shutdown();
+    }
+    // Cleanup MCP connections
+    if (mcpManager) {
+      mcpManager.disconnectAll().catch(() => {});
+    }
+    // Cleanup orchestrator (stop IPC server, cleanup worktrees)
+    const orch = getOrchestratorInstance();
+    if (orch) {
+      orch.stop().catch(() => {});
+    }
+    // Close symbol index database
+    const symbolIndex = getSymbolIndexService();
+    if (symbolIndex) {
+      symbolIndex.close();
+    }
+    // Shutdown all rate limiters
+    shutdownAllRateLimiters();
+    // Shutdown debug bridge (writes session_end event)
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().shutdown();
+    }
+  };
+  const handleExit = () => {
+    auditLogger.sessionEnd();
+    shutdown();
+    console.log(chalk.dim('\nGoodbye!'));
+  };
+
+  if (!useInkUi) {
+    // Enable bracketed paste mode for better paste detection
+    enableBracketedPaste();
+
+    // Create paste interceptor to capture paste markers before readline strips them
+    const pasteInterceptor = createPasteInterceptor();
+    process.stdin.pipe(pasteInterceptor);
+
+    // Create readline interface with history and tab completion
+    const history = loadHistory();
+    const completer = createCompleter();
+    rl = createInterface({
+      input: pasteInterceptor, // Use interceptor instead of raw stdin
+      output: process.stdout,
+      history,
+      historySize: MAX_HISTORY_SIZE,
+      terminal: true,
+      prompt: chalk.bold.cyan('\nYou: '),
+      completer,
+    });
+
+    workerStatusUI = process.stdout.isTTY ? new WorkerStatusUI(rl) : null;
+    promptUser = (preserveCursor?: boolean) => {
+      rl?.prompt(preserveCursor);
+      workerStatusUI?.setPromptActive(true);
+    };
+    exitApp = () => {
+      rl?.close();
+    };
+
+    // Initialize interrupt handler for ESC key cancellation
+    interruptHandler.initialize(rl);
+    interruptHandler.setCallback(() => {
+      console.log(chalk.yellow('\n\n🚫 Interrupted!'));
+      console.log(chalk.dim('Press Ctrl+C to exit or continue typing...\n'));
+      spinner.stop();
+      isStreaming = false;
+      resetPrompt();
+      promptUser();
+    });
+
+    // Track if readline is closed (for piped input)
+    rl.on('close', () => {
+      rlClosed = true;
+      destroyInterruptHandler();
+      handleExit();
+      process.exit(0);
+    });
+
+    // Handle readline errors
+    rl.on('error', (err) => {
+      logger.error(`Readline error: ${err.message}`, err);
+    });
+  } else {
+    exitApp = () => {
+      inkController?.requestExit();
+    };
+  }
+
   // Initialize logger with level from CLI options
   const logLevel = parseLogLevel({
     verbose: options.verbose,
@@ -3130,10 +3379,28 @@ Begin by analyzing the query and planning your research approach.`;
   if (logLevel > LogLevel.NORMAL) {
     spinner.setEnabled(false);
   }
+  if (useInkUi) {
+    spinner.setEnabled(false);
+  }
+
+  if (useInkUi && inkController) {
+    const history = loadHistory();
+    const completer = createCompleter();
+    inkUiPromise = runInkUi({
+      controller: inkController,
+      onSubmit: handleInkSubmit,
+      onExit: () => {
+        handleExit();
+      },
+      history,
+      completer,
+    });
+  }
 
   // Track if we've received streaming output (to manage spinner)
   let isStreaming = false;
   let isReasoningStreaming = false;
+  let currentAssistantMessageId: string | null = null;
 
   // Track tool start times for duration logging
   const toolStartTimes = new Map<string, number>();
@@ -3143,7 +3410,7 @@ Begin by analyzing the query and planning your research approach.`;
   // =========================================================================
   const orchestrator = new Orchestrator({
     repoRoot: process.cwd(),
-    readline: rl,
+    readline: rl ?? undefined,
     // Pass current provider/model so spawned agents inherit them
     // Provider names must be lowercase for createProvider()
     defaultProvider: provider.getName().toLowerCase(),
@@ -3181,25 +3448,40 @@ Begin by analyzing the query and planning your research approach.`;
       return parts.length > 0 ? parts.join('\n') : undefined;
     },
 
-    onPermissionRequest: async (workerId, confirmation) => {
-      // Display worker context
-      console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));
-      console.log(chalk.dim(`  Tool: ${confirmation.toolName}`));
-      if (confirmation.input.command) {
-        console.log(chalk.dim(`  Command: ${confirmation.input.command}`));
-      } else if (confirmation.input.file_path) {
-        console.log(chalk.dim(`  File: ${confirmation.input.file_path}`));
-      }
-      // Use existing prompt confirmation
-      return promptConfirmationWithSuggestions(rl, confirmation);
-    },
+    onPermissionRequest: useInkUi
+      ? async (workerId, confirmation) => {
+          if (!inkController) {
+            return 'deny';
+          }
+          return inkController.requestConfirmation('worker', confirmation, workerId);
+        }
+      : async (workerId, confirmation) => {
+          workerStatusUI?.setPromptActive(false, { preservePrompt: false });
+          workerStatusUI?.pause();
+          try {
+            // Display worker context
+            console.log(chalk.yellow(`\n[Worker: ${workerId}] Permission request:`));
+            console.log(chalk.dim(`  Tool: ${confirmation.toolName}`));
+            if (confirmation.input.command) {
+              console.log(chalk.dim(`  Command: ${confirmation.input.command}`));
+            } else if (confirmation.input.file_path) {
+              console.log(chalk.dim(`  File: ${confirmation.input.file_path}`));
+            }
+            // Use existing prompt confirmation
+            return promptConfirmationWithSuggestions(rl!, confirmation);
+          } finally {
+            if (!rlClosed) {
+              promptUser(true);
+            }
+            workerStatusUI?.resume();
+          }
+        },
   });
 
   // Start orchestrator and make it available to commands
   try {
     await orchestrator.start();
     setOrchestrator(orchestrator);
-
     // Register orchestration tools for AI-driven multi-agent workflows
     const { workerResultTool, readerResultTool } = registerOrchestrationTools();
 
@@ -3211,6 +3493,137 @@ Begin by analyzing the query and planning your research approach.`;
       readerResultTool.storeResult(result);
     });
 
+    if (useInkUi && inkController) {
+      orchestrator.on('workerStarted', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          inkController.updateWorker(state);
+          inkController.addMessage('worker', 'Started.', workerId);
+        }
+      });
+      orchestrator.on('workerStatus', (_workerId, state) => {
+        inkController.updateWorker(state);
+      });
+      orchestrator.on('workerCompleted', (workerId, result) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          inkController.updateWorker(state);
+        }
+        inkController.updateWorkerResult(result);
+        const response = result.response?.trimEnd();
+        if (response) {
+          inkController.addMessage('worker', `Completed.\n\n${response}`, workerId);
+        } else if (result.error) {
+          inkController.addMessage('worker', `Failed: ${result.error}`, workerId);
+        } else {
+          inkController.addMessage('worker', 'Completed.', workerId);
+        }
+      });
+      orchestrator.on('workerFailed', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          inkController.updateWorker(state);
+          const message = state.error ? `Failed: ${state.error}` : 'Failed.';
+          inkController.addMessage('worker', message, workerId);
+        } else {
+          inkController.addMessage('worker', 'Failed.', workerId);
+        }
+      });
+      orchestrator.on('workerLog', (workerId, log) => {
+        inkController.addWorkerLog(workerId, log);
+      });
+      orchestrator.on('readerStarted', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          inkController.updateReader(state);
+        }
+      });
+      orchestrator.on('readerStatus', (_readerId, state) => {
+        inkController.updateReader(state);
+      });
+      orchestrator.on('readerCompleted', (readerId, result) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          inkController.updateReader(state);
+        }
+        inkController.updateReaderResult(result);
+      });
+      orchestrator.on('readerFailed', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          inkController.updateReader(state);
+        }
+      });
+      orchestrator.on('readerLog', (readerId, log) => {
+        inkController.addReaderLog(readerId, log);
+      });
+    } else if (workerStatusUI) {
+      orchestrator.on('workerStarted', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          workerStatusUI.updateWorkerState(state);
+        }
+      });
+      orchestrator.on('workerStatus', (_workerId, state) => {
+        workerStatusUI.updateWorkerState(state);
+      });
+      orchestrator.on('workerCompleted', (workerId, result) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          workerStatusUI.updateWorkerState(state);
+        }
+
+        const response = result.response || '';
+        if (response.trim()) {
+          workerStatusUI?.setPromptActive(false, { preservePrompt: false });
+          workerStatusUI?.pause();
+          try {
+            const branch = result.branch || state?.config.branch || workerId;
+            console.log(chalk.green(`\n[Worker: ${branch}] Completed`));
+            console.log(response.trimEnd());
+          } finally {
+            if (!rlClosed) {
+              promptUser(true);
+            }
+            workerStatusUI?.resume();
+          }
+        }
+      });
+      orchestrator.on('workerFailed', (workerId) => {
+        const state = orchestrator.getWorker(workerId);
+        if (state) {
+          workerStatusUI.updateWorkerState(state);
+        }
+      });
+      orchestrator.on('workerLog', (workerId, log) => {
+        workerStatusUI.updateWorkerLog(workerId, log);
+      });
+      orchestrator.on('readerStarted', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          workerStatusUI.updateReaderState(state);
+        }
+      });
+      orchestrator.on('readerStatus', (_readerId, state) => {
+        workerStatusUI.updateReaderState(state);
+      });
+      orchestrator.on('readerCompleted', (readerId, result) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          workerStatusUI.updateReaderState(state);
+        }
+        workerStatusUI.updateReaderResult(result);
+      });
+      orchestrator.on('readerFailed', (readerId) => {
+        const state = orchestrator.getReader(readerId);
+        if (state) {
+          workerStatusUI.updateReaderState(state);
+        }
+      });
+      orchestrator.on('readerLog', (readerId, log) => {
+        workerStatusUI.updateReaderLog(readerId, log);
+      });
+    }
     console.log(chalk.dim('Orchestrator: ready'));
   } catch (err) {
     // Non-fatal - orchestrator commands will show appropriate errors
@@ -3242,22 +3655,51 @@ Begin by analyzing the query and planning your research approach.`;
       if (!isStreaming) {
         isStreaming = true;
         spinner.stop();
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'responding', activityDetail: null });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('responding', null);
+        }
       }
-      process.stdout.write(text);
+      if (useInkUi && inkController) {
+        if (!currentAssistantMessageId) {
+          currentAssistantMessageId = inkController.startAssistantMessage();
+        }
+        inkController.appendToMessage(currentAssistantMessageId, text);
+      }
+      if (!useInkUi) {
+        process.stdout.write(text);
+      }
     },
     onReasoning: (reasoning) => {
       spinner.stop();
-      console.log(chalk.dim.italic('\n💭 Thinking...'));
-      console.log(chalk.dim(reasoning));
-      console.log(chalk.dim.italic('---\n'));
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('thinking', null);
+      }
+      if (!useInkUi) {
+        console.log(chalk.dim.italic('\n💭 Thinking...'));
+        console.log(chalk.dim(reasoning));
+        console.log(chalk.dim.italic('---\n'));
+      }
     },
     onReasoningChunk: (chunk) => {
       if (!isReasoningStreaming) {
         isReasoningStreaming = true;
         spinner.stop();
-        console.log(chalk.dim.italic('\n💭 Thinking...'));
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'thinking', activityDetail: null });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('thinking', null);
+        }
+        if (!useInkUi) {
+          console.log(chalk.dim.italic('\n💭 Thinking...'));
+        }
       }
-      process.stdout.write(chalk.dim(chunk));
+      if (!useInkUi) {
+        process.stdout.write(chalk.dim(chunk));
+      }
     },
     onToolCall: (name, input) => {
       // Stop any spinner and record start time
@@ -3269,14 +3711,22 @@ Begin by analyzing the query and planning your research approach.`;
       // Audit log
       auditLogger.toolCall(name, input as Record<string, unknown>, toolId);
 
-      // Log tool input based on verbosity level
-      if (logLevel >= LogLevel.VERBOSE) {
-        logger.toolInput(name, input as Record<string, unknown>);
-      } else {
-        // Normal mode: show simple tool call info
-        console.log(chalk.yellow(`\n\n📎 ${name}`));
-        const preview = JSON.stringify(input);
-        console.log(chalk.dim(preview.length > 100 ? preview.slice(0, 100) + '...' : preview));
+      if (!useInkUi) {
+        // Log tool input based on verbosity level
+        if (logLevel >= LogLevel.VERBOSE) {
+          logger.toolInput(name, input as Record<string, unknown>);
+        } else {
+          // Normal mode: show simple tool call info
+          console.log(chalk.yellow(`\n\n📎 ${name}`));
+          const preview = JSON.stringify(input);
+          console.log(chalk.dim(preview.length > 100 ? preview.slice(0, 100) + '...' : preview));
+        }
+      }
+
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'tool', activityDetail: name });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('tool', name);
       }
 
       // Start spinner for tool execution
@@ -3295,66 +3745,107 @@ Begin by analyzing the query and planning your research approach.`;
       // Stop spinner
       spinner.stop();
 
-      // Log tool result based on verbosity level
-      if (logLevel >= LogLevel.VERBOSE) {
-        logger.toolOutput(name, result, duration, isError);
-      } else {
-        // Normal mode: show simple result
-        if (isError) {
-          console.log(chalk.red(`\n❌ Error: ${result.slice(0, 200)}`));
+      if (!useInkUi) {
+        // Log tool result based on verbosity level
+        if (logLevel >= LogLevel.VERBOSE) {
+          logger.toolOutput(name, result, duration, isError);
         } else {
-          const lines = result.split('\n').length;
-          console.log(chalk.green(`\n✓ ${name} (${lines} lines)`));
+          // Normal mode: show simple result
+          if (isError) {
+            console.log(chalk.red(`\n❌ Error: ${result.slice(0, 200)}`));
+          } else {
+            const lines = result.split('\n').length;
+            console.log(chalk.green(`\n✓ ${name} (${lines} lines)`));
+          }
         }
+        console.log();
+      } else if (isError && inkController) {
+        const preview = result.length > 200 ? `${result.slice(0, 200)}...` : result;
+        inkController.addMessage('system', `Tool error (${name}): ${preview}`);
       }
-      console.log();
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('thinking', null);
+      }
     },
     onConfirm: async (confirmation) => {
       // Stop spinner during confirmation
       spinner.stop();
+      const isMockProvider = provider.getName().toLowerCase() === 'mock';
+      const nonInteractive = !process.stdin.isTTY;
 
-      console.log('\n' + formatConfirmation(confirmation));
+      if (
+        isMockProvider &&
+        nonInteractive &&
+        process.env.CI === '1' &&
+        confirmation.toolName === 'bash'
+      ) {
+        return 'approve';
+      }
 
-      // File tools that support path-based approval
-      const FILE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file']);
-
-      // Use extended prompt for bash commands or file tools with suggestions
-      const hasApprovalSuggestions = confirmation.approvalSuggestions &&
-        (confirmation.toolName === 'bash' || FILE_TOOLS.has(confirmation.toolName));
-
-      if (hasApprovalSuggestions) {
-        const result = await promptConfirmationWithSuggestions(rl, confirmation);
-
-        // Show feedback when pattern/category is saved
-        if (typeof result === 'object') {
-          if (result.type === 'approve_pattern') {
-            if (FILE_TOOLS.has(confirmation.toolName)) {
-              console.log(chalk.green(`\nSaved path pattern: ${result.pattern}`));
-            } else {
-              console.log(chalk.green(`\nSaved pattern: ${result.pattern}`));
-            }
-          } else if (result.type === 'approve_category') {
-            const cat = confirmation.approvalSuggestions!.matchedCategories.find(
-              (c) => c.id === result.categoryId
-            );
-            if (FILE_TOOLS.has(confirmation.toolName)) {
-              console.log(chalk.green(`\nSaved path category: ${cat?.name || result.categoryId}`));
-            } else {
-              console.log(chalk.green(`\nSaved category: ${cat?.name || result.categoryId}`));
-            }
-          }
-        }
-
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'confirm', activityDetail: confirmation.toolName });
+        const result = await inkController.requestConfirmation('agent', confirmation);
+        inkController.setStatus({ activity: 'thinking', activityDetail: null });
         return result;
       }
 
-      // Standard confirmation for other tools
-      const promptText = confirmation.isDangerous
-        ? chalk.red.bold('Approve? [y/N/abort] ')
-        : chalk.yellow('Approve? [y/N/abort] ');
+      workerStatusUI?.setAgentActivity('confirm', confirmation.toolName);
+      const confirmationDetail = formatConfirmationDetail(confirmation);
+      workerStatusUI?.setConfirmation({
+        source: 'agent',
+        toolName: confirmation.toolName,
+        detail: confirmationDetail ?? undefined,
+      });
 
-      const result = await promptConfirmation(rl, promptText);
-      return result;
+      try {
+        console.log('\n' + formatConfirmation(confirmation));
+
+        // File tools that support path-based approval
+        const FILE_TOOLS = new Set(['write_file', 'edit_file', 'insert_line', 'patch_file']);
+
+        // Use extended prompt for bash commands or file tools with suggestions
+        const hasApprovalSuggestions = confirmation.approvalSuggestions &&
+          (confirmation.toolName === 'bash' || FILE_TOOLS.has(confirmation.toolName));
+
+        if (hasApprovalSuggestions) {
+          const result = await promptConfirmationWithSuggestions(rl!, confirmation);
+
+          // Show feedback when pattern/category is saved
+          if (typeof result === 'object') {
+            if (result.type === 'approve_pattern') {
+              if (FILE_TOOLS.has(confirmation.toolName)) {
+                console.log(chalk.green(`\nSaved path pattern: ${result.pattern}`));
+              } else {
+                console.log(chalk.green(`\nSaved pattern: ${result.pattern}`));
+              }
+            } else if (result.type === 'approve_category') {
+              const cat = confirmation.approvalSuggestions!.matchedCategories.find(
+                (c) => c.id === result.categoryId
+              );
+              if (FILE_TOOLS.has(confirmation.toolName)) {
+                console.log(chalk.green(`\nSaved path category: ${cat?.name || result.categoryId}`));
+              } else {
+                console.log(chalk.green(`\nSaved category: ${cat?.name || result.categoryId}`));
+              }
+            }
+          }
+
+          return result;
+        }
+
+        // Standard confirmation for other tools
+        const promptText = confirmation.isDangerous
+          ? chalk.red.bold('Approve? [y/N/abort] ')
+          : chalk.yellow('Approve? [y/N/abort] ');
+
+        const result = await promptConfirmation(rl!, promptText);
+        return result;
+      } finally {
+        workerStatusUI?.setConfirmation(null);
+        workerStatusUI?.setAgentActivity('thinking', null);
+      }
     },
   });
 
@@ -3402,7 +3893,8 @@ Begin by analyzing the query and planning your research approach.`;
       options.resume,
       process.cwd(),
       rl,
-      !options.prompt
+      !options.prompt,
+      inkController
     );
     if (!sessionToLoad && !resumeArg && !options.prompt && process.stdout.isTTY) {
       console.log(chalk.dim('\nNo saved sessions found for this working directory.'));
@@ -3412,35 +3904,38 @@ Begin by analyzing the query and planning your research approach.`;
   }
 
   if (sessionToLoad) {
-    const session = loadSession(sessionToLoad);
-    if (session) {
-      agent.loadSession(session.messages, session.conversationSummary);
-      currentSession = session.name;
-      setCurrentSessionName(session.name);
-      if (commandContext.sessionState) {
-        commandContext.sessionState.currentName = session.name;
-      }
-      
-      // Restore working set if it exists in the session
-      if (session.openFilesState && commandContext.openFilesManager) {
-        const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
-        // Update the existing manager with restored state by clearing and repopulating
-        commandContext.openFilesManager.clear();
-        const restoredState = restoredManager.toJSON();
-        if (restoredState.files) {
-          for (const [filePath, meta] of Object.entries(restoredState.files)) {
-            commandContext.openFilesManager.open(filePath, { pinned: meta.pinned });
+    await renderCommandOutput(inkController, () => {
+      const session = loadSession(sessionToLoad);
+      if (session) {
+        agent.loadSession(session.messages, session.conversationSummary);
+        currentSession = session.name;
+        setCurrentSessionName(session.name);
+        inkController?.setStatus({ sessionName: session.name });
+        if (commandContext.sessionState) {
+          commandContext.sessionState.currentName = session.name;
+        }
+
+        // Restore working set if it exists in the session
+        if (session.openFilesState && commandContext.openFilesManager) {
+          const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
+          // Update the existing manager with restored state by clearing and repopulating
+          commandContext.openFilesManager.clear();
+          const restoredState = restoredManager.toJSON();
+          if (restoredState.files) {
+            for (const [filePath, meta] of Object.entries(restoredState.files)) {
+              commandContext.openFilesManager.open(filePath, { pinned: meta.pinned });
+            }
           }
         }
+
+        console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
+        if (session.conversationSummary) {
+          console.log(chalk.dim('Session has conversation summary from previous compaction.'));
+        }
+      } else {
+        console.log(chalk.yellow(`Session not found: ${sessionToLoad}`));
       }
-      
-      console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
-      if (session.conversationSummary) {
-        console.log(chalk.dim('Session has conversation summary from previous compaction.'));
-      }
-    } else {
-      console.log(chalk.yellow(`Session not found: ${sessionToLoad}`));
-    }
+    });
   }
 
   // =========================================================================
@@ -3612,11 +4107,14 @@ Begin by analyzing the query and planning your research approach.`;
    */
   const handleInput = async (input: string) => {
     const trimmed = input.trim();
+    workerStatusUI?.setPromptActive(false, { preservePrompt: true });
 
     if (!trimmed) {
-      rl.prompt();
+      promptUser();
       return;
     }
+
+    inkController?.addMessage('user', trimmed);
 
     // Save to history file
     saveToHistory(trimmed);
@@ -3651,18 +4149,24 @@ Begin by analyzing the query and planning your research approach.`;
         console.log(chalk.dim('    !pwd                - Show current directory\n'));
         console.log(chalk.dim('  Tip: Use ! for quick commands, /ask the AI for help with commands.\n'));
         resetPrompt();
-        rl.prompt();
+        promptUser();
         return;
       }
 
       // Parse and check all commands in the chain for permission
       const commands = parseCommandChain(shellCommand);
       if (commands.length > 1) {
+        if (!rl) {
+          console.log(chalk.yellow('Chained commands require confirmation in classic mode.'));
+          resetPrompt();
+          promptUser();
+          return;
+        }
         const allowed = await requestPermissionForChainedCommands(rl, commands);
         if (!allowed) {
           console.log(chalk.yellow('Command execution cancelled.'));
           resetPrompt();
-          rl.prompt();
+          promptUser();
           return;
         }
       }
@@ -3679,13 +4183,13 @@ Begin by analyzing the query and planning your research approach.`;
           console.log(chalk.dim(`Exit code: ${code}`));
         }
         resetPrompt();
-        rl.prompt();
+        promptUser();
       });
 
       child.on('error', (err) => {
         console.log(chalk.red(`Error: ${err.message}`));
         resetPrompt();
-        rl.prompt();
+        promptUser();
       });
 
       return;
@@ -3722,37 +4226,45 @@ Begin by analyzing the query and planning your research approach.`;
         showHelp(projectInfo);
       }
       resetPrompt();
-      rl.prompt();
+      promptUser();
       return;
     }
 
     // Handle built-in commands
     if (trimmed === '/exit' || trimmed === '/quit') {
-      console.log(chalk.dim('\nGoodbye!'));
-      // Log session end
-      auditLogger.sessionEnd();
-      // Shutdown debug bridge
-      if (isDebugBridgeEnabled()) {
-        getDebugBridge().shutdown();
-      }
-      // Cleanup MCP connections
-      if (mcpManager) {
-        await mcpManager.disconnectAll();
-      }
-      rl.close();
-      process.exit(0);
+      exitApp();
+      return;
     }
 
-    if (trimmed === '/clear') {
-      agent.clearHistory();
-      console.log(chalk.dim('Conversation cleared.'));
-      rl.prompt();
+    if (trimmed === '/clear' || trimmed.startsWith('/clear ')) {
+      const subcommand = trimmed.slice(6).trim().toLowerCase();
+
+      if (subcommand === '' || subcommand === 'all') {
+        // /clear or /clear all - clear everything
+        agent.clearHistory();
+        console.log(chalk.dim('Conversation cleared (history, summary, and working set).'));
+      } else if (subcommand === 'context' || subcommand === 'history') {
+        // /clear context or /clear history - clear messages and summary only
+        agent.clearContext();
+        console.log(chalk.dim('Context cleared (history and summary). Working set preserved.'));
+      } else if (subcommand === 'workingset' || subcommand === 'files') {
+        // /clear workingset or /clear files - clear only the working set
+        agent.clearWorkingSet();
+        console.log(chalk.dim('Working set cleared. Conversation history preserved.'));
+      } else {
+        console.log(chalk.yellow(`Unknown /clear subcommand: ${subcommand}`));
+        console.log(chalk.dim('Usage: /clear [all|context|history|workingset|files]'));
+        console.log(chalk.dim('  all, (default) - Clear everything'));
+        console.log(chalk.dim('  context, history - Clear messages and summary'));
+        console.log(chalk.dim('  workingset, files - Clear tracked files'));
+      }
+      promptUser();
       return;
     }
 
     if (trimmed === '/help') {
       showHelp(projectInfo);
-      rl.prompt();
+      promptUser();
       return;
     }
 
@@ -3763,7 +4275,7 @@ Begin by analyzing the query and planning your research approach.`;
       } else {
         console.log(chalk.dim('\nNo project detected in current directory.'));
       }
-      rl.prompt();
+      promptUser();
       return;
     }
 
@@ -3836,7 +4348,7 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.dim(`    Working set:  ${info.workingSetFiles} files`));
 
       console.log('');
-      rl.prompt();
+      promptUser();
       return;
     }
 
@@ -3853,7 +4365,25 @@ Begin by analyzing the query and planning your research approach.`;
               spinner.start(chalk.cyan('Compacting context...'));
             }
 
-            const result = await command.execute(parsed.args, commandContext);
+            let result: string | null = null;
+            let capturedOutput: ReturnType<typeof startConsoleCapture> | null = null;
+            let capturedWrites: ReturnType<typeof startWriteCapture> | null = null;
+            try {
+              if (useInkUi && inkController) {
+                capturedOutput = startConsoleCapture();
+                capturedWrites = startWriteCapture();
+              }
+              result = await command.execute(parsed.args, commandContext);
+            } finally {
+              if (capturedOutput) {
+                capturedOutput.restore();
+                emitCapturedOutput(inkController, capturedOutput);
+              }
+              if (capturedWrites) {
+                capturedWrites.restore();
+                emitCapturedWrites(inkController, capturedWrites);
+              }
+            }
 
             if (needsSpinner) {
               spinner.stop();
@@ -3861,341 +4391,458 @@ Begin by analyzing the query and planning your research approach.`;
             if (result) {
               // Handle session command outputs (special format)
               if (result.startsWith('__SESSION_')) {
-                handleSessionOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handleSessionOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle config command outputs
               if (result.startsWith('__CONFIG_') || result.startsWith('__INIT_RESULT__')) {
-                handleConfigOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handleConfigOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle history command outputs
               if (result.startsWith('__UNDO_') || result.startsWith('__REDO_') || result.startsWith('__HISTORY_')) {
-                handleHistoryOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handleHistoryOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle usage command outputs
               if (result.startsWith('__USAGE_')) {
-                handleUsageOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handleUsageOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle plugin command outputs
               if (result.startsWith('__PLUGIN')) {
-                handlePluginOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handlePluginOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle models command outputs
               if (result.startsWith('__MODELS__')) {
-                handleModelsOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handleModelsOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle switch command outputs
               if (result.startsWith('__SWITCH_')) {
-                handleSwitchOutput(result);
+                await renderCommandOutput(inkController, () => {
+                  handleSwitchOutput(result);
+                });
                 // Update session state on successful switch
                 if (result.startsWith('__SWITCH_SUCCESS__') && commandContext.sessionState) {
                   const switchParts = result.split('|');
                   commandContext.sessionState.provider = switchParts[1];
                   commandContext.sessionState.model = switchParts[2];
                 }
-                rl.prompt();
+                promptUser();
                 return;
               }
               // Handle modelmap command outputs
               if (result.startsWith('__MODELMAP_')) {
-                handleModelMapOutput(result);
-                rl.prompt();
+                await renderCommandOutput(inkController, () => {
+                  handleModelMapOutput(result);
+                });
+                promptUser();
                 return;
               }
               // Handle pipeline command outputs
               if (result.startsWith('__PIPELINE_')) {
                 // Special case: actually execute the pipeline
                 if (result.startsWith('__PIPELINE_EXECUTE__|')) {
-                  const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
-                  const pipelineName = parts[0];
+                  await renderCommandOutput(inkController, async () => {
+                    const parts = result.slice('__PIPELINE_EXECUTE__|'.length).split('|');
+                    const pipelineName = parts[0];
 
-                  // Parse optional flags from parts
-                  let providerContext: string | undefined;
-                  let iterativeMode = false;
-                  let useTriage = false;
-                  let triageOnly = false;
-                  let concurrency = 4;
-                  let inputStartIndex = 1;
-
-                  // Parse all optional flags
-                  while (inputStartIndex < parts.length) {
-                    const part = parts[inputStartIndex];
-                    if (part?.startsWith('provider:')) {
-                      providerContext = part.slice('provider:'.length);
-                      inputStartIndex++;
-                    } else if (part?.startsWith('iterative:')) {
-                      iterativeMode = part.slice('iterative:'.length) === 'true';
-                      inputStartIndex++;
-                    } else if (part?.startsWith('triage:')) {
-                      useTriage = part.slice('triage:'.length) === 'true';
-                      inputStartIndex++;
-                    } else if (part?.startsWith('triageOnly:')) {
-                      triageOnly = part.slice('triageOnly:'.length) === 'true';
-                      inputStartIndex++;
-                    } else if (part?.startsWith('concurrency:')) {
-                      concurrency = parseInt(part.slice('concurrency:'.length), 10) || 4;
-                      inputStartIndex++;
-                    } else {
-                      break; // No more flags, rest is input
+                    // Parse optional flags from parts
+                    let providerContext: string | undefined;
+                    let iterativeMode = false;
+                    let useTriage = false;
+                    let triageOnly = false;
+                    let concurrency = 4;
+                    let inputStartIndex = 1;
+  
+                    // Parse all optional flags
+                    while (inputStartIndex < parts.length) {
+                      const part = parts[inputStartIndex];
+                      if (part?.startsWith('provider:')) {
+                        providerContext = part.slice('provider:'.length);
+                        inputStartIndex++;
+                      } else if (part?.startsWith('iterative:')) {
+                        iterativeMode = part.slice('iterative:'.length) === 'true';
+                        inputStartIndex++;
+                      } else if (part?.startsWith('triage:')) {
+                        useTriage = part.slice('triage:'.length) === 'true';
+                        inputStartIndex++;
+                      } else if (part?.startsWith('triageOnly:')) {
+                        triageOnly = part.slice('triageOnly:'.length) === 'true';
+                        inputStartIndex++;
+                      } else if (part?.startsWith('concurrency:')) {
+                        concurrency = parseInt(part.slice('concurrency:'.length), 10) || 4;
+                        inputStartIndex++;
+                      } else {
+                        break; // No more flags, rest is input
+                      }
                     }
-                  }
-
-                  const input = parts.slice(inputStartIndex).join('|');
-                  const modelMap = agent.getModelMap();
-
-                  if (!modelMap) {
-                    console.log(chalk.red('\nPipeline error: No model map loaded'));
-                    rl.prompt();
-                    return;
-                  }
-
-                  const pipeline = modelMap.config.pipelines?.[pipelineName];
-                  if (!pipeline) {
-                    console.log(chalk.red(`\nPipeline error: Unknown pipeline "${pipelineName}"`));
-                    rl.prompt();
-                    return;
-                  }
-
-                  const effectiveProvider = providerContext || pipeline.provider || 'openai';
-
-                  // Handle iterative mode
-                  if (iterativeMode) {
-                    const files = await resolveFileList(input);
-
-                    if (files.length === 0) {
-                      console.log(chalk.red(`\nNo files found matching: ${input}`));
-                      rl.prompt();
+  
+                    const input = parts.slice(inputStartIndex).join('|');
+                    const modelMap = agent.getModelMap();
+  
+                    if (!modelMap) {
+                      console.log(chalk.red('\nPipeline error: No model map loaded'));
+                      promptUser();
                       return;
                     }
-
-                    const modeLabel = triageOnly ? 'triage only' : useTriage ? 'with triage' : 'sequential';
-                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
-                    console.log(chalk.dim(`Provider: ${effectiveProvider}`));
-                    console.log(chalk.dim(`Files: ${files.length} total`));
-                    if (useTriage || triageOnly) {
-                      console.log(chalk.dim(`Concurrency: ${concurrency}`));
-                      console.log(chalk.dim(`Triage: enabled`));
+  
+                    const pipeline = modelMap.config.pipelines?.[pipelineName];
+                    if (!pipeline) {
+                      console.log(chalk.red(`\nPipeline error: Unknown pipeline "${pipelineName}"`));
+                      promptUser();
+                      return;
                     }
-                    console.log();
-
-                    try {
-                      // Choose triage or sequential algorithm
-                      let iterativeResult: import('./model-map/types.js').IterativeResult;
-
+  
+                    const effectiveProvider = providerContext || pipeline.provider || 'openai';
+  
+                    // Handle iterative mode
+                    if (iterativeMode) {
+                      const files = await resolveFileList(input);
+  
+                      if (files.length === 0) {
+                        console.log(chalk.red(`\nNo files found matching: ${input}`));
+                        promptUser();
+                        return;
+                      }
+  
+                      const modeLabel = triageOnly ? 'triage only' : useTriage ? 'with triage' : 'sequential';
+                      console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName} (${modeLabel})`));
+                      console.log(chalk.dim(`Provider: ${effectiveProvider}`));
+                      console.log(chalk.dim(`Files: ${files.length} total`));
                       if (useTriage || triageOnly) {
-                        // Triage mode: score and prioritize files before processing
-                        iterativeResult = await modelMap.executor.executeIterativeV3(pipeline, files, {
-                          providerContext: effectiveProvider,
-                          concurrency,
-                          enableTriage: true,
-                          triage: {
-                            role: 'fast',
-                            deepThreshold: 6,
-                            skipThreshold: 3,
-                          },
-                          callbacks: {
-                            onTriageStart: (totalFiles: number) => {
-                              console.log(chalk.yellow(`  🔍 Triaging ${totalFiles} files...`));
+                        console.log(chalk.dim(`Concurrency: ${concurrency}`));
+                        console.log(chalk.dim(`Triage: enabled`));
+                      }
+                      console.log();
+  
+                      try {
+                        // Choose triage or sequential algorithm
+                        let iterativeResult: import('./model-map/types.js').IterativeResult;
+  
+                        if (useTriage || triageOnly) {
+                          // Triage mode: score and prioritize files before processing
+                          iterativeResult = await modelMap.executor.executeIterativeV3(pipeline, files, {
+                            providerContext: effectiveProvider,
+                            concurrency,
+                            enableTriage: true,
+                            triage: {
+                              role: 'fast',
+                              deepThreshold: 6,
+                              skipThreshold: 3,
                             },
-                            onTriageComplete: (triageResult: import('./model-map/types.js').TriageResult) => {
-                              console.log(chalk.green(`  ✓ Triage complete`));
-                              console.log(chalk.dim(`    Critical: ${triageResult.criticalPaths.length} files`));
-                              console.log(chalk.dim(`    Normal: ${triageResult.normalPaths.length} files`));
-                              console.log(chalk.dim(`    Quick scan: ${triageResult.skipPaths.length} files`));
-                              if (triageResult.duration) {
-                                console.log(chalk.dim(`    Time: ${(triageResult.duration / 1000).toFixed(1)}s`));
-                              }
-                              // Show top critical files
-                              if (triageResult.criticalPaths.length > 0) {
-                                console.log(chalk.yellow(`\n  Critical files:`));
-                                for (const file of triageResult.criticalPaths.slice(0, 5)) {
-                                  const score = triageResult.scores.find(s => s.file === file);
-                                  if (score) {
-                                    console.log(chalk.dim(`    - ${file} [${score.risk}] ${score.reasoning}`));
+                            callbacks: {
+                              onTriageStart: (totalFiles: number) => {
+                                console.log(chalk.yellow(`  🔍 Triaging ${totalFiles} files...`));
+                              },
+                              onTriageComplete: (triageResult: import('./model-map/types.js').TriageResult) => {
+                                console.log(chalk.green(`  ✓ Triage complete`));
+                                console.log(chalk.dim(`    Critical: ${triageResult.criticalPaths.length} files`));
+                                console.log(chalk.dim(`    Normal: ${triageResult.normalPaths.length} files`));
+                                console.log(chalk.dim(`    Quick scan: ${triageResult.skipPaths.length} files`));
+                                if (triageResult.duration) {
+                                  console.log(chalk.dim(`    Time: ${(triageResult.duration / 1000).toFixed(1)}s`));
+                                }
+                                // Show top critical files
+                                if (triageResult.criticalPaths.length > 0) {
+                                  console.log(chalk.yellow(`\n  Critical files:`));
+                                  for (const file of triageResult.criticalPaths.slice(0, 5)) {
+                                    const score = triageResult.scores.find(s => s.file === file);
+                                    if (score) {
+                                      console.log(chalk.dim(`    - ${file} [${score.risk}] ${score.reasoning}`));
+                                    }
+                                  }
+                                  if (triageResult.criticalPaths.length > 5) {
+                                    console.log(chalk.dim(`    ... and ${triageResult.criticalPaths.length - 5} more`));
                                   }
                                 }
-                                if (triageResult.criticalPaths.length > 5) {
-                                  console.log(chalk.dim(`    ... and ${triageResult.criticalPaths.length - 5} more`));
+  
+                                // If triage-only mode, stop here
+                                if (triageOnly) {
+                                  console.log(chalk.bold('\n## Full Triage Results\n'));
+                                  console.log(chalk.bold(`Summary: ${triageResult.summary}\n`));
+                                  for (const score of triageResult.scores) {
+                                    const risk = score.risk === 'critical' ? chalk.red(score.risk) :
+                                                score.risk === 'high' ? chalk.yellow(score.risk) :
+                                                score.risk === 'medium' ? chalk.cyan(score.risk) :
+                                                chalk.dim(score.risk);
+                                    console.log(`${risk.padEnd(12)} ${score.file}`);
+                                    console.log(chalk.dim(`  complexity: ${score.complexity}, importance: ${score.importance}`));
+                                    console.log(chalk.dim(`  ${score.reasoning}`));
+                                    console.log();
+                                  }
                                 }
-                              }
-
-                              // If triage-only mode, stop here
-                              if (triageOnly) {
-                                console.log(chalk.bold('\n## Full Triage Results\n'));
-                                console.log(chalk.bold(`Summary: ${triageResult.summary}\n`));
-                                for (const score of triageResult.scores) {
-                                  const risk = score.risk === 'critical' ? chalk.red(score.risk) :
-                                              score.risk === 'high' ? chalk.yellow(score.risk) :
-                                              score.risk === 'medium' ? chalk.cyan(score.risk) :
-                                              chalk.dim(score.risk);
-                                  console.log(`${risk.padEnd(12)} ${score.file}`);
-                                  console.log(chalk.dim(`  complexity: ${score.complexity}, importance: ${score.importance}`));
-                                  console.log(chalk.dim(`  ${score.reasoning}`));
-                                  console.log();
+                              },
+                              onFileStart: (file: string, index: number, total: number) => {
+                                if (!triageOnly) {
+                                  console.log(chalk.dim(`    ▸ [${index + 1}/${total}] ${file}`));
                                 }
-                              }
+                              },
+                              onFileComplete: (_file: string, _result: string) => {
+                                // Minimal output
+                              },
+                              onAggregationStart: () => {
+                                if (!triageOnly) {
+                                  console.log(chalk.yellow('\n  🔗 Synthesizing results...'));
+                                }
+                              },
+                              onStepStart: (stepName: string, modelName: string) => {
+                                if (!triageOnly && stepName === 'v3-synthesis') {
+                                  console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
+                                }
+                              },
+                              onStepComplete: (stepName: string, _output: string) => {
+                                if (!triageOnly && stepName === 'v3-synthesis') {
+                                  console.log(chalk.dim(`    ✓ ${stepName}`));
+                                }
+                              },
+                              onStepText: (_stepName: string, _text: string) => {
+                                // Don't stream in iterative mode
+                              },
+                              onError: (stepName: string, error: Error) => {
+                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                              },
+                              onToolCall: (stepName: string, toolName: string, _input: unknown) => {
+                                console.log(chalk.dim(`    🔧 ${stepName} calling ${toolName}`));
+                              },
+                              onToolResult: (stepName: string, toolName: string, result: string) => {
+                                console.log(chalk.dim(`    ✓ ${stepName}/${toolName}: ${result.substring(0, 50)}...`));
+                              },
                             },
-                            onFileStart: (file: string, index: number, total: number) => {
-                              if (!triageOnly) {
-                                console.log(chalk.dim(`    ▸ [${index + 1}/${total}] ${file}`));
-                              }
+                            aggregation: {
+                              enabled: !triageOnly,
+                              role: 'capable',
                             },
-                            onFileComplete: (_file: string, _result: string) => {
-                              // Minimal output
-                            },
-                            onAggregationStart: () => {
-                              if (!triageOnly) {
-                                console.log(chalk.yellow('\n  🔗 Synthesizing results...'));
-                              }
-                            },
-                            onStepStart: (stepName: string, modelName: string) => {
-                              if (!triageOnly && stepName === 'v3-synthesis') {
+                          });
+  
+                          // If triage-only, we're done
+                          if (triageOnly) {
+                            promptUser();
+                            return;
+                          }
+                        } else {
+                          // V1: sequential with batched aggregation
+                          iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
+                            providerContext: effectiveProvider,
+                            callbacks: {
+                              onFileStart: (file: string, index: number, total: number) => {
+                                console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
+                              },
+                              onFileComplete: (file: string, _result: string) => {
+                                console.log(chalk.green(`  ✓ ${file}`));
+                              },
+                              onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
+                                console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
+                              },
+                              onBatchComplete: (batchIndex: number, _summary: string) => {
+                                console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
+                              },
+                              onMetaAggregationStart: (batchCount: number) => {
+                                console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
+                              },
+                              onAggregationStart: () => {
+                                console.log(chalk.yellow('\nAggregating results...'));
+                              },
+                              onStepStart: (stepName: string, modelName: string) => {
                                 console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                              }
-                            },
-                            onStepComplete: (stepName: string, _output: string) => {
-                              if (!triageOnly && stepName === 'v3-synthesis') {
+                              },
+                              onStepComplete: (stepName: string, _output: string) => {
                                 console.log(chalk.dim(`    ✓ ${stepName}`));
-                              }
+                              },
+                              onStepText: (_stepName: string, _text: string) => {
+                                // Don't stream text in iterative mode
+                              },
+                              onError: (stepName: string, error: Error) => {
+                                console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
+                              },
                             },
-                            onStepText: (_stepName: string, _text: string) => {
-                              // Don't stream in iterative mode
+                            aggregation: {
+                              enabled: true,
+                              role: 'capable',
+                              batchSize: 15,
                             },
-                            onError: (stepName: string, error: Error) => {
-                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                            },
-                            onToolCall: (stepName: string, toolName: string, _input: unknown) => {
-                              console.log(chalk.dim(`    🔧 ${stepName} calling ${toolName}`));
-                            },
-                            onToolResult: (stepName: string, toolName: string, result: string) => {
-                              console.log(chalk.dim(`    ✓ ${stepName}/${toolName}: ${result.substring(0, 50)}...`));
-                            },
-                          },
-                          aggregation: {
-                            enabled: !triageOnly,
-                            role: 'capable',
-                          },
-                        });
-
-                        // If triage-only, we're done
-                        if (triageOnly) {
-                          rl.prompt();
-                          return;
+                          });
                         }
-                      } else {
-                        // V1: sequential with batched aggregation
-                        iterativeResult = await modelMap.executor.executeIterative(pipeline, files, {
-                          providerContext: effectiveProvider,
-                          callbacks: {
-                            onFileStart: (file: string, index: number, total: number) => {
-                              console.log(chalk.cyan(`\n  [${index + 1}/${total}] ${file}`));
-                            },
-                            onFileComplete: (file: string, _result: string) => {
-                              console.log(chalk.green(`  ✓ ${file}`));
-                            },
-                            onBatchStart: (batchIndex: number, totalBatches: number, filesInBatch: number) => {
-                              console.log(chalk.yellow(`\n  📦 Batch ${batchIndex + 1}/${totalBatches} aggregation (${filesInBatch} files)...`));
-                            },
-                            onBatchComplete: (batchIndex: number, _summary: string) => {
-                              console.log(chalk.green(`  ✓ Batch ${batchIndex + 1} summarized`));
-                            },
-                            onMetaAggregationStart: (batchCount: number) => {
-                              console.log(chalk.yellow(`\n  🔗 Meta-aggregating ${batchCount} batch summaries...`));
-                            },
-                            onAggregationStart: () => {
-                              console.log(chalk.yellow('\nAggregating results...'));
-                            },
-                            onStepStart: (stepName: string, modelName: string) => {
-                              console.log(chalk.dim(`    ▶ ${stepName} (${modelName})`));
-                            },
-                            onStepComplete: (stepName: string, _output: string) => {
-                              console.log(chalk.dim(`    ✓ ${stepName}`));
-                            },
-                            onStepText: (_stepName: string, _text: string) => {
-                              // Don't stream text in iterative mode
-                            },
-                            onError: (stepName: string, error: Error) => {
-                              console.log(chalk.red(`    ✗ ${stepName}: ${error.message}`));
-                            },
-                          },
-                          aggregation: {
-                            enabled: true,
-                            role: 'capable',
-                            batchSize: 15,
-                          },
-                        });
-                      }
-
-                      console.log(chalk.bold.green('\n\nPipeline complete!'));
-                      console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
-
-                      // Show triage results if available
-                      if (iterativeResult.triageResult) {
-                        const tr = iterativeResult.triageResult;
-                        console.log(chalk.dim(`Triage: ${tr.criticalPaths.length} critical, ${tr.normalPaths.length} normal, ${tr.skipPaths.length} quick`));
-                      }
-
-                      // Show grouping/batching info if available
-                      if (iterativeResult.groups && iterativeResult.groups.length > 0) {
-                        console.log(chalk.dim(`Groups: ${iterativeResult.groups.length}`));
-                      }
-                      if (iterativeResult.batchSummaries && iterativeResult.batchSummaries.length > 0) {
-                        console.log(chalk.dim(`Batches aggregated: ${iterativeResult.batchSummaries.length}`));
-                      }
-                      if (iterativeResult.timing) {
-                        const t = iterativeResult.timing;
-                        const triageStr = t.triage ? `${(t.triage / 1000).toFixed(1)}s triage, ` : '';
-                        console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${triageStr}${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
-                      }
-                      console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
-
-                      if (iterativeResult.skippedFiles && iterativeResult.skippedFiles.length > 0) {
-                        console.log(chalk.yellow(`\nSkipped ${iterativeResult.skippedFiles.length} file(s):`));
-                        for (const { file, reason } of iterativeResult.skippedFiles.slice(0, 5)) {
-                          console.log(chalk.dim(`  - ${file}: ${reason}`));
+  
+                        console.log(chalk.bold.green('\n\nPipeline complete!'));
+                        console.log(chalk.dim(`Files processed: ${iterativeResult.filesProcessed}/${iterativeResult.totalFiles}`));
+  
+                        // Show triage results if available
+                        if (iterativeResult.triageResult) {
+                          const tr = iterativeResult.triageResult;
+                          console.log(chalk.dim(`Triage: ${tr.criticalPaths.length} critical, ${tr.normalPaths.length} normal, ${tr.skipPaths.length} quick`));
                         }
-                        if (iterativeResult.skippedFiles.length > 5) {
-                          console.log(chalk.dim(`  ... and ${iterativeResult.skippedFiles.length - 5} more`));
+  
+                        // Show grouping/batching info if available
+                        if (iterativeResult.groups && iterativeResult.groups.length > 0) {
+                          console.log(chalk.dim(`Groups: ${iterativeResult.groups.length}`));
                         }
+                        if (iterativeResult.batchSummaries && iterativeResult.batchSummaries.length > 0) {
+                          console.log(chalk.dim(`Batches aggregated: ${iterativeResult.batchSummaries.length}`));
+                        }
+                        if (iterativeResult.timing) {
+                          const t = iterativeResult.timing;
+                          const triageStr = t.triage ? `${(t.triage / 1000).toFixed(1)}s triage, ` : '';
+                          console.log(chalk.dim(`Time: ${(t.total / 1000).toFixed(1)}s total (${triageStr}${(t.processing / 1000).toFixed(1)}s processing, ${((t.aggregation || 0) / 1000).toFixed(1)}s aggregation)`));
+                        }
+                        console.log(chalk.dim(`Models used: ${iterativeResult.modelsUsed.join(', ')}`));
+  
+                        if (iterativeResult.skippedFiles && iterativeResult.skippedFiles.length > 0) {
+                          console.log(chalk.yellow(`\nSkipped ${iterativeResult.skippedFiles.length} file(s):`));
+                          for (const { file, reason } of iterativeResult.skippedFiles.slice(0, 5)) {
+                            console.log(chalk.dim(`  - ${file}: ${reason}`));
+                          }
+                          if (iterativeResult.skippedFiles.length > 5) {
+                            console.log(chalk.dim(`  ... and ${iterativeResult.skippedFiles.length - 5} more`));
+                          }
+                        }
+  
+                        console.log(chalk.bold('\n## Aggregated Results\n'));
+                        console.log(iterativeResult.aggregatedOutput || '(No output)');
+                      } catch (error) {
+                        console.log(chalk.red(`\nIterative pipeline failed: ${error instanceof Error ? error.message : String(error)}`));
                       }
-
-                      console.log(chalk.bold('\n## Aggregated Results\n'));
-                      console.log(iterativeResult.aggregatedOutput || '(No output)');
-                    } catch (error) {
-                      console.log(chalk.red(`\nIterative pipeline failed: ${error instanceof Error ? error.message : String(error)}`));
+  
+                      promptUser();
+                      return;
                     }
-
-                    rl.prompt();
+  
+                    // Standard (non-iterative) execution
+                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
+                    console.log(chalk.dim(`Provider: ${effectiveProvider}`));
+                    console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
+  
+                    // Resolve file content if input looks like a glob pattern or file path
+                    const { resolvedInput, filesRead, truncated } = await resolvePipelineInput(input);
+                    if (filesRead > 0) {
+                      console.log(chalk.dim(`Files resolved: ${filesRead}${truncated ? ' (truncated)' : ''}`));
+                    }
+                    console.log();
+  
+                    try {
+                      const pipelineResult = await modelMap.executor.execute(pipeline, resolvedInput, {
+                        providerContext: effectiveProvider,
+                        callbacks: {
+                          onStepStart: (stepName: string, modelName: string) => {
+                            console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
+                          },
+                          onStepComplete: (stepName: string, _output: string) => {
+                            console.log(chalk.green(`  ✓ ${stepName} complete`));
+                          },
+                          onStepText: (_stepName: string, text: string) => {
+                            process.stdout.write(chalk.dim(text));
+                          },
+                          onError: (stepName: string, error: Error) => {
+                            console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
+                          },
+                        },
+                      });
+  
+                      console.log(chalk.bold.green('\n\nPipeline complete!'));
+                      console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')}`));
+                      console.log(chalk.bold('\nResult:'));
+                      console.log(pipelineResult.output);
+                    } catch (error) {
+                      console.log(chalk.red(`\nPipeline execution failed: ${error instanceof Error ? error.message : String(error)}`));
+                    }
+                    promptUser();
                     return;
-                  }
+                  });
+                  return;
+                }
 
-                  // Standard (non-iterative) execution
-                  console.log(chalk.bold.magenta(`\nExecuting pipeline: ${pipelineName}`));
-                  console.log(chalk.dim(`Provider: ${effectiveProvider}`));
-                  console.log(chalk.dim(`Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`));
+                // Other pipeline outputs (list, info, error)
+                await renderCommandOutput(inkController, () => {
+                  handlePipelineOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Handle import command outputs
+              if (result.startsWith('__IMPORT_')) {
+                await renderCommandOutput(inkController, () => {
+                  handleImportOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Handle memory command outputs
+              if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
+                await renderCommandOutput(inkController, () => {
+                  handleMemoryOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Handle compression command outputs
+              if (result.startsWith('COMPRESS_')) {
+                await renderCommandOutput(inkController, () => {
+                  handleCompressionOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Handle compact command outputs
+              if (result.startsWith('COMPACT_')) {
+                await renderCommandOutput(inkController, () => {
+                  handleCompactOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Handle approval command outputs
+              if (result.startsWith('__APPROVAL')) {
+                await renderCommandOutput(inkController, () => {
+                  handleApprovalOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Handle symbols command outputs
+              if (result.startsWith('__SYMBOLS_')) {
+                await renderCommandOutput(inkController, () => {
+                  handleSymbolsOutput(result);
+                });
+                promptUser();
+                return;
+              }
+              // Clear history for slash commands - they should start fresh
+              agent.clearHistory();
 
-                  // Resolve file content if input looks like a glob pattern or file path
-                  const { resolvedInput, filesRead, truncated } = await resolvePipelineInput(input);
-                  if (filesRead > 0) {
-                    console.log(chalk.dim(`Files resolved: ${filesRead}${truncated ? ' (truncated)' : ''}`));
-                  }
-                  console.log();
+              // Check if command has a pipeline override in model map
+              const modelMap = agent.getModelMap();
+              if (modelMap) {
+                try {
+                  const routing = modelMap.router.routeCommand(command.name);
+                  if (routing.type === 'pipeline') {
+                    await renderCommandOutput(inkController, async () => {
+                      // Execute pipeline instead of sending to agent
+                      console.log(chalk.bold.magenta(`\nExecuting pipeline: ${routing.pipelineName}`));
+                      console.log(chalk.dim(`Input: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`));
+                      console.log();
 
-                  try {
-                    const pipelineResult = await modelMap.executor.execute(pipeline, resolvedInput, {
-                      providerContext: effectiveProvider,
-                      callbacks: {
+                      const startTime = Date.now();
+                      const pipelineResult = await modelMap.executor.execute(routing.pipeline, result, {
                         onStepStart: (stepName: string, modelName: string) => {
                           console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
                         },
@@ -4208,98 +4855,15 @@ Begin by analyzing the query and planning your research approach.`;
                         onError: (stepName: string, error: Error) => {
                           console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
                         },
-                      },
+                      });
+
+                      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                      console.log(chalk.bold.green('\n\nPipeline complete!'));
+                      console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')} (${elapsed}s)`));
+                      console.log(chalk.bold('\nResult:'));
+                      console.log(pipelineResult.output);
+                      promptUser();
                     });
-
-                    console.log(chalk.bold.green('\n\nPipeline complete!'));
-                    console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')}`));
-                    console.log(chalk.bold('\nResult:'));
-                    console.log(pipelineResult.output);
-                  } catch (error) {
-                    console.log(chalk.red(`\nPipeline execution failed: ${error instanceof Error ? error.message : String(error)}`));
-                  }
-
-                  rl.prompt();
-                  return;
-                }
-
-                // Other pipeline outputs (list, info, error)
-                handlePipelineOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Handle import command outputs
-              if (result.startsWith('__IMPORT_')) {
-                handleImportOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Handle memory command outputs
-              if (result.startsWith('__MEMORY_') || result.startsWith('__MEMORIES_') || result.startsWith('__PROFILE_')) {
-                handleMemoryOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Handle compression command outputs
-              if (result.startsWith('COMPRESS_')) {
-                handleCompressionOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Handle compact command outputs
-              if (result.startsWith('COMPACT_')) {
-                handleCompactOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Handle approval command outputs
-              if (result.startsWith('__APPROVAL')) {
-                handleApprovalOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Handle symbols command outputs
-              if (result.startsWith('__SYMBOLS_')) {
-                handleSymbolsOutput(result);
-                rl.prompt();
-                return;
-              }
-              // Clear history for slash commands - they should start fresh
-              agent.clearHistory();
-
-              // Check if command has a pipeline override in model map
-              const modelMap = agent.getModelMap();
-              if (modelMap) {
-                try {
-                  const routing = modelMap.router.routeCommand(command.name);
-                  if (routing.type === 'pipeline') {
-                    // Execute pipeline instead of sending to agent
-                    console.log(chalk.bold.magenta(`\nExecuting pipeline: ${routing.pipelineName}`));
-                    console.log(chalk.dim(`Input: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`));
-                    console.log();
-
-                    const startTime = Date.now();
-                    const pipelineResult = await modelMap.executor.execute(routing.pipeline, result, {
-                      onStepStart: (stepName: string, modelName: string) => {
-                        console.log(chalk.cyan(`  ▶ ${stepName} (${modelName})`));
-                      },
-                      onStepComplete: (stepName: string, _output: string) => {
-                        console.log(chalk.green(`  ✓ ${stepName} complete`));
-                      },
-                      onStepText: (_stepName: string, text: string) => {
-                        process.stdout.write(chalk.dim(text));
-                      },
-                      onError: (stepName: string, error: Error) => {
-                        console.log(chalk.red(`  ✗ ${stepName} failed: ${error.message}`));
-                      },
-                    });
-
-                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                    console.log(chalk.bold.green('\n\nPipeline complete!'));
-                    console.log(chalk.dim(`Models used: ${pipelineResult.modelsUsed.join(', ')} (${elapsed}s)`));
-                    console.log(chalk.bold('\nResult:'));
-                    console.log(pipelineResult.output);
-                    rl.prompt();
                     return;
                   }
                 } catch (routingError) {
@@ -4309,37 +4873,70 @@ Begin by analyzing the query and planning your research approach.`;
               }
 
               // Command returned a prompt - send to agent
-              console.log(chalk.bold.magenta('\nAssistant: '));
+              if (!useInkUi) {
+                console.log(chalk.bold.magenta('\nAssistant: '));
+              }
               isStreaming = false;
               spinner.thinking();
+              if (useInkUi && inkController) {
+                inkController.setStatus({ activity: 'thinking', activityDetail: null });
+              } else if (workerStatusUI) {
+                workerStatusUI.setAgentActivity('thinking', null);
+              }
+              currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
+              const assistantMessageId = currentAssistantMessageId;
               const startTime = Date.now();
-              await agent.chat(result, { taskType: command.taskType });
+              try {
+                await agent.chat(result, { taskType: command.taskType });
+              } finally {
+                const finalizedId = assistantMessageId ?? currentAssistantMessageId;
+                if (finalizedId) {
+                  inkController?.completeAssistantMessage(finalizedId);
+                }
+                if (useInkUi && inkController) {
+                  inkController.setStatus({ activity: 'idle', activityDetail: null });
+                } else if (workerStatusUI) {
+                  workerStatusUI.setAgentActivity('idle', null);
+                }
+                currentAssistantMessageId = null;
+              }
               if (isReasoningStreaming) {
                 console.log(chalk.dim.italic('\n---\n'));
                 isReasoningStreaming = false;
               }
-              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-              console.log(chalk.dim(`\n(${elapsed}s)`));
+              if (!useInkUi) {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(chalk.dim(`\n(${elapsed}s)`));
+              }
               autoSaveSession(commandContext, agent);
             }
           } catch (error) {
             spinner.stop();
             logger.error(`Command error: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error : undefined);
           }
-          rl.prompt();
+          promptUser();
           return;
         } else {
           console.log(chalk.yellow(`Unknown command: /${parsed.name}. Type /help for available commands.`));
-          rl.prompt();
+          promptUser();
           return;
         }
       }
     }
 
     // Regular message - send to agent
-    console.log(chalk.bold.magenta('\nAssistant: '));
+    if (!useInkUi) {
+      console.log(chalk.bold.magenta('\nAssistant: '));
+    }
     isStreaming = false;
     spinner.thinking();
+    if (useInkUi && inkController) {
+      inkController.setStatus({ activity: 'thinking', activityDetail: null });
+    } else if (workerStatusUI) {
+      workerStatusUI.setAgentActivity('thinking', null);
+    }
+    currentAssistantMessageId = inkController?.startAssistantMessage() ?? null;
+    const assistantMessageId = currentAssistantMessageId;
 
     // Mark the start of agent processing for interrupt detection
     interruptHandler.startProcessing();
@@ -4349,7 +4946,7 @@ Begin by analyzing the query and planning your research approach.`;
       if (interruptHandler.wasInterrupted()) {
         console.log(chalk.yellow('\n⚠️ Operation cancelled'));
         resetPrompt();
-        rl.prompt();
+        promptUser();
         return;
       }
       
@@ -4361,15 +4958,15 @@ Begin by analyzing the query and planning your research approach.`;
         console.log(chalk.dim.italic('\n---\n'));
         isReasoningStreaming = false;
       }
-      
-      // Check if operation was interrupted during processing
-      if (interruptHandler.wasInterrupted()) {
-        console.log(chalk.dim('\n⚠️ Operation interrupted'));
-      } else {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(chalk.dim(`\n(${elapsed}s)`));
+      if (!useInkUi) {
+        // Check if operation was interrupted during processing
+        if (interruptHandler.wasInterrupted()) {
+          console.log(chalk.dim('\n⚠️ Operation interrupted'));
+        } else {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(chalk.dim(`\n(${elapsed}s)`));
+        }
       }
-      
       autoSaveSession(commandContext, agent);
     } catch (error) {
       spinner.stop();
@@ -4377,10 +4974,35 @@ Begin by analyzing the query and planning your research approach.`;
     } finally {
       // Always mark processing as complete
       interruptHandler.endProcessing();
+      const finalizedId = assistantMessageId ?? currentAssistantMessageId;
+      if (finalizedId) {
+        inkController?.completeAssistantMessage(finalizedId);
+      }
+      if (useInkUi && inkController) {
+        inkController.setStatus({ activity: 'idle', activityDetail: null });
+      } else if (workerStatusUI) {
+        workerStatusUI.setAgentActivity('idle', null);
+      }
+      currentAssistantMessageId = null;
     }
 
-    rl.prompt();
+    promptUser();
   };
+
+  if (useInkUi && inkController) {
+    inkSubmitHandler = handleInput;
+    while (pendingInkInputs.length > 0) {
+      const nextInput = pendingInkInputs.shift();
+      if (nextInput) {
+        // eslint-disable-next-line no-await-in-loop
+        await handleInput(nextInput);
+      }
+    }
+    if (inkUiPromise) {
+      await inkUiPromise;
+    }
+    process.exit(0);
+  }
 
   // Paste detection via debouncing
   // When lines arrive rapidly (within debounce window), they're buffered
@@ -4421,7 +5043,7 @@ Begin by analyzing the query and planning your research approach.`;
   };
 
   // Set up line handler for REPL
-  rl.on('line', onLine);
+  rl?.on('line', onLine);
 
   console.log(
     chalk.dim('Tips: ') +
@@ -4431,7 +5053,7 @@ Begin by analyzing the query and planning your research approach.`;
       chalk.cyan('/exit') + chalk.dim(' to quit, ') +
       chalk.cyan('ESC') + chalk.dim(' to interrupt.\n')
   );
-  rl.prompt();
+  promptUser();
 }
 
 // Handle uncaught errors gracefully

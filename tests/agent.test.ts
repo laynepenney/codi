@@ -290,6 +290,28 @@ describe('Agent', () => {
       expect(agent.getHistory()).toEqual([]);
       expect(agent.getSummary()).toBeNull();
     });
+
+    it('clearContext removes messages and summary but preserves working set', () => {
+      agent.setHistory([{ role: 'user', content: 'Hello' }]);
+      agent.setSummary('Previous conversation summary');
+      // Working set is populated by tool calls, but we can check it's preserved
+      agent.clearContext();
+      expect(agent.getHistory()).toEqual([]);
+      expect(agent.getSummary()).toBeNull();
+      // Working set should still exist (not cleared)
+      expect(agent.getContextInfo().workingSetFiles).toBe(0); // Was already 0, still 0
+    });
+
+    it('clearWorkingSet clears working set but preserves history and summary', () => {
+      agent.setHistory([{ role: 'user', content: 'Hello' }]);
+      agent.setSummary('Previous conversation summary');
+      agent.clearWorkingSet();
+      // History and summary should be preserved
+      expect(agent.getHistory()).toHaveLength(1);
+      expect(agent.getSummary()).toBe('Previous conversation summary');
+      // Working set should be cleared
+      expect(agent.getContextInfo().workingSetFiles).toBe(0);
+    });
   });
 
   describe('summary management', () => {

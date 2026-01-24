@@ -9,7 +9,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { spawn, type ChildProcess } from 'node:child_process';
 import {
   setupMockE2E,
   cleanupMockE2E,
@@ -18,17 +17,9 @@ import {
   toolCall,
   type MockE2ESession,
 } from './helpers/mock-e2e.js';
-
-// Platform-aware timeouts - macOS CI is slower
-const isMacOS = process.platform === 'darwin';
-const TEST_TIMEOUT = isMacOS ? 90000 : 20000;
-const WAIT_TIMEOUT = isMacOS ? 60000 : 15000;
+import { ProcessHarness, TEST_TIMEOUT, distEntry } from './helpers/process-harness.js';
 
 vi.setConfig({ testTimeout: TEST_TIMEOUT });
-
-function distEntry(): string {
-  return path.resolve(process.cwd(), 'dist', 'index.js');
-}
 
 function createTempProjectDir(): string {
   const dir = path.join(os.tmpdir(), `codi-more-tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -41,52 +32,6 @@ function cleanupTempDir(dir: string): void {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     // Ignore cleanup errors
-  }
-}
-
-class ProcessHarness {
-  private proc: ChildProcess;
-  private output = '';
-  private exitPromise: Promise<number | null>;
-
-  constructor(command: string, args: string[], opts?: { cwd?: string; env?: NodeJS.ProcessEnv }) {
-    this.proc = spawn(command, args, {
-      cwd: opts?.cwd,
-      env: { ...process.env, ...opts?.env, NO_COLOR: '1', FORCE_COLOR: '0', CI: '1' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    this.proc.stdout?.on('data', (data) => { this.output += data.toString(); });
-    this.proc.stderr?.on('data', (data) => { this.output += data.toString(); });
-
-    this.exitPromise = new Promise((resolve) => {
-      this.proc.on('exit', (code) => resolve(code));
-      this.proc.on('error', () => resolve(null));
-    });
-  }
-
-  writeLine(data: string): void { this.proc.stdin?.write(data + '\n'); }
-  getOutput(): string { return this.output; }
-
-  async waitFor(pattern: string | RegExp, timeoutMs = WAIT_TIMEOUT): Promise<string> {
-    const re = typeof pattern === 'string'
-      ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      : pattern;
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (re.test(this.output)) return this.output;
-      await new Promise(r => setTimeout(r, 50));
-    }
-    throw new Error(`Timeout waiting for pattern: ${pattern}\n\nOutput:\n${this.output}`);
-  }
-
-  kill(): void { this.proc.kill('SIGTERM'); }
-
-  async waitForExit(timeoutMs = 5000): Promise<number | null> {
-    const timeout = new Promise<number | null>((resolve) => {
-      setTimeout(() => { this.kill(); resolve(null); }, timeoutMs);
-    });
-    return Promise.race([this.exitPromise, timeout]);
   }
 }
 
@@ -119,7 +64,7 @@ describe('insert_line tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Insert a line in file.ts');
 
     await proc.waitFor(/Inserted|line|position/i, 15000);
@@ -169,7 +114,7 @@ describe('patch_file tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Apply a patch to code.ts');
 
     await proc.waitFor(/patch|Applied|update/i, 15000);
@@ -210,7 +155,7 @@ describe('run_tests tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Run the tests');
 
     await proc.waitFor(/test|passed|success/i, 15000);
@@ -246,7 +191,7 @@ describe('shell_info tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('What shell am I using?');
 
     await proc.waitFor(/shell|zsh|bash|macOS|system/i, 15000);
@@ -287,7 +232,7 @@ export function fetchUser(id: string): Promise<User> {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Generate docs for api.ts');
 
     await proc.waitFor(/doc|JSDoc|Generated|fetchUser/i, 15000);
@@ -330,7 +275,7 @@ describe('refactor tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Rename oldName to newName');
 
     await proc.waitFor(/Rename|oldName|newName|refactor/i, 15000);
@@ -379,7 +324,7 @@ describe('Multiple tools in sequence E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Update the version to 2.0.0 and verify');
 
     await proc.waitFor(/Updated|VERSION|2\.0\.0|verified/i, 20000);

@@ -6,25 +6,16 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { spawn, type ChildProcess } from 'node:child_process';
+import * as path from 'node:path';
 import { setupMockE2E, cleanupMockE2E, textResponse, type MockE2ESession } from './helpers/mock-e2e.js';
+import { ProcessHarness, TEST_TIMEOUT, distEntry } from './helpers/process-harness.js';
 
 // Skip orchestrator tests on Windows (Unix domain sockets not supported)
 const isWindows = process.platform === 'win32';
 
-// Platform-aware timeouts - macOS CI is slower
-const isMacOS = process.platform === 'darwin';
-const TEST_TIMEOUT = isMacOS ? 90000 : 20000;
-const WAIT_TIMEOUT = isMacOS ? 60000 : 15000;
-
 vi.setConfig({ testTimeout: TEST_TIMEOUT });
-
-function distEntry(): string {
-  return path.resolve(process.cwd(), 'dist', 'index.js');
-}
 
 function createTempProjectDir(): string {
   const dir = path.join(os.tmpdir(), `codi-workflow-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -37,52 +28,6 @@ function cleanupTempDir(dir: string): void {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     // Ignore cleanup errors
-  }
-}
-
-class ProcessHarness {
-  private proc: ChildProcess;
-  private output = '';
-  private exitPromise: Promise<number | null>;
-
-  constructor(command: string, args: string[], opts?: { cwd?: string; env?: NodeJS.ProcessEnv }) {
-    this.proc = spawn(command, args, {
-      cwd: opts?.cwd,
-      env: { ...process.env, ...opts?.env, NO_COLOR: '1', FORCE_COLOR: '0', CI: '1' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    this.proc.stdout?.on('data', (data) => { this.output += data.toString(); });
-    this.proc.stderr?.on('data', (data) => { this.output += data.toString(); });
-
-    this.exitPromise = new Promise((resolve) => {
-      this.proc.on('exit', (code) => resolve(code));
-      this.proc.on('error', () => resolve(null));
-    });
-  }
-
-  writeLine(data: string): void { this.proc.stdin?.write(data + '\n'); }
-  getOutput(): string { return this.output; }
-
-  async waitFor(pattern: string | RegExp, timeoutMs = WAIT_TIMEOUT): Promise<string> {
-    const re = typeof pattern === 'string'
-      ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      : pattern;
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (re.test(this.output)) return this.output;
-      await new Promise(r => setTimeout(r, 50));
-    }
-    throw new Error(`Timeout waiting for pattern: ${pattern}\n\nOutput:\n${this.output}`);
-  }
-
-  kill(): void { this.proc.kill('SIGTERM'); }
-
-  async waitForExit(timeoutMs = 5000): Promise<number | null> {
-    const timeout = new Promise<number | null>((resolve) => {
-      setTimeout(() => { this.kill(); resolve(null); }, timeoutMs);
-    });
-    return Promise.race([this.exitPromise, timeout]);
   }
 }
 
@@ -110,7 +55,7 @@ describe('/new command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/new component Button');
 
     await proc.waitFor(/create|component|Button/i);
@@ -144,7 +89,7 @@ describe('/scaffold command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/scaffold express-api');
 
     await proc.waitFor(/scaffold|project|structure/i);
@@ -179,7 +124,7 @@ describe('/debug command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/debug buggy.ts');
 
     await proc.waitFor(/debug|issue|error|found/i);
@@ -213,7 +158,7 @@ describe('/remember command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/remember I prefer TypeScript over JavaScript');
 
     await proc.waitFor(/Remembered|saved|memory|TypeScript/i);
@@ -247,7 +192,7 @@ describe('/profile command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/profile');
 
     // Should show profile or empty message
@@ -283,7 +228,7 @@ describe('/compress command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/compress');
 
     // Should show compression info
@@ -318,7 +263,7 @@ describe('/approvals command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/approvals list');
 
     // Should show approval patterns
@@ -354,7 +299,7 @@ describe('/index command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/index status');
 
     // Should show index status
@@ -390,7 +335,7 @@ describe('/symbols command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/symbols stats');
 
     // Should show symbol statistics
@@ -425,7 +370,7 @@ describe('/modelmap command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/modelmap');
 
     // Should show model map info or not found
@@ -460,7 +405,7 @@ describe('/switch command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/switch --help');
 
     // Should show usage
@@ -495,7 +440,7 @@ describe('/filehistory command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/filehistory');
 
     // Should show history or empty message
@@ -530,7 +475,7 @@ describe('/plan command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/plan add user authentication');
 
     // Should start planning
@@ -565,7 +510,7 @@ describe('/plans command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/plans');
 
     // Should show plans or empty
