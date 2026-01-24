@@ -3260,8 +3260,13 @@ Begin by analyzing the query and planning your research approach.`;
     }
 
     // Show label as a prefix if set (only in normal mode)
-    const labelPrefix = currentLabel && mode === 'normal'
-      ? chalk.dim(`[${currentLabel}] `)
+    // Truncate long labels to keep prompt compact
+    let displayLabel = currentLabel;
+    if (displayLabel && displayLabel.length > 15) {
+      displayLabel = displayLabel.slice(0, 14) + '…';
+    }
+    const labelPrefix = displayLabel && mode === 'normal'
+      ? chalk.dim(`[${displayLabel}] `)
       : '';
 
     return `\n${labelPrefix}${colorFn(`${baseText}: `)}`;
