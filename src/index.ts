@@ -251,7 +251,8 @@ async function resolveFileList(
   return files.sort();
 }
 
-import { Agent, type ToolConfirmation, type ConfirmationResult } from './agent.js';
+import { Agent, type ToolConfirmation, type ConfirmationResult, type SecurityWarning } from './agent.js';
+import { SecurityValidator, createSecurityValidator } from './security-validator.js';
 import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
 import { shutdownAllRateLimiters } from './providers/rate-limiter.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
@@ -672,13 +673,29 @@ function showHelp(projectInfo: ProjectInfo | null): void {
  * Format a tool confirmation for display.
  */
 function formatConfirmation(confirmation: ToolConfirmation): string {
-  const { toolName, input, isDangerous, dangerReason, diffPreview, approvalSuggestions } = confirmation;
+  const { toolName, input, isDangerous, dangerReason, diffPreview, approvalSuggestions, securityWarning } = confirmation;
 
   let display = '';
 
   if (isDangerous) {
     display += chalk.red.bold('⚠️  DANGEROUS OPERATION\n');
     display += chalk.red(`   Reason: ${dangerReason}\n\n`);
+  }
+
+  // Display security model warning if present
+  if (securityWarning) {
+    const riskColor = securityWarning.riskScore >= 7 ? chalk.red :
+                      securityWarning.riskScore >= 4 ? chalk.yellow : chalk.green;
+    display += chalk.magenta.bold('🔒 Security Analysis\n');
+    display += riskColor(`   Risk: ${securityWarning.riskScore}/10`);
+    display += chalk.dim(` (${securityWarning.latencyMs}ms)\n`);
+    if (securityWarning.threats.length > 0) {
+      display += chalk.yellow(`   Threats: ${securityWarning.threats.slice(0, 3).join(', ')}\n`);
+    }
+    if (securityWarning.reasoning) {
+      display += chalk.dim(`   ${securityWarning.reasoning.slice(0, 100)}${securityWarning.reasoning.length > 100 ? '...' : ''}\n`);
+    }
+    display += '\n';
   }
 
   display += chalk.yellow(`Tool: ${toolName}\n`);
@@ -3273,6 +3290,13 @@ Begin by analyzing the query and planning your research approach.`;
   // Get custom dangerous patterns from config
   const customDangerousPatterns = getCustomDangerousPatterns(resolvedConfig);
 
+  // Create security validator if configured
+  let securityValidator: SecurityValidator | null = null;
+  if (resolvedConfig.securityModel?.enabled) {
+    securityValidator = createSecurityValidator(resolvedConfig.securityModel);
+    logger.verbose(`Security model enabled: ${resolvedConfig.securityModel.model}`);
+  }
+
   let rl: Interface | null = null;
   let workerStatusUI: WorkerStatusUI | null = null;
   let rlClosed = false;
@@ -3666,6 +3690,7 @@ Begin by analyzing the query and planning your research approach.`;
     approvedPathPatterns: resolvedConfig.approvedPathPatterns,
     approvedPathCategories: resolvedConfig.approvedPathCategories,
     customDangerousPatterns,
+    securityValidator,
     logLevel,
     enableCompression: options.compress ?? resolvedConfig.enableCompression,
     maxContextTokens: resolvedConfig.maxContextTokens,
