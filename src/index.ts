@@ -3767,8 +3767,9 @@ Begin by analyzing the query and planning your research approach.`;
 
     if (trimmed === '/status') {
       const info = agent.getContextInfo();
-      const usedPercent = (info.tokens / info.contextWindow) * 100; // Removed Math.min(100, ...) to show actual overage
-      const budgetPercent = (info.maxTokens / info.contextWindow) * 100;
+      // Use effectiveLimit which always returns the correct limit to calculate against
+      const usedPercent = (info.tokens / info.effectiveLimit) * 100; // Removed Math.min(100, ...) to show actual overage
+      const budgetPercent = (info.maxTokens / info.effectiveLimit) * 100;
 
       console.log(chalk.bold('\n📊 Context Status'));
       console.log(chalk.dim('─'.repeat(50)));
@@ -3784,7 +3785,7 @@ Begin by analyzing the query and planning your research approach.`;
       // Color based on usage level
       const percentColor = usedPercent >= 100 ? chalk.redBright : (usedPercent >= 75 ? chalk.yellow : chalk.green);
       console.log(`\n  ${bar} ${percentColor(usedPercent.toFixed(1) + '%')}`);
-      console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.contextWindow)} tokens`));
+      console.log(chalk.dim(`  ${formatTokens(info.tokens)} / ${formatTokens(info.effectiveLimit)} tokens`));
 
       // Token breakdown
       console.log(chalk.bold('\n  Token Breakdown:'));
@@ -3796,10 +3797,24 @@ Begin by analyzing the query and planning your research approach.`;
 
       // Budget info
       console.log(chalk.bold('\n  Context Budget:'));
-      console.log(chalk.dim(`    Window:       ${formatTokens(info.contextWindow).padStart(8)}  (${info.tierName} tier)`));
-      console.log(chalk.dim(`    Output rsv:   ${formatTokens(info.outputReserve).padStart(8)}`));
-      console.log(chalk.dim(`    Safety:       ${formatTokens(info.safetyBuffer).padStart(8)}`));
-      console.log(chalk.green(`    Available:    ${formatTokens(info.maxTokens).padStart(8)}`));
+      // Show effective context window and tier info
+      if (info.effectiveLimit !== info.contextWindow) {
+        console.log(chalk.dim(`    Window:         ${formatTokens(info.effectiveLimit).padStart(8)}  (${info.tierName} tier)`));
+        console.log(chalk.dim(`    Original:       ${formatTokens(info.contextWindow).padStart(8)}  (provider limit)`));
+      } else {
+        console.log(chalk.dim(`    Window:         ${formatTokens(info.contextWindow).padStart(8)}  (${info.tierName} tier)`));
+      }
+      console.log(chalk.dim(`    Output rsv:     ${formatTokens(info.outputReserve).padStart(8)}`));
+      console.log(chalk.dim(`    Safety:         ${formatTokens(info.safetyBuffer).padStart(8)}`));
+      
+      // Calculate truly available tokens (what's left after current usage)
+      const trulyAvailable = Math.max(0, info.effectiveLimit - info.tokens);
+      console.log(chalk.green(`    Available:      ${formatTokens(trulyAvailable).padStart(8)}`));
+      
+      // Show override info if effectiveLimit differs from contextWindow
+      if (info.effectiveLimit !== info.contextWindow) {
+        console.log(chalk.dim(`    Override:       Effective limit ${formatTokens(info.effectiveLimit)} tokens`));
+      }
 
       // Message breakdown
       console.log(chalk.bold('\n  Messages:'));

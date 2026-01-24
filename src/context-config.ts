@@ -188,6 +188,50 @@ export function computeContextConfig(contextWindow: number): ComputedContextConf
 }
 
 /**
+ * Compute context scaled config based on effective limit.
+ * When maxContextTokens is overridden, scale the derived values proportionally.
+ */
+export function computeScaledContextConfig(
+  originalConfig: ComputedContextConfig,
+  effectiveLimit: number
+): ComputedContextConfig {
+  // If effectiveLimit equals contextWindow, return original
+  if (effectiveLimit === originalConfig.contextWindow) {
+    return originalConfig;
+  }
+
+  // Find appropriate tier for the new effective limit
+  const tier = findTier(effectiveLimit);
+  
+  // Recalculate values based on the effective limit
+  const safetyBuffer = Math.ceil(effectiveLimit * tier.safetyBufferPercent);
+  // Scale output reserve gently (4th root of scale factor)
+  // NOTE: Capped at 3x default to avoid excessive reserve allocation
+  // TODO: Consider making this cap configurable in the future if needed
+  const scaleFactor = effectiveLimit / originalConfig.contextWindow;
+  const scaleRoot = Math.pow(scaleFactor, 0.25);
+  const scaledOutputReserve = Math.min(FIXED_CONFIG.MAX_OUTPUT_TOKENS * 3, 
+    Math.ceil(FIXED_CONFIG.MAX_OUTPUT_TOKENS * scaleRoot));
+  
+  const usableContext = Math.floor(effectiveLimit * tier.contextUsagePercent);
+  const maxContextTokens = usableContext - scaledOutputReserve - safetyBuffer;
+  const minViableContext = Math.ceil(effectiveLimit * tier.minViablePercent);
+
+  return {
+    tierName: tier.name,
+    contextWindow: originalConfig.contextWindow, // Keep original for reference
+    maxContextTokens: Math.max(maxContextTokens, minViableContext),
+    maxOutputTokens: scaledOutputReserve,
+    safetyBuffer,
+    minViableContext,
+    recentMessagesToKeep: tier.recentMessagesToKeep,
+    toolResultTruncateThreshold: tier.toolResultTruncateThreshold,
+    toolResultsTokenBudget: Math.floor(effectiveLimit * tier.toolResultsTokenBudgetPercent),
+    maxImmediateToolResult: tier.maxImmediateToolResult,
+  };
+}
+
+/**
  * Get a legacy-compatible AGENT_CONFIG object from computed config.
  * This allows gradual migration from the old static config.
  */
