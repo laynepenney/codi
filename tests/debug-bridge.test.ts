@@ -1148,6 +1148,152 @@ describe('Debug Bridge', () => {
       expect(receivedCommands[0].type).toBe('checkpoint_list');
     });
   });
+
+  // ============================================
+  // Phase 5: Time Travel Debugging
+  // ============================================
+
+  describe('Phase 5: Time travel events', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should emit rewind event', () => {
+      bridge.rewind('cp_5_123456789', 3, 10);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('rewind');
+      expect(event.data.checkpointId).toBe('cp_5_123456789');
+      expect(event.data.iteration).toBe(3);
+      expect(event.data.messageCount).toBe(10);
+    });
+
+    it('should emit branch_created event', () => {
+      bridge.branchCreated('feature-branch', 'cp_3_123456789', 'main');
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('branch_created');
+      expect(event.data.name).toBe('feature-branch');
+      expect(event.data.forkPoint).toBe('cp_3_123456789');
+      expect(event.data.parentBranch).toBe('main');
+    });
+
+    it('should emit branch_switched event', () => {
+      bridge.branchSwitched('feature-branch', 5);
+
+      const content = readFileSync(bridge.getEventsFile(), 'utf8');
+      const lines = content.trim().split('\n').filter(l => l);
+      const event = JSON.parse(lines[lines.length - 1]);
+
+      expect(event.type).toBe('branch_switched');
+      expect(event.data.branch).toBe('feature-branch');
+      expect(event.data.iteration).toBe(5);
+    });
+  });
+
+  describe('Phase 5: Time travel command types', () => {
+    beforeEach(() => {
+      bridge.enable();
+    });
+
+    it('should handle rewind command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'rewind',
+        id: 'rewind-1',
+        data: { checkpointId: 'cp_5_123456789' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('rewind');
+      expect(receivedCommands[0].data.checkpointId).toBe('cp_5_123456789');
+    });
+
+    it('should handle branch_create command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'branch_create',
+        id: 'branch-create-1',
+        data: { name: 'feature-branch', checkpointId: 'cp_3_123456789' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('branch_create');
+      expect(receivedCommands[0].data.name).toBe('feature-branch');
+      expect(receivedCommands[0].data.checkpointId).toBe('cp_3_123456789');
+    });
+
+    it('should handle branch_switch command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'branch_switch',
+        id: 'branch-switch-1',
+        data: { name: 'feature-branch' },
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('branch_switch');
+      expect(receivedCommands[0].data.name).toBe('feature-branch');
+    });
+
+    it('should handle branch_list command', async () => {
+      const receivedCommands: any[] = [];
+
+      bridge.startCommandWatcher(async (cmd) => {
+        receivedCommands.push(cmd);
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const cmd = {
+        type: 'branch_list',
+        id: 'branch-list-1',
+        data: {},
+      };
+      appendFileSync(bridge.getCommandsFile(), JSON.stringify(cmd) + '\n');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      expect(receivedCommands.length).toBe(1);
+      expect(receivedCommands[0].type).toBe('branch_list');
+    });
+  });
 });
 
 // Cleanup mock home dir after all tests

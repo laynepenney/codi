@@ -51,6 +51,9 @@ import {
   type BreakpointContext,
   type BreakpointType,
   type Checkpoint,
+  type FullCheckpoint,
+  type Branch,
+  type Timeline,
 } from './debug-bridge.js';
 import {
   checkCommandApproval,
@@ -163,6 +166,17 @@ export class Agent {
   // Phase 4: Checkpoints
   private lastCheckpointIteration: number = 0;
   private checkpointInterval: number = 5; // Auto-checkpoint every 5 iterations
+  // Phase 5: Time travel
+  private currentBranch: string = 'main';
+  private timeline: Timeline = {
+    branches: [{
+      name: 'main',
+      created: new Date().toISOString(),
+      checkpoints: [],
+      current: true,
+    }],
+    activeBranch: 'main',
+  };
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -1937,6 +1951,7 @@ ${contextToSummarize}`,
 
   /**
    * Create a checkpoint with current state.
+   * In Phase 5, this also saves full state to disk.
    */
   createCheckpoint(label?: string): Checkpoint {
     const checkpoint: Checkpoint = {
@@ -1950,7 +1965,21 @@ ${contextToSummarize}`,
 
     this.lastCheckpointIteration = this.currentIteration;
 
+    // Phase 5: Save full checkpoint to disk if debug bridge enabled
     if (isDebugBridgeEnabled()) {
+      const fullCheckpoint: FullCheckpoint = {
+        ...checkpoint,
+        branch: this.currentBranch,
+        state: {
+          messages: structuredClone(this.messages),
+          summary: this.conversationSummary,
+          workingSet: {
+            recentFiles: [...this.workingSet.recentFiles],
+            activeEntities: [...this.workingSet.activeEntities],
+          },
+        },
+      };
+      this.saveCheckpoint(fullCheckpoint);
       getDebugBridge().checkpoint(checkpoint);
     }
 
@@ -1973,6 +2002,244 @@ ${contextToSummarize}`,
    */
   setCheckpointInterval(interval: number): void {
     this.checkpointInterval = interval;
+  }
+
+  // ============================================
+  // Time Travel (Phase 5)
+  // ============================================
+
+  /**
+   * Save a full checkpoint to disk.
+   */
+  private saveCheckpoint(checkpoint: FullCheckpoint): void {
+    if (!isDebugBridgeEnabled()) return;
+
+    const { mkdirSync, writeFileSync } = require('fs');
+    const { join } = require('path');
+
+    const checkpointsDir = join(getDebugBridge().getSessionDir(), 'checkpoints');
+    mkdirSync(checkpointsDir, { recursive: true });
+
+    const filePath = join(checkpointsDir, `${checkpoint.id}.json`);
+    writeFileSync(filePath, JSON.stringify(checkpoint, null, 2));
+
+    // Add to branch's checkpoint list
+    const branch = this.timeline.branches.find(b => b.name === this.currentBranch);
+    if (branch && !branch.checkpoints.includes(checkpoint.id)) {
+      branch.checkpoints.push(checkpoint.id);
+      this.saveTimeline();
+    }
+  }
+
+  /**
+   * Load a checkpoint from disk.
+   */
+  loadCheckpoint(checkpointId: string): FullCheckpoint | null {
+    if (!isDebugBridgeEnabled()) return null;
+
+    const { existsSync, readFileSync } = require('fs');
+    const { join } = require('path');
+
+    const filePath = join(getDebugBridge().getSessionDir(), 'checkpoints', `${checkpointId}.json`);
+    if (!existsSync(filePath)) return null;
+
+    try {
+      return JSON.parse(readFileSync(filePath, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * List all checkpoints in the current session.
+   */
+  listCheckpoints(): Checkpoint[] {
+    if (!isDebugBridgeEnabled()) return [];
+
+    const { existsSync, readdirSync, readFileSync } = require('fs');
+    const { join } = require('path');
+
+    const checkpointsDir = join(getDebugBridge().getSessionDir(), 'checkpoints');
+    if (!existsSync(checkpointsDir)) return [];
+
+    const checkpoints: Checkpoint[] = [];
+    const files = readdirSync(checkpointsDir).filter((f: string) => f.endsWith('.json'));
+
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(checkpointsDir, file), 'utf8');
+        const cp = JSON.parse(content) as FullCheckpoint;
+        checkpoints.push({
+          id: cp.id,
+          label: cp.label,
+          iteration: cp.iteration,
+          timestamp: cp.timestamp,
+          messageCount: cp.messageCount,
+          tokenCount: cp.tokenCount,
+        });
+      } catch {
+        // Skip invalid checkpoint files
+      }
+    }
+
+    return checkpoints.sort((a, b) => a.iteration - b.iteration);
+  }
+
+  /**
+   * Rewind to a checkpoint (destructive - loses subsequent state).
+   */
+  rewind(checkpointId: string): boolean {
+    const checkpoint = this.loadCheckpoint(checkpointId);
+    if (!checkpoint) {
+      return false;
+    }
+
+    // Restore state
+    this.messages = structuredClone(checkpoint.state.messages) as Message[];
+    this.conversationSummary = checkpoint.state.summary;
+    // Restore working set
+    this.workingSet = createWorkingSet();
+    if (checkpoint.state.workingSet) {
+      for (const file of checkpoint.state.workingSet.recentFiles || []) {
+        this.workingSet.recentFiles.add(file);
+      }
+      for (const entity of checkpoint.state.workingSet.activeEntities || []) {
+        this.workingSet.activeEntities.add(entity);
+      }
+    }
+    this.currentIteration = checkpoint.iteration;
+    this.lastCheckpointIteration = checkpoint.iteration;
+
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().rewind(checkpointId, checkpoint.iteration, this.messages.length);
+    }
+
+    return true;
+  }
+
+  /**
+   * Create a branch from a checkpoint.
+   */
+  createBranch(checkpointId: string, branchName: string): boolean {
+    const checkpoint = this.loadCheckpoint(checkpointId);
+    if (!checkpoint) {
+      return false;
+    }
+
+    // Check if branch already exists
+    if (this.timeline.branches.some(b => b.name === branchName)) {
+      return false;
+    }
+
+    const branch: Branch = {
+      name: branchName,
+      parentBranch: checkpoint.branch,
+      forkPoint: checkpointId,
+      created: new Date().toISOString(),
+      checkpoints: [],
+      current: false,
+    };
+
+    this.timeline.branches.push(branch);
+    this.saveTimeline();
+
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().branchCreated(branchName, checkpointId, checkpoint.branch);
+    }
+
+    return true;
+  }
+
+  /**
+   * Switch to a different branch.
+   */
+  switchBranch(branchName: string): boolean {
+    const branch = this.timeline.branches.find(b => b.name === branchName);
+    if (!branch) {
+      return false;
+    }
+
+    // Find the latest checkpoint in the branch to restore from
+    let checkpointId: string | undefined;
+    if (branch.checkpoints.length > 0) {
+      checkpointId = branch.checkpoints[branch.checkpoints.length - 1];
+    } else if (branch.forkPoint) {
+      checkpointId = branch.forkPoint;
+    }
+
+    if (checkpointId) {
+      const rewound = this.rewind(checkpointId);
+      if (!rewound) {
+        return false;
+      }
+    }
+
+    // Update current branch
+    this.timeline.branches.forEach(b => b.current = false);
+    branch.current = true;
+    this.currentBranch = branchName;
+    this.timeline.activeBranch = branchName;
+    this.saveTimeline();
+
+    if (isDebugBridgeEnabled()) {
+      getDebugBridge().branchSwitched(branchName, this.currentIteration);
+    }
+
+    return true;
+  }
+
+  /**
+   * List all branches.
+   */
+  listBranches(): Branch[] {
+    return this.timeline.branches;
+  }
+
+  /**
+   * Get the current branch name.
+   */
+  getCurrentBranch(): string {
+    return this.currentBranch;
+  }
+
+  /**
+   * Get the timeline.
+   */
+  getTimeline(): Timeline {
+    return this.timeline;
+  }
+
+  /**
+   * Save the timeline to disk.
+   */
+  private saveTimeline(): void {
+    if (!isDebugBridgeEnabled()) return;
+
+    const { writeFileSync } = require('fs');
+    const { join } = require('path');
+
+    const filePath = join(getDebugBridge().getSessionDir(), 'timeline.json');
+    writeFileSync(filePath, JSON.stringify(this.timeline, null, 2));
+  }
+
+  /**
+   * Load the timeline from disk.
+   */
+  loadTimeline(): void {
+    if (!isDebugBridgeEnabled()) return;
+
+    const { existsSync, readFileSync } = require('fs');
+    const { join } = require('path');
+
+    const filePath = join(getDebugBridge().getSessionDir(), 'timeline.json');
+    if (!existsSync(filePath)) return;
+
+    try {
+      this.timeline = JSON.parse(readFileSync(filePath, 'utf8'));
+      this.currentBranch = this.timeline.activeBranch;
+    } catch {
+      // Keep default timeline
+    }
   }
 
   /**

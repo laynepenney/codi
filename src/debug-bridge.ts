@@ -90,7 +90,11 @@ export type DebugEventType =
   | 'step_complete'
   | 'command_response'
   | 'breakpoint_hit'
-  | 'checkpoint';
+  | 'checkpoint'
+  // Phase 5: Time travel
+  | 'rewind'
+  | 'branch_created'
+  | 'branch_switched';
 
 /**
  * Base debug event structure.
@@ -120,7 +124,12 @@ export type DebugCommandType =
   | 'breakpoint_list'
   // Phase 4: Checkpoints
   | 'checkpoint_create'
-  | 'checkpoint_list';
+  | 'checkpoint_list'
+  // Phase 5: Time travel
+  | 'rewind'
+  | 'branch_create'
+  | 'branch_switch'
+  | 'branch_list';
 
 /**
  * Command structure.
@@ -168,6 +177,42 @@ export interface Checkpoint {
   timestamp: string;
   messageCount: number;
   tokenCount: number;
+}
+
+/**
+ * Full checkpoint with state (Phase 5).
+ * Used for storing checkpoints to disk.
+ */
+export interface FullCheckpoint extends Checkpoint {
+  branch: string;
+  state: {
+    messages: unknown[]; // Message[]
+    summary: string | null;
+    workingSet: {
+      recentFiles: string[];
+      activeEntities: string[];
+    };
+  };
+}
+
+/**
+ * Branch structure (Phase 5).
+ */
+export interface Branch {
+  name: string;
+  parentBranch?: string;
+  forkPoint?: string; // Checkpoint ID where fork occurred
+  created: string;
+  checkpoints: string[]; // Checkpoint IDs in this branch
+  current: boolean;
+}
+
+/**
+ * Session timeline (Phase 5).
+ */
+export interface Timeline {
+  branches: Branch[];
+  activeBranch: string;
 }
 
 /**
@@ -606,6 +651,38 @@ export class DebugBridge {
       messageCount: checkpoint.messageCount,
       tokenCount: checkpoint.tokenCount,
       timestamp: checkpoint.timestamp,
+    });
+  }
+
+  /**
+   * Emit rewind event (Phase 5).
+   */
+  rewind(checkpointId: string, iteration: number, messageCount: number): void {
+    this.emit('rewind', {
+      checkpointId,
+      iteration,
+      messageCount,
+    });
+  }
+
+  /**
+   * Emit branch created event (Phase 5).
+   */
+  branchCreated(name: string, forkPoint: string, parentBranch: string): void {
+    this.emit('branch_created', {
+      name,
+      forkPoint,
+      parentBranch,
+    });
+  }
+
+  /**
+   * Emit branch switched event (Phase 5).
+   */
+  branchSwitched(branch: string, iteration: number): void {
+    this.emit('branch_switched', {
+      branch,
+      iteration,
     });
   }
 

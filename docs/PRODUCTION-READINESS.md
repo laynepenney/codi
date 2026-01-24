@@ -11,7 +11,7 @@ Based on comprehensive codebase analysis, codi is **85-90% production ready**. T
 1. **Testing** - Core modules (agent.ts, MCP server, orchestration) lack unit tests
 2. **Security** - Path traversal vulnerabilities, dependency vulnerabilities (7 moderate)
 3. **Memory** - Unbounded message accumulation and working set growth
-4. **Deployment** - No npm publish workflow, Windows untested
+4. **Deployment** - No npm publish workflow (Windows not supported - use WSL2)
 
 ---
 
@@ -72,8 +72,8 @@ if (!resolvedPath.startsWith(projectRoot + '/') && resolvedPath !== projectRoot)
 #### 2.2 CI/CD Enhancements
 **File:** `.github/workflows/ci.yml`
 
-- [ ] Add macOS runner for cross-platform testing
-- [ ] Add Windows runner (test native module compilation)
+- [x] Add macOS runner for cross-platform testing
+- [ ] ~~Add Windows runner~~ - Not supported; use WSL2 (see #134)
 - [ ] Add npm publish workflow triggered by tags
 
 **New file:** `.github/workflows/release.yml`
@@ -159,7 +159,6 @@ RUNPOD_API_KEY=...
 
 - [ ] Add npm installation method: `npm install -g codi`
 - [ ] Add troubleshooting section
-- [ ] Add Windows-specific notes
 - [ ] Add provider setup guides
 
 ---
@@ -218,7 +217,7 @@ RUNPOD_API_KEY=...
 ### High (Tier 2)
 | File | Change |
 |------|--------|
-| `.github/workflows/ci.yml` | Add macOS, Windows runners |
+| `.github/workflows/ci.yml` | Add macOS runner (Windows not supported) |
 | `.github/workflows/release.yml` | New publish workflow |
 | `package.json` | Add files, publishConfig |
 | `.env.example` | New file |
@@ -241,7 +240,7 @@ RUNPOD_API_KEY=...
 - [ ] All 7 dependency vulnerabilities resolved (`pnpm audit` shows 0)
 - [ ] Path traversal tests pass (attempt to read `/etc/passwd` fails)
 - [ ] Memory stays bounded in 2-hour stress test
-- [ ] CI passes on Ubuntu, macOS, Windows
+- [ ] CI passes on Ubuntu and macOS (Windows not supported - use WSL2)
 - [ ] npm publish workflow tested with dry-run
 
 ### Before GA Release
@@ -272,7 +271,7 @@ RUNPOD_API_KEY=...
 | Path traversal exploit | Medium | Critical | Tier 1.2 path validation |
 | Memory exhaustion in long sessions | High | High | Tier 1.4 bounds |
 | Database corruption on crash | Medium | High | Tier 1.3 exit handlers |
-| Windows compatibility issues | Medium | Medium | Tier 2.2 CI testing |
+| Windows compatibility issues | N/A | N/A | Not supported - use WSL2 (#134) |
 | npm publish failures | Low | Medium | Tier 2.3 workflow |
 
 ---
