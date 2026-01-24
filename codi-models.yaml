@@ -1,6 +1,4 @@
 version: '1'
-
-# Model definitions - map friendly names to provider/model pairs
 models:
   haiku:
     provider: anthropic
@@ -34,8 +32,10 @@ models:
     provider: ollama
     model: qwen3-coder:480b-cloud
     description: default coder
-
-# Task routing - map task types to models
+  deepseek:
+    provider: ollama
+    model: deepseek-v3.1:671b-cloud
+    description: huge gen purpose
 tasks:
   fast:
     model: gpt-5-nano
@@ -49,15 +49,11 @@ tasks:
   summarize:
     model: glm
     description: Context summarization (local)
-
-# Command routing - override task for specific commands
 commands:
   commit:
     task: fast
   fix:
     task: complex
-
-# Fallback chains - try models in order if one fails
 fallbacks:
   primary:
     - opus
@@ -65,9 +61,6 @@ fallbacks:
     - haiku
     - gpt-5
     - glm
-
-# Model roles - abstract roles for provider-agnostic pipelines
-# Use with: /pipeline --provider anthropic <pipeline-name>
 model-roles:
   fast:
     anthropic: haiku
@@ -81,8 +74,6 @@ model-roles:
     anthropic: opus
     openai: gpt-5
     ollama: glm
-
-# Example pipeline using roles (provider-agnostic)
 pipelines:
   code-review:
     description: Multi-step code review
