@@ -3414,6 +3414,7 @@ Begin by analyzing the query and planning your research approach.`;
     promptUser = (preserveCursor?: boolean) => {
       rl?.prompt(preserveCursor);
       workerStatusUI?.setPromptActive(true);
+      spinner.setPromptActive(true); // Disable spinner while user is typing
     };
     exitApp = () => {
       rl?.close();
@@ -5160,6 +5161,9 @@ Begin by analyzing the query and planning your research approach.`;
   const debugPaste = process.env.DEBUG_PASTE === '1';
   const onLine = (line: string) => {
     if (rlClosed) return;
+
+    // Re-enable spinner now that user has submitted input
+    spinner.setPromptActive(false);
 
     // Check if there's pending paste data (captured by PasteInterceptor)
     const pasteData = consumePendingPaste();
