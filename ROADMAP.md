@@ -1,7 +1,7 @@
 # Codi Roadmap
 
 **Current Version:** 0.16.0
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-01-24
 
 ---
 
@@ -62,6 +62,7 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 | Debug CLI | `codi-debug` companion tool for watching events and sending commands | #115 |
 | Debug Bridge Phase 4 | Breakpoints, auto-checkpoints, session replay | #118 |
 | Debug Bridge Phase 5 | Time travel debugging (rewind, branching, timeline) | #129 |
+| Model Map Embedding Integration | Configure RAG embeddings via ~/.codi/models.yaml with fallback | #140 |
 
 ---
 
