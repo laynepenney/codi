@@ -110,7 +110,7 @@ Wingman: Codi <codi@layne.pro>"
 ```
 
 Best practices for multi-author commits:
-- Order: Human collaborators first, then AI assistants
+- Order: Human collaborators first, then other
 - Format: `Co-authored-by: Name <email>`
 - Required: Always include `Wingman: Codi <codi@layne.pro>` if Codi assisted
 

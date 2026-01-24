@@ -266,6 +266,6 @@
 
 ---
 
-**Maintained by**: Layne Penney + AI assistants  
-**Branch**: `feat/workflow-phase-2`  
+**Maintained by**: Layne Penney  
+**Branch**: Updated to `main` (merged)  
 **Latest**: Fully working core engine with model switching ✅

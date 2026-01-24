@@ -70,8 +70,22 @@ Dangerous operations require user approval. Diff previews before file changes. F
 ### 🧩 Extensible Architecture
 Easy to add new tools, commands, providers, and plugins.
 
-### 🤖 Multi-Agent Orchestration
-Run parallel AI agents in isolated git worktrees with permission routing back to you.
+### 🔄 Interactive Workflows
+Create multi-step workflows with AI model switching, conditional logic, loops, and built-in actions. Supports automated PR reviews, code refactoring pipelines, and CI/CD automation.
+
+```yaml
+- id: create-pr
+  action: create-pr
+  title: "Automated feature"
+- id: cheap-review
+  action: switch-model
+  model: "claude-haiku"
+- id: review
+  action: review-pr
+  check: "approved"
+- id: merge
+  action: merge-pr
+```
 
 </td>
 </tr>
@@ -338,8 +352,17 @@ Sessions auto-save after each response; use `/save` to name or snapshot a sessio
 </details>
 
 <details>
-<summary><strong>🔧 Workflow</strong></summary>
+<summary><strong>🔧 Interactive Workflows</strong></summary>
 
+### Workflow Execution
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/workflow list` | `/workflow ls` | List available workflows |
+| `/workflow show <name>` | `/workflow view` | Show workflow details and steps |
+| `/workflow validate <name>` | - | Validate workflow syntax |
+| `/workflow-run <name>` | `/wr` | Execute or resume a workflow |
+
+### Workflow Development
 | Command | Description |
 |---------|-------------|
 | `/new <type> <name>` | Create new component, hook, service, etc. |
@@ -348,6 +371,21 @@ Sessions auto-save after each response; use `/save` to name or snapshot a sessio
 | `/setup <tool>` | Set up tooling (eslint, prettier, testing) |
 | `/migrate <from> <to>` | Migrate code patterns |
 
+**Example workflow YAML**:
+```yaml
+name: pr-review-loop
+description: Automated PR review with model switching
+steps:
+  - id: create-pr
+    action: create-pr
+    title: "Automated PR"
+  - id: cheap-review
+    action: switch-model
+    model: "claude-haiku"
+  - id: review
+    action: review-pr
+    check: "approved"
+```
 </details>
 
 <details>
@@ -762,11 +800,45 @@ codi/
 6. Push (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-See [CODI.md](./CODI.md) for detailed contribution guidelines (also available as CLAUDE.md for AI assistant compatibility).
+See [CODI.md](./CODI.md) for detailed contribution guidelines.
+
+
+## 🗺️ Roadmap
+
+**Current Status**: Workflow System Phase 2 Complete ✅
+
+### ✅ Completed Features
+- **Multi-provider support** (Claude, OpenAI, Ollama)
+- **Comprehensive tool suite** (28+ file, git, code tools)
+- **Git integration** (/commit, /pr, /branch commands)
+- **Session persistence** with conversation history
+- **Session debugging** with breakpoints and checkpoints
+- **Multi-agent orchestration** with IPC communication
+- **Cost/usage tracking** with historical analytics
+- **RAG system** for semantic code search
+- **Web search** via DuckDuckGo
+- **Model map** for multi-model workflows
+- **Interactive workflow system** (Phase 1-2)
+
+### 🔄 Recent Major Updates (Jan 2025)
+
+**Interactive Workflow System** ✅ Phase 1-2 Complete
+- Execute multi-step workflows with model switching
+- YAML-based workflow definition
+- State persistence and progress tracking
+- `/workflow list/show/validate/run` commands
+- Cross-provider model switching
+
+### 🔲 Planned Features
+- **Workflow Phase 3**: Conditional logic and branching
+- **Workflow Phase 4**: Loop support with safety limits
+- **Enhanced MCP support**: Better tool interoperability
+- **Visual debugging**: GUI for session debugging
+- **Team features**: Collaborative workflows
+
+See [workflow-status-roadmap.md](workflow-status-roadmap.md) for detailed development plan.
 
 ---
-
-## Troubleshooting
 
 <details>
 <summary><strong>API Key Issues</strong></summary>

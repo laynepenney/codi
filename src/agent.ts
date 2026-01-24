@@ -1627,6 +1627,66 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Generate an auto-label for the conversation based on the first exchange.
+   * Uses the secondary provider (if available) to minimize cost.
+   * Returns null if there's not enough context or an error occurs.
+   */
+  async generateAutoLabel(): Promise<string | null> {
+    // Need at least one user message and one assistant response
+    if (this.messages.length < 2) {
+      return null;
+    }
+
+    // Get the first user message
+    const firstUserMsg = this.messages.find(m => m.role === 'user');
+    if (!firstUserMsg) {
+      return null;
+    }
+
+    // Extract text content from the message
+    const userContent = typeof firstUserMsg.content === 'string'
+      ? firstUserMsg.content
+      : firstUserMsg.content
+          .filter(block => block.type === 'text')
+          .map(block => (block as { type: 'text'; text: string }).text)
+          .join(' ');
+
+    // Truncate if too long
+    const truncatedContent = userContent.length > 500
+      ? userContent.slice(0, 500) + '...'
+      : userContent;
+
+    try {
+      const labelProvider = this.getSummaryProvider();
+      const response = await labelProvider.chat([
+        {
+          role: 'user',
+          content: `Generate a very short label (3-5 words max) that describes the topic of this conversation. Reply with ONLY the label, nothing else.
+
+User's request: "${truncatedContent}"
+
+Label:`,
+        },
+      ]);
+
+      // Clean up the response - remove quotes, trim, limit length
+      let label = response.content.trim();
+      label = label.replace(/^["']|["']$/g, ''); // Remove surrounding quotes
+      label = label.replace(/^Label:\s*/i, ''); // Remove "Label:" prefix if present
+
+      // Limit to reasonable length for prompt display
+      if (label.length > 40) {
+        label = label.slice(0, 40).trim();
+      }
+
+      return label || null;
+    } catch (error) {
+      logger.debug(`Failed to generate auto-label: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
    * Set the conversation history (for loading sessions).
    */
   setHistory(messages: Message[]): void {
