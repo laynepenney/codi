@@ -830,22 +830,35 @@ function startWriteCapture(): {
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
 
-  const captureWrite = (target: string[]) =>
-    (chunk: unknown, encoding?: BufferEncoding, callback?: (err?: Error | null) => void) => {
+  const captureWrite = (target: string[]) => {
+    return (
+      chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((err?: Error | null) => void),
+      callback?: (err?: Error | null) => void
+    ): boolean => {
+      let encoding: BufferEncoding | undefined;
+      let cb = callback;
+      if (typeof encodingOrCallback === 'function') {
+        cb = encodingOrCallback;
+      } else {
+        encoding = encodingOrCallback;
+      }
+
       let text = '';
       if (typeof chunk === 'string') {
         text = chunk;
-      } else if (chunk && typeof (chunk as Buffer).toString === 'function') {
-        text = (chunk as Buffer).toString(encoding ?? 'utf8');
+      } else if (chunk) {
+        text = Buffer.from(chunk).toString(encoding ?? 'utf8');
       }
       if (text) {
         target.push(text);
       }
-      if (typeof callback === 'function') {
-        callback();
+      if (typeof cb === 'function') {
+        cb();
       }
       return true;
     };
+  };
 
   (process.stdout.write as unknown as typeof process.stdout.write) = captureWrite(stdout);
   (process.stderr.write as unknown as typeof process.stderr.write) = captureWrite(stderr);
@@ -3757,6 +3770,17 @@ Begin by analyzing the query and planning your research approach.`;
     onConfirm: async (confirmation) => {
       // Stop spinner during confirmation
       spinner.stop();
+      const isMockProvider = provider.getName().toLowerCase() === 'mock';
+      const nonInteractive = !process.stdin.isTTY;
+
+      if (
+        isMockProvider &&
+        nonInteractive &&
+        process.env.CI === '1' &&
+        confirmation.toolName === 'bash'
+      ) {
+        return 'approve';
+      }
 
       if (useInkUi && inkController) {
         inkController.setStatus({ activity: 'confirm', activityDetail: confirmation.toolName });

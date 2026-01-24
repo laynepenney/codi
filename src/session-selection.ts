@@ -140,7 +140,7 @@ export class SessionSelector {
       // Temporarily detach stdin from readline input to avoid leaking bytes
       let inputWasPiped = false;
       if (input && input !== process.stdin && typeof process.stdin.unpipe === 'function') {
-        process.stdin.unpipe(input as NodeJS.WritableStream);
+        process.stdin.unpipe(input as unknown as NodeJS.WritableStream);
         inputWasPiped = true;
       }
 
@@ -154,7 +154,7 @@ export class SessionSelector {
 
       const restoreStreams = () => {
         if (inputWasPiped && input && typeof process.stdin.pipe === 'function') {
-          process.stdin.pipe(input as NodeJS.WritableStream);
+          process.stdin.pipe(input as unknown as NodeJS.WritableStream);
         }
         if (inputStream && typeof inputStream.pause === 'function' && typeof inputStream.resume === 'function') {
           if (wasPaused) {

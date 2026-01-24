@@ -196,7 +196,7 @@ export interface WorkerResult {
  * Options for the orchestrator.
  */
 export interface OrchestratorOptions {
-  /** Path to the Unix socket (default: ~/.codi/orchestrator.sock) */
+  /** Path to the Unix socket (default: ~/.codi/orchestrator.sock; may fall back to /tmp for long paths) */
   socketPath?: string;
   /** Maximum concurrent workers (default: 4) */
   maxWorkers?: number;

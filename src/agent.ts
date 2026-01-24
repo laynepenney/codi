@@ -1033,6 +1033,24 @@ ${contextToSummarize}`,
 
       for (const toolCall of response.toolCalls) {
         // Normalize bash command input early (before any checks)
+        if (toolCall.name === 'bash') {
+          const rawInput = toolCall.input as unknown;
+
+          if (typeof rawInput === 'string' || Array.isArray(rawInput)) {
+            toolCall.input = { command: rawInput } as Record<string, unknown>;
+          } else if (rawInput && typeof rawInput === 'object') {
+            const inputObj = rawInput as Record<string, unknown>;
+            if (!inputObj.command) {
+              const nested = inputObj.arguments ?? inputObj.parameters ?? inputObj.input;
+              if (typeof nested === 'string' || Array.isArray(nested)) {
+                toolCall.input = { ...inputObj, command: nested } as Record<string, unknown>;
+              } else if (nested && typeof nested === 'object') {
+                toolCall.input = { ...inputObj, ...(nested as Record<string, unknown>) };
+              }
+            }
+          }
+        }
+
         // Models may send { cmd: [...] } or { cmd: "..." } instead of { command: "..." }
         if (toolCall.name === 'bash' && !toolCall.input.command && toolCall.input.cmd) {
           const cmd = toolCall.input.cmd;

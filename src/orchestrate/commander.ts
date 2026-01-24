@@ -10,7 +10,7 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { existsSync } from 'fs';
 import { EventEmitter } from 'events';
 
@@ -46,6 +46,18 @@ function resolveCodiPath(inputPath: string): string {
   }
 
   return inputPath;
+}
+
+const MAX_SOCKET_PATH_BYTES = 100;
+
+function getDefaultSocketPath(): string {
+  const homeSocket = join(homedir(), '.codi', 'orchestrator.sock');
+  if (Buffer.byteLength(homeSocket, 'utf8') <= MAX_SOCKET_PATH_BYTES) {
+    return homeSocket;
+  }
+
+  const tmpBase = existsSync('/tmp') ? '/tmp' : tmpdir();
+  return join(tmpBase, `codi-orchestrator-${process.pid}.sock`);
 }
 import type { Interface as ReadlineInterface } from 'readline';
 import { createRequire } from 'module';
@@ -191,7 +203,7 @@ export class Orchestrator extends EventEmitter {
 
     // Apply defaults
     this.config = {
-      socketPath: config.socketPath || join(homedir(), '.codi', 'orchestrator.sock'),
+      socketPath: config.socketPath || getDefaultSocketPath(),
       maxWorkers: config.maxWorkers || 4,
       worktreeDir: config.worktreeDir || '',
       worktreePrefix: config.worktreePrefix || 'codi-worker-',
