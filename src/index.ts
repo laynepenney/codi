@@ -570,7 +570,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
 
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
-  console.log(chalk.dim('  /clear             - Clear conversation history'));
+  console.log(chalk.dim('  /clear [what]      - Clear conversation (all|context|workingset)'));
   console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
@@ -4234,9 +4234,28 @@ Begin by analyzing the query and planning your research approach.`;
       return;
     }
 
-    if (trimmed === '/clear') {
-      agent.clearHistory();
-      console.log(chalk.dim('Conversation cleared.'));
+    if (trimmed === '/clear' || trimmed.startsWith('/clear ')) {
+      const subcommand = trimmed.slice(6).trim().toLowerCase();
+
+      if (subcommand === '' || subcommand === 'all') {
+        // /clear or /clear all - clear everything
+        agent.clearHistory();
+        console.log(chalk.dim('Conversation cleared (history, summary, and working set).'));
+      } else if (subcommand === 'context' || subcommand === 'history') {
+        // /clear context or /clear history - clear messages and summary only
+        agent.clearContext();
+        console.log(chalk.dim('Context cleared (history and summary). Working set preserved.'));
+      } else if (subcommand === 'workingset' || subcommand === 'files') {
+        // /clear workingset or /clear files - clear only the working set
+        agent.clearWorkingSet();
+        console.log(chalk.dim('Working set cleared. Conversation history preserved.'));
+      } else {
+        console.log(chalk.yellow(`Unknown /clear subcommand: ${subcommand}`));
+        console.log(chalk.dim('Usage: /clear [all|context|history|workingset|files]'));
+        console.log(chalk.dim('  all, (default) - Clear everything'));
+        console.log(chalk.dim('  context, history - Clear messages and summary'));
+        console.log(chalk.dim('  workingset, files - Clear tracked files'));
+      }
       promptUser();
       return;
     }
