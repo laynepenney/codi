@@ -36,6 +36,7 @@ export function attachInkTranscriptWriter(options: InkTranscriptOptions): InkTra
   const stream = createWriteStream(filePath, { flags: 'a' });
   const workerNames = new Map<string, string>();
   const assistantBuffers = new Map<string, string>();
+  let disposed = false;
 
   const headerLines = buildHeader(options.status, options.projectName, options.projectPath);
   if (headerLines.length > 0) {
@@ -57,11 +58,13 @@ export function attachInkTranscriptWriter(options: InkTranscriptOptions): InkTra
   };
 
   const handleWorker = (state: WorkerState) => {
+    if (disposed) return;
     const name = state.config.branch || state.config.id;
     workerNames.set(state.config.id, name);
   };
 
   const handleMessage = (message: UiMessage) => {
+    if (disposed) return;
     if (message.kind === 'assistant') {
       if (message.text && message.text.trim()) {
         writeBlock(getLabel(message, workerNames), message.text);
@@ -74,6 +77,7 @@ export function attachInkTranscriptWriter(options: InkTranscriptOptions): InkTra
   };
 
   const handleChunk = ({ id, chunk }: { id: string; chunk: string }) => {
+    if (disposed) return;
     if (!chunk) return;
     const existing = assistantBuffers.get(id);
     if (existing === undefined) {
@@ -84,6 +88,7 @@ export function attachInkTranscriptWriter(options: InkTranscriptOptions): InkTra
   };
 
   const handleComplete = (id: string) => {
+    if (disposed) return;
     if (!assistantBuffers.has(id)) return;
     const text = assistantBuffers.get(id) ?? '';
     if (text.trim()) {
@@ -92,7 +97,24 @@ export function attachInkTranscriptWriter(options: InkTranscriptOptions): InkTra
     assistantBuffers.delete(id);
   };
 
+  const flushAssistantBuffers = () => {
+    for (const text of assistantBuffers.values()) {
+      if (text.trim()) {
+        writeBlock(MESSAGE_LABELS.assistant, text);
+      }
+    }
+    assistantBuffers.clear();
+  };
+
   const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    flushAssistantBuffers();
+    options.controller.off('worker', handleWorker);
+    options.controller.off('message', handleMessage);
+    options.controller.off('messageChunk', handleChunk);
+    options.controller.off('messageComplete', handleComplete);
+    options.controller.off('exit', dispose);
     stream.end();
   };
 

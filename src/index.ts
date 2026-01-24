@@ -3902,36 +3902,38 @@ Begin by analyzing the query and planning your research approach.`;
   }
 
   if (sessionToLoad) {
-    const session = loadSession(sessionToLoad);
-    if (session) {
-      agent.loadSession(session.messages, session.conversationSummary);
-      currentSession = session.name;
-      setCurrentSessionName(session.name);
-      inkController?.setStatus({ sessionName: session.name });
-      if (commandContext.sessionState) {
-        commandContext.sessionState.currentName = session.name;
-      }
-      
-      // Restore working set if it exists in the session
-      if (session.openFilesState && commandContext.openFilesManager) {
-        const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
-        // Update the existing manager with restored state by clearing and repopulating
-        commandContext.openFilesManager.clear();
-        const restoredState = restoredManager.toJSON();
-        if (restoredState.files) {
-          for (const [filePath, meta] of Object.entries(restoredState.files)) {
-            commandContext.openFilesManager.open(filePath, { pinned: meta.pinned });
+    await renderCommandOutput(inkController, () => {
+      const session = loadSession(sessionToLoad);
+      if (session) {
+        agent.loadSession(session.messages, session.conversationSummary);
+        currentSession = session.name;
+        setCurrentSessionName(session.name);
+        inkController?.setStatus({ sessionName: session.name });
+        if (commandContext.sessionState) {
+          commandContext.sessionState.currentName = session.name;
+        }
+
+        // Restore working set if it exists in the session
+        if (session.openFilesState && commandContext.openFilesManager) {
+          const restoredManager = OpenFilesManager.fromJSON(session.openFilesState);
+          // Update the existing manager with restored state by clearing and repopulating
+          commandContext.openFilesManager.clear();
+          const restoredState = restoredManager.toJSON();
+          if (restoredState.files) {
+            for (const [filePath, meta] of Object.entries(restoredState.files)) {
+              commandContext.openFilesManager.open(filePath, { pinned: meta.pinned });
+            }
           }
         }
+
+        console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
+        if (session.conversationSummary) {
+          console.log(chalk.dim('Session has conversation summary from previous compaction.'));
+        }
+      } else {
+        console.log(chalk.yellow(`Session not found: ${sessionToLoad}`));
       }
-      
-      console.log(chalk.green(`Loaded session: ${session.name} (${session.messages.length} messages)`));
-      if (session.conversationSummary) {
-        console.log(chalk.dim('Session has conversation summary from previous compaction.'));
-      }
-    } else {
-      console.log(chalk.yellow(`Session not found: ${sessionToLoad}`));
-    }
+    });
   }
 
   // =========================================================================
