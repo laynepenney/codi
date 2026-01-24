@@ -211,11 +211,15 @@ Then restart Codi with an OpenAI API key set or Ollama running.
     }
 
     if (action === 'config') {
+      const embeddingInfo = ragConfig.embeddingProvider === 'modelmap'
+        ? `${ragConfig.embeddingProvider} (task: ${ragConfig.embeddingTask || 'embeddings'})`
+        : ragConfig.embeddingProvider;
+
       console.log(`
 RAG Configuration
 
   Enabled:              ${ragConfig.enabled}
-  Embedding provider:   ${ragConfig.embeddingProvider}
+  Embedding provider:   ${embeddingInfo}
   OpenAI model:         ${ragConfig.openaiModel}
   Ollama model:         ${ragConfig.ollamaModel}
   Top K results:        ${ragConfig.topK}

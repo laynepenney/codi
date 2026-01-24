@@ -113,6 +113,9 @@ export interface AgentOptions {
   debug?: boolean; // @deprecated Use logLevel instead
   enableCompression?: boolean; // Enable entity-reference compression for context
   maxContextTokens?: number; // Maximum context tokens before compaction
+  contextOptimization?: {
+    maxOutputReserveScale?: number;
+  }; // Context optimization settings
   secondaryProvider?: BaseProvider | null; // Optional secondary provider for summarization
   modelMap?: ModelMap | null; // Optional model map for multi-model orchestration
   auditLogger?: AuditLogger | null; // Optional audit logger for session debugging
@@ -148,6 +151,7 @@ export class Agent {
   private maxContextTokens: number;
   private maxContextTokensExplicit: boolean; // True if user explicitly set maxContextTokens
   private contextConfig: ComputedContextConfig; // Tier-based context config
+  private contextOptimization: AgentOptions['contextOptimization'];
   private auditLogger: AuditLogger | null = null;
   private messages: Message[] = [];
   private conversationSummary: string | null = null;
@@ -216,6 +220,7 @@ export class Agent {
     this.enableCompression = options.enableCompression ?? false;
     // Track if user explicitly set maxContextTokens (so we preserve it on provider switch)
     this.maxContextTokensExplicit = options.maxContextTokens !== undefined;
+    this.contextOptimization = options.contextOptimization;
     this.auditLogger = options.auditLogger ?? null;
     this.systemPrompt = options.systemPrompt || this.getDefaultSystemPrompt();
 
@@ -1033,24 +1038,6 @@ ${contextToSummarize}`,
 
       for (const toolCall of response.toolCalls) {
         // Normalize bash command input early (before any checks)
-        if (toolCall.name === 'bash') {
-          const rawInput = toolCall.input as unknown;
-
-          if (typeof rawInput === 'string' || Array.isArray(rawInput)) {
-            toolCall.input = { command: rawInput } as Record<string, unknown>;
-          } else if (rawInput && typeof rawInput === 'object') {
-            const inputObj = rawInput as Record<string, unknown>;
-            if (!inputObj.command) {
-              const nested = inputObj.arguments ?? inputObj.parameters ?? inputObj.input;
-              if (typeof nested === 'string' || Array.isArray(nested)) {
-                toolCall.input = { ...inputObj, command: nested } as Record<string, unknown>;
-              } else if (nested && typeof nested === 'object') {
-                toolCall.input = { ...inputObj, ...(nested as Record<string, unknown>) };
-              }
-            }
-          }
-        }
-
         // Models may send { cmd: [...] } or { cmd: "..." } instead of { command: "..." }
         if (toolCall.name === 'bash' && !toolCall.input.command && toolCall.input.cmd) {
           const cmd = toolCall.input.cmd;
@@ -1553,21 +1540,6 @@ ${contextToSummarize}`,
   }
 
   /**
-   * Clear only the conversation context (messages and summary), keeping the working set.
-   */
-  clearContext(): void {
-    this.messages = [];
-    this.conversationSummary = null;
-  }
-
-  /**
-   * Clear only the working set (tracked files and entities), keeping conversation history.
-   */
-  clearWorkingSet(): void {
-    this.workingSet = createWorkingSet();
-  }
-
-  /**
    * Get the conversation history.
    */
   getHistory(): Message[] {
@@ -1717,7 +1689,7 @@ ${contextToSummarize}`,
     }
 
     // Compute scaled config based on effective limit
-    const scaledConfig = computeScaledContextConfig(this.contextConfig, this.maxContextTokens);
+    const scaledConfig = computeScaledContextConfig(this.contextConfig, this.maxContextTokens, this.contextOptimization);
 
     return {
       tokens: messageTokens + systemPromptTokens + toolDefinitionTokens,

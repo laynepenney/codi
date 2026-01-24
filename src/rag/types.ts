@@ -73,13 +73,15 @@ export interface RAGConfig {
   /** Whether RAG is enabled */
   enabled: boolean;
   /** Embedding provider to use */
-  embeddingProvider: 'openai' | 'ollama' | 'auto';
+  embeddingProvider: 'openai' | 'ollama' | 'modelmap' | 'auto';
   /** OpenAI embedding model (default: text-embedding-3-small) */
   openaiModel: string;
   /** Ollama embedding model (default: nomic-embed-text) */
   ollamaModel: string;
   /** Ollama base URL (default: http://localhost:11434) */
   ollamaBaseUrl: string;
+  /** Task name from model map for embeddings (default: "embeddings") */
+  embeddingTask?: string;
   /** Chunking strategy */
   chunkStrategy: 'code' | 'fixed';
   /** Maximum tokens per chunk (approximate) */
@@ -108,6 +110,7 @@ export interface RAGConfig {
 export const DEFAULT_RAG_CONFIG: RAGConfig = {
   enabled: true, // Enabled by default for semantic code search
   embeddingProvider: 'auto',
+  embeddingTask: 'embeddings', // Task name from model map when using 'modelmap' provider
   openaiModel: 'text-embedding-3-small',
   ollamaModel: 'nomic-embed-text',
   ollamaBaseUrl: 'http://localhost:11434',

@@ -2850,6 +2850,7 @@ async function main() {
         ...DEFAULT_RAG_CONFIG,
         enabled: true,
         embeddingProvider: workspaceConfig?.rag?.embeddingProvider ?? DEFAULT_RAG_CONFIG.embeddingProvider,
+        embeddingTask: workspaceConfig?.rag?.embeddingTask ?? DEFAULT_RAG_CONFIG.embeddingTask,
         openaiModel: workspaceConfig?.rag?.openaiModel ?? DEFAULT_RAG_CONFIG.openaiModel,
         ollamaModel: workspaceConfig?.rag?.ollamaModel ?? DEFAULT_RAG_CONFIG.ollamaModel,
         ollamaBaseUrl: workspaceConfig?.rag?.ollamaBaseUrl ?? DEFAULT_RAG_CONFIG.ollamaBaseUrl,
@@ -2862,7 +2863,7 @@ async function main() {
         parallelJobs: workspaceConfig?.rag?.parallelJobs,
       };
 
-      ragEmbeddingProvider = createEmbeddingProvider(ragConfig);
+      ragEmbeddingProvider = createEmbeddingProvider(ragConfig, modelMap?.config ?? null);
       console.log(chalk.dim(`RAG: ${ragEmbeddingProvider.getName()} (${ragEmbeddingProvider.getModel()})`));
 
       ragIndexer = new BackgroundIndexer(process.cwd(), ragEmbeddingProvider, ragConfig);
@@ -3637,6 +3638,7 @@ Begin by analyzing the query and planning your research approach.`;
     auditLogger: auditLogger.isEnabled() ? auditLogger : null,
     toolRegistry: globalRegistry,
     systemPrompt,
+    contextOptimization: resolvedConfig.contextOptimization,
     useTools,
     extractToolsFromText: resolvedConfig.extractToolsFromText,
     autoApprove: resolvedConfig.autoApprove.length > 0 ? resolvedConfig.autoApprove : options.yes,

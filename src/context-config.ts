@@ -193,7 +193,10 @@ export function computeContextConfig(contextWindow: number): ComputedContextConf
  */
 export function computeScaledContextConfig(
   originalConfig: ComputedContextConfig,
-  effectiveLimit: number
+  effectiveLimit: number,
+  contextOptimization?: {
+    maxOutputReserveScale?: number;
+  }
 ): ComputedContextConfig {
   // If effectiveLimit equals contextWindow, return original
   if (effectiveLimit === originalConfig.contextWindow) {
@@ -206,11 +209,11 @@ export function computeScaledContextConfig(
   // Recalculate values based on the effective limit
   const safetyBuffer = Math.ceil(effectiveLimit * tier.safetyBufferPercent);
   // Scale output reserve gently (4th root of scale factor)
-  // NOTE: Capped at 3x default to avoid excessive reserve allocation
-  // TODO: Consider making this cap configurable in the future if needed
+  // Cap can be configured via contextOptimization.maxOutputReserveScale (default: 3)
   const scaleFactor = effectiveLimit / originalConfig.contextWindow;
   const scaleRoot = Math.pow(scaleFactor, 0.25);
-  const scaledOutputReserve = Math.min(FIXED_CONFIG.MAX_OUTPUT_TOKENS * 3, 
+  const maxScale = contextOptimization?.maxOutputReserveScale ?? 3;
+  const scaledOutputReserve = Math.min(FIXED_CONFIG.MAX_OUTPUT_TOKENS * maxScale, 
     Math.ceil(FIXED_CONFIG.MAX_OUTPUT_TOKENS * scaleRoot));
   
   const usableContext = Math.floor(effectiveLimit * tier.contextUsagePercent);
