@@ -18,6 +18,7 @@ import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { format as formatUtil } from 'util';
 import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
+import { isPathWithinProject } from './utils/path-validation.js';
 import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
 
 // History configuration - allow override for testing
@@ -107,11 +108,25 @@ async function resolvePipelineInput(
   if (input.includes('*') || input.includes('?')) {
     // It's a glob pattern
     for await (const file of glob(input, { cwd })) {
-      files.push(file);
+      // Validate each file is within project (handles symlinks)
+      const fullPath = join(cwd, file);
+      if (isPathWithinProject(fullPath, cwd)) {
+        files.push(file);
+      }
     }
   } else {
     // It's a direct file path
     const fullPath = input.startsWith('/') ? input : join(cwd, input);
+
+    // Validate path is within project directory (prevent path traversal)
+    if (!isPathWithinProject(fullPath, cwd)) {
+      return {
+        resolvedInput: `Security error: Path "${input}" resolves outside the project directory.`,
+        filesRead: 0,
+        truncated: false
+      };
+    }
+
     if (existsSync(fullPath)) {
       try {
         const stat = statSync(fullPath);
@@ -120,7 +135,11 @@ async function resolvePipelineInput(
         } else if (stat.isDirectory()) {
           // If it's a directory, glob for common code files
           for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
-            files.push(file);
+            // Validate each file is within project (handles symlinks)
+            const filePath = join(cwd, file);
+            if (isPathWithinProject(filePath, cwd)) {
+              files.push(file);
+            }
           }
         }
       } catch {
@@ -147,6 +166,12 @@ async function resolvePipelineInput(
 
   for (const file of filesToRead) {
     const fullPath = file.startsWith('/') ? file : join(cwd, file);
+
+    // Defense in depth: validate path again before reading
+    if (!isPathWithinProject(fullPath, cwd)) {
+      contents.push(`\n### File: ${file}\n\`\`\`\n[Skipped: path resolves outside project directory]\n\`\`\`\n`);
+      continue;
+    }
 
     try {
       const stat = statSync(fullPath);
@@ -211,6 +236,10 @@ async function resolveFileList(
     // Glob pattern
     for await (const file of glob(input, { cwd })) {
       const fullPath = join(cwd, file);
+      // Validate path is within project (handles symlinks)
+      if (!isPathWithinProject(fullPath, cwd)) {
+        continue;
+      }
       try {
         const stat = statSync(fullPath);
         if (stat.isFile() && stat.size <= maxFileSize) {
@@ -223,6 +252,12 @@ async function resolveFileList(
   } else {
     // Direct file path
     const fullPath = input.startsWith('/') ? input : join(cwd, input);
+
+    // Validate path is within project directory (prevent path traversal)
+    if (!isPathWithinProject(fullPath, cwd)) {
+      return []; // Return empty list for invalid paths
+    }
+
     if (existsSync(fullPath)) {
       try {
         const stat = statSync(fullPath);
@@ -232,6 +267,10 @@ async function resolveFileList(
           // If directory, glob for code files
           for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
             const filePath = join(cwd, file);
+            // Validate each file is within project (handles symlinks)
+            if (!isPathWithinProject(filePath, cwd)) {
+              continue;
+            }
             try {
               const fileStat = statSync(filePath);
               if (fileStat.isFile() && fileStat.size <= maxFileSize) {
