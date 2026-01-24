@@ -28,6 +28,7 @@ export interface SessionState {
   currentName: string | null;
   provider: string;
   model: string;
+  label: string | null;
 }
 
 export interface CommandContext {
@@ -38,6 +39,8 @@ export interface CommandContext {
   sessionState?: SessionState;
   /** Callback to update session name after save/load */
   setSessionName?: (name: string | null) => void;
+  /** Callback to update conversation label */
+  setLabel?: (label: string | null) => void;
   /** Optional session selector for UI-driven session selection */
   selectSession?: (sessions: SessionInfo[], prompt?: string) => Promise<SessionInfo | null>;
   /** OpenFilesManager for tracking working set */
