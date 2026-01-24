@@ -4,6 +4,9 @@
 import { registerCommand, type Command, type CommandContext } from './index.js';
 import { WorkflowManager, getWorkflowByName } from '../workflow/index.js';
 
+// Import workflow run command
+import { workflowRunCommand } from './workflow-run-command.js';
+
 export const workflowListCommand: Command = {
   name: 'workflow',
   description: 'List available workflows',
@@ -116,5 +119,5 @@ Available subcommands:
 // Register workflow commands
 export function registerWorkflowCommands(): void {
   registerCommand(workflowListCommand);
-  // TODO: Register other commands as they're implemented
+  registerCommand(workflowRunCommand);
 }

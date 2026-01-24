@@ -244,6 +244,13 @@ export class WorkflowManager {
   }
 
   /**
+   * Get the workflow executor
+   */
+  getExecutor(): WorkflowExecutor {
+    return this.executor;
+  }
+
+  /**
    * Stop execution of an active workflow
    */
   stopWorkflow(workflowName: string): WorkflowState {
