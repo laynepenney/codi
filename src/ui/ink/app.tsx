@@ -1,9 +1,9 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Static, Text, useApp, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
-import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ConfirmationResult } from '../../agent.js';
 import type { ReaderResult, ReaderState, WorkerResult, WorkerState } from '../../orchestrate/types.js';
