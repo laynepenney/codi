@@ -1339,4 +1339,71 @@ All tool executions go through a permission system that:
 ### Bash Command Safety
 The bash tool includes built-in dangerous command detection with customizable patterns.
 
+
+---
+
+## Interactive Workflow System
+
+### **Current Status: Phase 2 Complete - Core Engine Working ✅**
+
+**Branch**: `feat/workflow-phase-2`  
+**Last Verified**: $(date)  
+**Test Results**: 13 tests passing
+
+### ✅ What's Implemented
+
+**Phase 1-2 Features (Working)**:
+- Workflow discovery in `./workflows/`, `~/.codi/workflows/`
+- YAML parsing with schema validation
+- State persistence to `~/.codi/workflows/state/`
+- Step execution engine with shell command support
+- Model switching between providers (`switch-model` action)
+- For full status: See `workflow-status-roadmap.md`
+
+**Commands Available**:
+- `/workflow list` - List available workflows
+- `/workflow show <name>` - Show workflow details and steps
+- `/workflow validate <name>` - Validate workflow syntax
+- `/workflow-run <name>` - Execute or resume workflow
+
+**Example Workflow**:
+```yaml
+name: test-model-switch
+description: Test switching between models
+steps:
+  - id: step1
+    action: shell
+    command: echo "Step 1: Starting workflow"
+  
+  - id: step2
+    action: switch-model
+    model: "llama3.2"
+    description: "Switch model"
+```
+
+### 🔲 Future Implementation Phases
+
+See `workflow-status-roadmap.md` for detailed roadmap:
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 3. Conditional Logic | 🔲 | Branching logic, `if/else` steps |
+| 4. Loop Support | 🔲 | Iteration with safety limits |
+| 5. Interactive Features | 🔲 | Human interaction points |
+| 6. Built-in Actions | 🔲 | PR/Git/AI action implementations |
+| 7. AI-Assisted Building | 🔲 | Natural language workflow creation |
+| 8. Testing & Polish | 🔲 | Production readiness |
+
+### 🎯 Quick Start
+
+1. Create workflows in `./workflows/` directory
+2. Use `/workflow validate <name>` to check syntax
+3. Execute with `/workflow-run <name>`
+
+### 📚 Documentation
+
+- `workflow-status-roadmap.md` - Detailed roadmap and future work
+- Example workflows in `./workflows/` directory
+- Source code in `src/workflow/` directory
+
 Previous versions had a vulnerability where chained commands like `!echo "?" | pnpm dev --quiet` only required permission for the first command (`echo`) but would silently execute subsequent commands (`pnpm`). This has been fixed by requiring explicit permission for ALL commands in a chain.
