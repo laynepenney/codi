@@ -205,7 +205,9 @@ export function computeScaledContextConfig(
   
   // Recalculate values based on the effective limit
   const safetyBuffer = Math.ceil(effectiveLimit * tier.safetyBufferPercent);
-  // Scale output reserve gently (4th root of scale factor, capped at 3x)
+  // Scale output reserve gently (4th root of scale factor)
+  // NOTE: Capped at 3x default to avoid excessive reserve allocation
+  // TODO: Consider making this cap configurable in the future if needed
   const scaleFactor = effectiveLimit / originalConfig.contextWindow;
   const scaleRoot = Math.pow(scaleFactor, 0.25);
   const scaledOutputReserve = Math.min(FIXED_CONFIG.MAX_OUTPUT_TOKENS * 3, 
