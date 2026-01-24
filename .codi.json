@@ -1,6 +1,6 @@
 {
   "provider": "ollama",
-  "model": "glm-4.7",
+  "model": "glm-4.7:cloud",
   "maxContextTokens": 200000,
   "systemPromptAdditions": "You are an expert coding assistant using the glm-4.7 model.",
   "autoApprove": [
@@ -8,5 +8,10 @@
     "glob",
     "grep",
     "list_directory"
-  ]
+  ],
+  "rag": {
+    "enabled": true,
+    "embeddingProvider": "modelmap",
+    "embeddingTask": "embeddings"
+  }
 }
