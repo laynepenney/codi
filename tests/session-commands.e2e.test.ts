@@ -144,7 +144,7 @@ describe('/save command E2E', () => {
       },
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
 
     // Have a conversation first
     proc.writeLine('Hello');
@@ -190,7 +190,7 @@ describe('auto-save and resume E2E', () => {
       },
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Hello');
     await proc.waitFor(/Auto-save response/i);
     proc.writeLine('/exit');
@@ -278,7 +278,7 @@ describe('/load command E2E', () => {
       },
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/load nonexistent-session');
 
     // Should report not found

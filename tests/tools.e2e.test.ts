@@ -159,7 +159,7 @@ describe('read_file tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Read the test.txt file');
 
     // Should show file was read and AI responds with analysis
@@ -205,7 +205,7 @@ describe('glob tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Find all TypeScript files');
 
     // Should show glob results and AI analysis
@@ -249,7 +249,7 @@ describe('grep tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Search for hello in the codebase');
 
     // Should show grep results
@@ -295,7 +295,7 @@ describe('list_directory tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('List the contents of the current directory');
 
     // Should show directory listing
@@ -338,7 +338,7 @@ describe('write_file tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Create a new file called newfile.txt');
 
     // Should show file was created
@@ -392,7 +392,7 @@ describe('edit_file tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Change the name in config.json to new-name');
 
     // Should show file was edited
@@ -438,7 +438,7 @@ describe('bash tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Run echo hello from bash');
 
     // Should show command output
@@ -498,7 +498,7 @@ export function hello() {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Find a TypeScript file and change World to Universe');
 
     // Should show final result
@@ -548,7 +548,7 @@ describe('conversationSequence helper E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('What does the readme say?');
 
     // Should show AI's analysis

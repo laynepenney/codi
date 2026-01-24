@@ -146,7 +146,7 @@ describe('/help command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/help');
 
     // Should show built-in commands section
@@ -162,7 +162,7 @@ describe('/help command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/config --help');
 
     // Should show config command usage
@@ -200,7 +200,7 @@ describe('/status command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/status');
 
     // Should show context status with tokens and messages
@@ -238,7 +238,7 @@ describe('/context command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/context');
 
     // Should show project context or "no project detected"
@@ -277,7 +277,7 @@ describe('/clear command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
 
     // Send a message first
     proc.writeLine('Hello');
@@ -319,7 +319,7 @@ describe('/models command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/models');
 
     // Should show available models header
@@ -357,7 +357,7 @@ describe('/config command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/config');
 
     // Should indicate no config found
@@ -381,7 +381,7 @@ describe('/config command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/config');
 
     // Should show workspace configuration header and file path
@@ -397,7 +397,7 @@ describe('/config command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/config --help');
 
     // Should show usage
@@ -435,7 +435,7 @@ describe('/sessions command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/sessions');
 
     // Should show sessions list or "no sessions"
@@ -477,7 +477,7 @@ describe('/compact command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
 
     // Build up some conversation history
     proc.writeLine('First message');
@@ -526,7 +526,7 @@ describe('/usage command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/usage');
 
     // Should show current session usage
@@ -564,7 +564,7 @@ describe('/memories command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/memories');
 
     // Should show memories or "no memories stored"
@@ -602,7 +602,7 @@ describe('/plugins command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/plugins');
 
     // Plugin system is currently disabled

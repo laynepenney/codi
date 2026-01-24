@@ -110,7 +110,7 @@ describe('/new command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/new component Button');
 
     await proc.waitFor(/create|component|Button/i);
@@ -144,7 +144,7 @@ describe('/scaffold command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/scaffold express-api');
 
     await proc.waitFor(/scaffold|project|structure/i);
@@ -179,7 +179,7 @@ describe('/debug command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/debug buggy.ts');
 
     await proc.waitFor(/debug|issue|error|found/i);
@@ -213,7 +213,7 @@ describe('/remember command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/remember I prefer TypeScript over JavaScript');
 
     await proc.waitFor(/Remembered|saved|memory|TypeScript/i);
@@ -247,7 +247,7 @@ describe('/profile command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/profile');
 
     // Should show profile or empty message
@@ -283,7 +283,7 @@ describe('/compress command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/compress');
 
     // Should show compression info
@@ -318,7 +318,7 @@ describe('/approvals command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/approvals list');
 
     // Should show approval patterns
@@ -354,7 +354,7 @@ describe('/index command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/index status');
 
     // Should show index status
@@ -390,7 +390,7 @@ describe('/symbols command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/symbols stats');
 
     // Should show symbol statistics
@@ -425,7 +425,7 @@ describe('/modelmap command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/modelmap');
 
     // Should show model map info or not found
@@ -460,7 +460,7 @@ describe('/switch command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/switch --help');
 
     // Should show usage
@@ -495,7 +495,7 @@ describe('/filehistory command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/filehistory');
 
     // Should show history or empty message
@@ -530,7 +530,7 @@ describe('/plan command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/plan add user authentication');
 
     // Should start planning
@@ -565,7 +565,7 @@ describe('/plans command E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('/plans');
 
     // Should show plans or empty

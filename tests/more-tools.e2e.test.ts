@@ -119,7 +119,7 @@ describe('insert_line tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Insert a line in file.ts');
 
     await proc.waitFor(/Inserted|line|position/i, 15000);
@@ -169,7 +169,7 @@ describe('patch_file tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Apply a patch to code.ts');
 
     await proc.waitFor(/patch|Applied|update/i, 15000);
@@ -210,7 +210,7 @@ describe('run_tests tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Run the tests');
 
     await proc.waitFor(/test|passed|success/i, 15000);
@@ -246,7 +246,7 @@ describe('shell_info tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('What shell am I using?');
 
     await proc.waitFor(/shell|zsh|bash|macOS|system/i, 15000);
@@ -287,7 +287,7 @@ export function fetchUser(id: string): Promise<User> {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Generate docs for api.ts');
 
     await proc.waitFor(/doc|JSDoc|Generated|fetchUser/i, 15000);
@@ -330,7 +330,7 @@ describe('refactor tool E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Rename oldName to newName');
 
     await proc.waitFor(/Rename|oldName|newName|refactor/i, 15000);
@@ -379,7 +379,7 @@ describe('Multiple tools in sequence E2E', () => {
       env: mockSession.env,
     });
 
-    await proc.waitFor(/>|codi/i);
+    await proc.waitFor(/Tips:|You:/i);
     proc.writeLine('Update the version to 2.0.0 and verify');
 
     await proc.waitFor(/Updated|VERSION|2\.0\.0|verified/i, 20000);
