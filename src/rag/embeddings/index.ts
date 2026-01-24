@@ -56,12 +56,10 @@ export function createEmbeddingProvider(
 ): BaseEmbeddingProvider {
   const provider = config.embeddingProvider;
 
-  // Model map provider
   if (provider === 'modelmap' && modelMap) {
     return createEmbeddingProviderFromModelMap(config, modelMap);
   }
 
-  // Direct provider selection
   if (provider === 'openai') {
     return new OpenAIEmbeddingProvider(config.openaiModel);
   }
@@ -70,7 +68,7 @@ export function createEmbeddingProvider(
     return new OllamaEmbeddingProvider(config.ollamaModel, config.ollamaBaseUrl);
   }
 
-  // Auto-detect: prefer Ollama (free/local), fall back to OpenAI if key is available
+  // Default to Ollama (preferred: free and local)
   const ollamaUrl = config.ollamaBaseUrl || 'http://localhost:11434';
   return new OllamaEmbeddingProvider(config.ollamaModel, ollamaUrl);
 }
