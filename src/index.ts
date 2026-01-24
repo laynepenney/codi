@@ -587,11 +587,12 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /optimize <file>   - Optimize for performance'));
 
   console.log(chalk.bold('\nWorkflows:'));
-  console.log(chalk.dim('  /new <type> <name> - Create new component/file'));
+  console.log(chalk.dim('  /workflow list      - List available workflows'));
+  console.log(chalk.dim('  /workflow show <name> - Show workflow details'));
+  console.log(chalk.dim('  /workflow validate <name> - Validate workflow syntax'));
+  console.log(chalk.dim('  /workflow-run <name>  - Execute a workflow'));
+  console.log(chalk.dim('  /new <type> <name>     - Create new component/file'));
   console.log(chalk.dim('  /scaffold <feature>- Scaffold a complete feature'));
-  console.log(chalk.dim('  /debug <issue>     - Help debug an issue'));
-  console.log(chalk.dim('  /setup <tool>      - Set up project tooling'));
-  console.log(chalk.dim('  /migrate <from> <to> - Migrate code patterns'));
 
   console.log(chalk.bold('\nGit:'));
   console.log(chalk.dim('  /commit [type]     - Generate commit message and commit'));

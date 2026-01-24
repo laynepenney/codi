@@ -1,0 +1,23 @@
+# Test workflow with model switching
+name: test-model-switch
+description: Test workflow with model switching capability
+steps:
+  - id: step1
+    action: shell
+    command: |
+      echo "Step 1: Starting workflow"
+
+  - id: step2
+    action: switch-model
+    model: "llama3.2"
+    description: "Switch to llama3.2 for the next step"
+
+  - id: step3
+    action: ai-prompt
+    prompt: "You are now using llama3.2. Say hello!"
+    description: "Test AI prompt after model switch"
+
+  - id: step4
+    action: shell
+    command: |
+      echo "Step 4: Workflow complete"
