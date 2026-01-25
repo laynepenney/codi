@@ -1,0 +1,61 @@
+name: test-interactive-enhanced
+description: Enhanced test workflow with advanced interactive features
+version: 1.0
+interactive: true
+persistent: false
+
+steps:
+  - id: welcome
+    action: shell
+    description: Display welcome message
+    command: "echo 'Welcome to the Enhanced Interactive Workflow!'"
+
+  - id: user-confirmation
+    action: interactive
+    description: Confirmation with timeout
+    prompt: "Continue with the workflow? (Yes/No)"
+    inputType: confirm
+    timeoutMs: 30000
+    defaultValue: "Yes"
+
+  - id: user-preferences
+    action: interactive
+    description: Gather user preferences with validation
+    prompt: "Enter your preferred processing speed (fast/medium/slow)"
+    inputType: choice
+    choices: 
+      - "fast"
+      - "medium" 
+      - "slow"
+    defaultValue: "medium"
+
+  - id: custom-setting
+    action: interactive
+    description: Custom text input with pattern validation
+    prompt: "Enter a custom setting (letters and numbers only)"
+    inputType: text
+    validationPattern: "^[a-zA-Z0-9]+$"
+    defaultValue: "default123"
+
+  - id: secure-input
+    action: interactive
+    description: Secure password-style input
+    prompt: "Enter your API key (hidden input)"
+    inputType: password
+
+  - id: multiline-comment
+    action: interactive
+    description: Multi-line comment input
+    prompt: "Please enter any additional comments:"
+    inputType: multiline
+    timeoutMs: 60000
+
+  - id: processing
+    action: shell
+    description: Process with gathered inputs
+    command: "echo 'Processing with user preferences...'"
+
+  - id: completion
+    action: shell
+    description: Complete the workflow
+    command: "echo 'Enhanced interactive workflow completed successfully!'"
