@@ -1,0 +1,20 @@
+name: ai-prompt-workflow-demo
+description: Demo workflow showcasing AI prompt actions
+steps:
+  - id: setup
+    action: shell
+    command: echo "Starting AI workflow demo"
+    
+  - id: analyze-project
+    action: ai-prompt
+    prompt: "Analyze this TypeScript project structure and suggest improvements"
+    model: "claude-3-5-haiku-latest"
+    
+  - id: code-review
+    action: ai-prompt
+    prompt: "Review the code quality in src/workflow/steps/ and suggest improvements"
+    model: "claude-sonnet-4-20250514"
+    
+  - id: completion
+    action: shell
+    command: echo "AI workflow completed"
