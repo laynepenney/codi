@@ -101,6 +101,24 @@ export class InkUiController extends EventEmitter {
     this.emit('messageChunk', { id, chunk });
   }
 
+  addToolCall(name: string, input: Record<string, unknown>): void {
+    const preview = JSON.stringify(input);
+    const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+    this.addMessage('system', `📎 ${name}\n${truncated}`);
+  }
+
+  addToolResult(name: string, result: string, isError: boolean, durationMs: number): void {
+    const icon = isError ? '❌' : '✓';
+    const durationStr = `${(durationMs / 1000).toFixed(1)}s`;
+    if (isError) {
+      const preview = result.length > 200 ? `${result.slice(0, 200)}...` : result;
+      this.addMessage('system', `${icon} ${name} Error (${durationStr})\n${preview}`);
+    } else {
+      const lines = result.split('\n').length;
+      this.addMessage('system', `${icon} ${name} (${lines} lines, ${durationStr})`);
+    }
+  }
+
   addWorkerLog(workerId: string, log: LogMessage): void {
     const entry: UiWorkerLog = {
       id: `l${++this.logCounter}`,
