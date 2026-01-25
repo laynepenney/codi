@@ -366,8 +366,11 @@ describe('/compact command E2E', () => {
   beforeEach(() => {
     projectDir = createTempProjectDir();
     // Need multiple responses for the conversation before compact
+    // Note: After first exchange, auto-label generation makes an API call,
+    // so we need an extra response for that
     mockSession = setupMockE2E([
       textResponse('First message response.'),
+      textResponse('Auto label'),           // For auto-label generation after first exchange
       textResponse('Second message response.'),
       textResponse('Third message response.'),
       textResponse('Summary of conversation.'), // For the compact summarization

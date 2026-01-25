@@ -469,11 +469,18 @@ Always use tools to interact with the filesystem rather than asking the user to 
   private async compactContext(): Promise<void> {
     const totalTokens = countMessageTokens(this.messages);
 
-    if (totalTokens <= this.maxContextTokens) {
+    // Proactive compaction: trigger at 85% of limit to avoid hitting hard limits
+    const proactiveThreshold = Math.floor(this.maxContextTokens * 0.85);
+    if (totalTokens <= proactiveThreshold) {
       return; // No compaction needed
     }
 
-    logger.debug(`Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`);
+    const isProactive = totalTokens <= this.maxContextTokens;
+    logger.debug(
+      isProactive
+        ? `Proactive compaction: ${totalTokens} tokens at ${Math.round((totalTokens / this.maxContextTokens) * 100)}% of ${this.maxContextTokens} limit`
+        : `Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`
+    );
 
     // Score messages by importance (pass indexed files for RAG-enhanced scoring)
     const scores = scoreMessages(
@@ -719,6 +726,7 @@ ${contextToSummarize}`,
 
     let iterations = 0;
     let consecutiveErrors = 0;
+    let emptyResponseRetries = 0;
     let finalResponse = '';
 
     while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
@@ -983,6 +991,20 @@ ${contextToSummarize}`,
         streamedChars === 0;
 
       if (shouldEmitFallback) {
+        // Try to recover from empty response by compacting and retrying once
+        if (emptyResponseRetries < 1) {
+          emptyResponseRetries++;
+          const tokensBefore = countMessageTokens(this.messages);
+
+          // Force compact to free up context space
+          if (tokensBefore > 1000) {
+            logger.debug(`Empty response detected. Forcing compaction and retrying (attempt ${emptyResponseRetries})...`);
+            this.callbacks.onText?.('\n[Compacting context and retrying...]\n');
+            await this.forceCompact();
+            continue; // Retry the iteration
+          }
+        }
+
         const fallbackMessage = response.reasoningContent
           ? 'Model returned reasoning without a final answer. Try again or check --audit for the raw response.'
           : 'Model returned an empty response. Try again or check --audit for the raw response.';
