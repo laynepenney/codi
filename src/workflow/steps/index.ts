@@ -1,11 +1,12 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { WorkflowStep, WorkflowState, ConditionalStep, CheckFileExistsStep, LoopStep } from '../types.js';
+import type { WorkflowStep, WorkflowState, ConditionalStep, CheckFileExistsStep, LoopStep, InteractiveStep } from '../types.js';
 import { executeSwitchModelStep, validateSwitchModelStep } from './switch-model.js';
 import { executeConditionalStep, validateConditionalStep } from './conditional.js';
 import { executeCheckFileExistsStep, validateCheckFileExistsStep } from './file-exists.js';
 import { executeLoopStep, validateLoopStep } from './loop.js';
+import { executeInteractiveStep, validateInteractiveStep } from './interactive.js';
 
 /**
  * Execute any workflow step
@@ -30,8 +31,7 @@ export async function executeStep(
       return executeLoopStep(step as LoopStep, state, agent);
     
     case 'interactive':
-      console.log(`Interactive: ${(step as any).prompt}`);
-      return { userInput: null };
+      return executeInteractiveStep(step as InteractiveStep, state, agent);
     
     case 'shell':
       return executeShellActionStep(step, state);
@@ -78,9 +78,7 @@ export function validateStep(step: WorkflowStep): void {
       break;
     
     case 'interactive':
-      if (!(step as any).prompt || typeof (step as any).prompt !== 'string') {
-        throw new Error(`Interactive step ${step.id} must specify a prompt`);
-      }
+      validateInteractiveStep(step as InteractiveStep);
       break;
     
     // Add validation for other step types as needed
