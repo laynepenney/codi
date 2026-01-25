@@ -1,0 +1,21 @@
+name: test-interactive
+description: Test workflow with interactive steps
+version: 1.0
+interactive: true
+persistent: false
+
+steps:
+  - id: greeting
+    action: interactive
+    description: Welcome user and get confirmation
+    prompt: "Welcome to the interactive workflow! Press Enter to continue..."
+
+  - id: process
+    action: shell
+    description: Process the user's input
+    command: "echo 'Processing your request...'"
+
+  - id: completion
+    action: shell
+    description: Complete the workflow
+    command: "echo 'Workflow completed successfully!'"

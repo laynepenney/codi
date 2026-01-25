@@ -65,6 +65,11 @@ export interface LoopStep extends WorkflowStep {
 export interface InteractiveStep extends WorkflowStep {
   action: 'interactive';
   prompt: string;
+  inputType?: 'text' | 'password' | 'confirm' | 'choice' | 'multiline';
+  timeoutMs?: number;
+  defaultValue?: string;
+  validationPattern?: string;
+  choices?: string[];
 }
 
 // Action types
