@@ -6,7 +6,7 @@
 
 ## 🏗️ Implementation Status
 
-### ✅ COMPLETED - Phase 1-2 (Foundational Engine)
+### ✅ COMPLETED - Phase 1-3 (Foundational Engine)
 
 **Phase 1: Core Workflow Engine** ✅ 
 - ✅ Workflow Discovery: Finds `.yaml` files in multiple directories
@@ -22,31 +22,14 @@
 - ✅ Run Command: `/workflow-run` for workflow execution
 - ✅ Verification: ✅ **FULL WORKFLOW EXECUTION WORKS**
 
-### 🔄 FUTURE IMPLEMENTATION ROADMAP
+**Phase 3: Conditional Logic** ✅
+- ✅ Conditional step processor (`if/conditional` action)
+- ✅ Condition evaluation system (`approved`, `file-exists`, `variable-equals`)
+- ✅ Branching logic (`onTrue`, `onFalse` target steps)
+- ✅ Step jump/goto functionality
+- ✅ Boolean expression evaluation
 
-## 🔲 Phase 3: Conditional Logic
-
-**Goal**: Add branching logic based on step results
-
-**Implementation Requirements**:
-- [ ] Conditional step processor (`if/conditional` action)
-- [ ] Condition evaluation system (`approved`, `file-exists`, `variable-equals`)
-- [ ] Branching logic (`onTrue`, `onFalse` target steps)
-- [ ] Step jump/goto functionality
-- [ ] Boolean expression evaluation
-
-**Example Workflow**:
-```yaml
-- id: check-pr
-  action: conditional
-  check: "approved"
-  onTrue: merge-step
-  onFalse: fix-step
-```
-
-**Estimated Effort**: ~1 week
-
-## 🔲 Phase 4: Loop Support
+### 🔄 Phase 4: Loop Support
 
 **Goal**: Add iteration capability with safety limits
 
@@ -150,7 +133,6 @@
 - **Error Recovery**: Basic handling, needs sophisticated retry logic
 
 ### ❌ What's Missing
-- **Conditional Logic**: No branching capability
 - **Loop Support**: No iteration/retry logic
 - **Interactive Steps**: No user interaction points
 - **Advanced Actions**: Proper GitHub/Git integration
