@@ -65,13 +65,13 @@ The current web search tool uses DuckDuckGo's lite HTML interface with scraping,
 - No advanced search features
 - Inconsistent result quality
 
-**Known E2 Limitation**: The current implementation scrapes E2 Lite HTML because DuckDuckGo doesn't offer a free structured JSON API. This is inherently fragile and motivates the multi-engine approach.
+**Known E1 Limitation**: The current implementation scrapes E1 Lite HTML because DuckDuckGo doesn't offer a free structured JSON API. This is inherently fragile and motivates the multi-engine approach.
 
 ### Prior Art
-- **SERP APIs**: Commercial services like SerpAPI ($50+/month), Serly for structured results
+- **SERP APIs**: Commercial services like SerpAPI ($50+/month), Serply for structured results
 - **Google Custom Search API**: 100 free queries/day, then paid
 - **Brave Search API**: True JSON API with generous free tier, privacy-focused
-- **Bing Search API**: 1,000 freequeries/month, then paid
+- **Bing Search API**: 1,000 free queries/month, then paid
 
 ### User Stories
 
@@ -119,7 +119,8 @@ A modular search engine system with:
 │  │   └─ Cross-source comparison          │
 │  │                                        │
 │  ├──── Cache Layer                       │
-│  │   ├─ Persistent storage (LRU)         │
+│  │   ├─ Persistent file storage         │
+│   │   ├─ In-memory LRU cache             │
 │  │   ├─ TTL-based expiration             │
 │  │   ├─ Max size limits (1000 entries)   │
 │  │   └─ Template-aware TTL               │
@@ -167,7 +168,6 @@ const SEARCH_TEMPLATES: Record<string, SearchTemplate> = {
 {
   "webSearch": {
     "engines": ["brave", "google", "bing"],
-    "engineOrder": ["brave", "google", "duckduckgo"],
     "cacheEnabled": true,
     "cacheMaxSize": 1000,
     "defaultTTL": 3600,
@@ -184,6 +184,10 @@ const SEARCH_TEMPLATES: Record<string, SearchTemplate> = {
       "errors": {
         "sites": ["stackoverflow.com", "github.com"],
         "sort": "relevance"
+      },
+      "general": {
+        "sites": [],
+        "sort": "relevance"
       }
     }
   }
@@ -194,12 +198,12 @@ const SEARCH_TEMPLATES: Record<string, SearchTemplate> = {
 ```typescript
 interface EnhancedWebSearchInput {
   query: string;
-  num_results?: number;           // 1-20, default: 5
+  num_results?: number;           // 1-20, default: 15
   engine?: 'duckduckgo' | 'brave' | 'google' | 'bing';
   template?: 'docs' | 'pricing' | 'errors' | 'general';
   site_filter?: string[];
   date_range?: 'week' | 'month' | 'year' | 'all';  // Only on Google, Bing
-  extract_content?: boolean;      // Fetch full page content (limited)
+  extract_content?: boolean;      // Fetch first 5KB of page content
 }
 ```
 
@@ -253,7 +257,7 @@ interface EnhancedWebSearchInput {
 | Third-party API costs | Medium | Free tiers only by default, opt-in for paid |
 | Cache unbounded growth | Medium | LRU eviction, max size limit (1000 entries) |
 | Feature creep | Medium | Stick to phased implementation plan |
-| E3 HTML changes breaking parsing | Medium | Brave JSON API as primary, reduced E3 dependency |
+| E1 HTML changes breaking parsing | Medium | Brave JSON API as primary, reduced E1 dependency |
 
 ---
 
@@ -299,7 +303,7 @@ interface EnhancedWebSearchInput {
 
 1. Should we add opt-in support for paid APIs (SerpAPI) with cost monitoring for users who need higher limits?
 2. What cache TTL is optimal per template type? (Current defaults: pricing 7d, errors 12h, docs 24h, general 1h)
-3. Should Brave Search API be the primary engine instead of DuckDuckGo HTML scraping?
+~~3. Should Brave Search API be the primary engine instead of E1 HTML scraping?~~ **RESOLVED**: Brave is now the primary engine (v1.1)
 4. Should we include limited content extraction (first 5KB) beyond snippet level?
 
 ---
@@ -307,7 +311,7 @@ interface EnhancedWebSearchInput {
 ## References
 
 - Current implementation: `src/tools/web-search.ts`
-- E3 Lite HTML scraping: https://lite.duckduckgo.com/lite/
+- E1 Lite HTML scraping: https://lite.duckduckgo.com/lite/
 - Brave Search API: https://brave.com/search/api/ (generous free tier)
 - Google Custom Search API: https://developers.google.com/custom-search (100 queries/day free)
 - Bing Search API: https://www.microsoft.com/bing/apis (1000 queries/month free)
@@ -320,6 +324,7 @@ interface EnhancedWebSearchInput {
 |---------|------|---------|
 | 1.0 | 2025-01-04 | Initial proposal |
 | 1.1 | 2025-01-04 | Fixed SerpAPI error (paid, not free), added Brave as primary, LRU cache with max size, template-aware TTL, added errors template to config, date_range limitations note, performance testing |
+| 1.2 | 2025-01-04 | Fixed "freequeries" typo, corrected E2/E3 references, unified engine config, consistent default values (15), added general template, resolved Open Question #3, clarified cache storage and extract_content limits |
 
 ---
 
