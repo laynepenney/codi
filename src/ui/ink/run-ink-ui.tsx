@@ -1,6 +1,7 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import React from 'react';
 import { render } from 'ink';
 
 import { InkApp } from './app.js';
