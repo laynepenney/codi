@@ -2,6 +2,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { WorkflowStep, WorkflowState, GitActionStep } from '../types.js';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+/**
+ * Check if current directory is a Git repository
+ */
+function isGitRepository(): boolean {
+  try {
+    // Check for .git directory or file
+    return existsSync(join(process.cwd(), '.git'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate branch name to prevent command injection
+ */
+function isValidBranchName(branch: string): boolean {
+  // Basic validation - alphanumeric, hyphens, underscores, slashes
+  return /^[a-zA-Z0-9\-_/.]+$/.test(branch);
+}
 
 /**
  * Execute a Git action step
@@ -12,6 +34,11 @@ export async function executeGitActionStep(
   agent: any
 ): Promise<any> {
   const { execSync } = await import('node:child_process');
+  
+  // Check if we're in a Git repository
+  if (!isGitRepository()) {
+    throw new Error('Not in a Git repository. Please initialize a Git repository first.');
+  }
   
   try {
     // Expand state variables in messages and parameters
@@ -24,10 +51,17 @@ export async function executeGitActionStep(
       });
     }
     
+    // Validate branch names if present
+    if (step.base && !isValidBranchName(step.base)) {
+      throw new Error(`Invalid branch name: ${step.base}`);
+    }
+    
     switch (step.action) {
       case 'commit':
         const message = expandedData.message || `Workflow commit ${new Date().toISOString()}`;
-        const commitCommand = `git commit -m "${message.replace(/"/g, '\\"')}"`;
+        // Escape quotes in commit message
+        const escapedMessage = message.replace(/"/g, '\\"');
+        const commitCommand = `git commit -m "${escapedMessage}"`;
         const commitOutput = execSync(commitCommand, { 
           stdio: 'pipe',
           encoding: 'utf8'
@@ -113,5 +147,10 @@ export function validateGitActionStep(step: GitActionStep): void {
   // Validate message length
   if (step.action === 'commit' && step.message && step.message.trim().length === 0) {
     throw new Error('Git commit message cannot be empty');
+  }
+  
+  // Validate branch name if provided
+  if (step.base && !isValidBranchName(step.base)) {
+    throw new Error(`Invalid branch name: ${step.base}`);
   }
 }
