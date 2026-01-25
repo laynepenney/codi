@@ -328,6 +328,6 @@ interface EnhancedWebSearchInput {
 
 ---
 
-**Document Version**: 1.1  
+**Document Version**: 1.2  
 **Last Updated**: 2025-01-04  
 **Owner**: @laynepenney
