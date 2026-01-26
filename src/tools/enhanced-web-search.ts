@@ -39,6 +39,29 @@ interface WebSearchConfig {
   template?: 'docs' | 'pricing' | 'errors' | 'general';
   /** Request timeout in milliseconds (default: 10000) */
   timeout?: number;
+  /** Search templates for domain-specific optimization */
+  templates?: {
+    docs?: {
+      sites?: string[];
+      sort?: 'relevance' | 'date';
+      ttl?: number;
+    };
+    pricing?: {
+      sites?: string[];
+      sort?: 'relevance' | 'date';
+      ttl?: number;
+    };
+    errors?: {
+      sites?: string[];
+      sort?: 'relevance' | 'date';
+      ttl?: number;
+    };
+    general?: {
+      sites?: string[];
+      sort?: 'relevance' | 'date';
+      ttl?: number;
+    };
+  };
 }
 
 class BraveEngine implements SearchEngine {
@@ -253,33 +276,42 @@ class DuckDuckGoEngine implements SearchEngine {
 
 class LRUCache<K, V> {
   private capacity: number;
-  private cache: Map<K, V>;
+  private cache: Map<K, { value: V; timestamp: number } >;
 
   constructor(capacity: number) {
     this.capacity = capacity;
     this.cache = new Map();
   }
 
-  get(key: K): V | undefined {
+  get(key: K, ttl?: number): V | undefined {
     if (!this.cache.has(key)) return undefined;
     
-    const value = this.cache.get(key)!;
+    const entry = this.cache.get(key)!;
+    
+    // Check TTL if provided
+    if (ttl && Date.now() - entry.timestamp > ttl * 1000) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    
+    // Move to end (most recently used)
     this.cache.delete(key);
-    this.cache.set(key, value);
-    return value;
+    this.cache.set(key, { value: entry.value, timestamp: Date.now() });
+    return entry.value;
   }
 
   set(key: K, value: V): void {
     if (this.cache.has(key)) {
       this.cache.delete(key);
     } else if (this.cache.size >= this.capacity) {
+      // Remove oldest entry
       const firstEntry = this.cache.entries().next();
       if (!firstEntry.done) {
         const [firstKey, _] = firstEntry.value;
         this.cache.delete(firstKey);
       }
     }
-    this.cache.set(key, value);
+    this.cache.set(key, { value, timestamp: Date.now() });
   }
 }
 
@@ -287,6 +319,7 @@ export class EnhancedWebSearchTool extends BaseTool {
   private engines: Map<string, SearchEngine>;
   private cache: LRUCache<string, SearchResult[]>;
   private config: WebSearchConfig;
+  private rateLimits: Map<string, { count: number; lastRequest: number } >;
 
   constructor() {
     super();
@@ -298,10 +331,33 @@ export class EnhancedWebSearchTool extends BaseTool {
     this.engines.set('duckduckgo', new DuckDuckGoEngine());
     
     this.cache = new LRUCache(1000); // Max 1000 entries
+    this.rateLimits = new Map();
     this.config = {
       maxResults: 15,
       cacheEnabled: true,
       enginePriority: ['brave', 'google', 'bing', 'duckduckgo'],
+      templates: {
+        docs: {
+          sites: ['stackoverflow.com', 'docs.python.org', 'developer.mozilla.org'],
+          sort: 'relevance',
+          ttl: 86400, // 24 hours
+        },
+        pricing: {
+          sites: ['openai.com', 'anthropic.com'],
+          sort: 'date',
+          ttl: 604800, // 7 days
+        },
+        errors: {
+          sites: ['stackoverflow.com', 'github.com'],
+          sort: 'relevance',
+          ttl: 43200, // 12 hours
+        },
+        general: {
+          sites: [],
+          sort: 'relevance',
+          ttl: 3600, // 1 hour
+        },
+      },
     };
   }
 
@@ -357,10 +413,18 @@ export class EnhancedWebSearchTool extends BaseTool {
     // Update config
     this.config.maxResults = numResults;
 
+    // Add template to config if specified
+    if (template && this.config.templates) {
+      this.config.template = template as 'docs' | 'pricing' | 'errors' | 'general';
+    } else {
+      this.config.template = 'general';
+    }
+
     // Try cache first
     const cacheKey = this.getCacheKey(query, numResults, template);
+    const cacheTTL = this.getTemplateTTL(template);
     if (this.config.cacheEnabled) {
-      const cached = this.cache.get(cacheKey);
+      const cached = this.cache.get(cacheKey, cacheTTL);
       if (cached) {
         return this.formatResults(query, cached, 'Cached');
       }
@@ -383,6 +447,16 @@ export class EnhancedWebSearchTool extends BaseTool {
     }
   }
 
+  private getTemplateTTL(template?: string): number | undefined {
+    if (!template || template === 'general') {
+      const general = this.config.templates?.general;
+      return general && 'ttl' in general ? general.ttl : 3600; // Default 1 hour
+    }
+    
+    const templateConfig = this.config.templates?.[template as keyof typeof this.config.templates];
+    return templateConfig && 'ttl' in templateConfig ? templateConfig.ttl : undefined;
+  }
+
   private getCacheKey(query: string, numResults: number, template?: string): string {
     return `${query}:${numResults}:${template || 'general'}`;
   }
@@ -390,14 +464,24 @@ export class EnhancedWebSearchTool extends BaseTool {
   private async performSearch(query: string, preferredEngine: string): Promise<SearchResult[]> {
     const engines = preferredEngine === 'auto' ? this.config.enginePriority : [preferredEngine];
     
+    // Apply template optimizations if template is specified
+    const optimizedQuery = this.applyTemplate(query, this.config.template);
+    
     for (const engineName of engines) {
       const engine = this.engines.get(engineName);
       if (!engine) continue;
 
+      // Check rate limit
+      if (!this.canMakeRequest(engineName)) {
+        console.warn(`Rate limited: ${engineName}`);
+        continue;
+      }
+
       try {
         if (!await engine.isAvailable(this.config)) continue;
         
-        const results = await engine.search(query, this.config);
+        this.recordRequest(engineName);
+        const results = await engine.search(optimizedQuery, this.config);
         if (results.length > 0) {
           console.log(`Successfully used ${engine.name} engine`);
           return results;
@@ -411,21 +495,137 @@ export class EnhancedWebSearchTool extends BaseTool {
     throw new Error('All search engines failed');
   }
 
+  private canMakeRequest(engineName: string): boolean {
+    const limit = this.rateLimits.get(engineName);
+    if (!limit) return true;
+
+    // Reset counter if more than 1 minute has passed
+    if (Date.now() - limit.lastRequest > 60000) {
+      this.rateLimits.set(engineName, { count: 0, lastRequest: Date.now() });
+      return true;
+    }
+
+    // Allow up to 5 requests per minute per engine
+    return limit.count < 5;
+  }
+
+  private recordRequest(engineName: string): void {
+    const current = this.rateLimits.get(engineName);
+    if (current) {
+      this.rateLimits.set(engineName, {
+        count: current.count + 1,
+        lastRequest: Date.now()
+      });
+    } else {
+      this.rateLimits.set(engineName, {
+        count: 1,
+        lastRequest: Date.now()
+      });
+    }
+  }
+
+  private applyTemplate(query: string, template?: string): string {
+    if (!template || template === 'general') {
+      return query;
+    }
+
+    const templateConfig = this.config.templates?.[template as keyof typeof this.config.templates];
+    if (!templateConfig) {
+      return query;
+    }
+
+    let optimizedQuery = query;
+    
+    // Add site filters if specified
+    if ('sites' in templateConfig && templateConfig.sites && templateConfig.sites.length > 0) {
+      optimizedQuery += ' site:(' + templateConfig.sites.join(' OR ') + ')';
+    }
+
+    // Add template-specific modifiers
+    if (template === 'docs') {
+      optimizedQuery += ' syntax example';
+    } else if (template === 'pricing') {
+      optimizedQuery += ' pricing cost rate';
+    } else if (template === 'errors') {
+      optimizedQuery += ' error fix solution';
+    }
+
+    return optimizedQuery;
+  }
+
   private formatResults(query: string, results: SearchResult[], source?: string): string {
     let output = `Search results for: "${query}"`;
     if (source) output += ` (${source})`;
     output += '\n\n';
 
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
+    // Apply domain-specific scoring and filtering
+    const processedResults = this.processResultsWithDomains(results, query);
+
+    for (let i = 0; i < processedResults.length; i++) {
+      const r = processedResults[i];
       output += `${i + 1}. ${r.title}\n`;
       output += `   ${r.url}\n`;
       if (r.source) output += `   [${r.source}] `;
+      if (r.score && r.score > 0.7) output += ` [Score: ${r.score.toFixed(2)}] `;
       if (r.snippet) output += `${r.snippet}`;
       output += '\n\n';
     }
 
     return output.trim();
+  }
+
+  private processResultsWithDomains(results: SearchResult[], query: string): SearchResult[] {
+    if (!results.length) return results;
+
+    return results.map(result => {
+      const enhancedResult = { ...result };
+      
+      // Calculate domain-specific relevance score
+      enhancedResult.score = this.calculateRelevanceScore(result, query);
+      
+      return enhancedResult;
+    }).sort((a, b) => (b.score || 0) - (a.score || 0));
+  }
+
+  private calculateRelevanceScore(result: SearchResult, query: string): number {
+    let score = 0.5; // Base score
+
+    // URL-based scoring
+    if (result.url.includes('stackoverflow.com') || result.url.includes('stackexchange.com')) {
+      score += 0.3; // Tech documentation boost
+    }
+    if (result.url.includes('github.com')) {
+      score += 0.2; // Code repository boost
+    }
+    if (result.url.includes('.org') || result.url.includes('developer.')) {
+      score += 0.1; // Official documentation boost
+    }
+
+    // Content-based scoring
+    const queryLower = query.toLowerCase();
+    const titleLower = result.title.toLowerCase();
+    const snippetLower = result.snippet.toLowerCase();
+
+    if (titleLower.includes(queryLower)) {
+      score += 0.4; // Query in title
+    } else if (snippetLower.includes(queryLower)) {
+      score += 0.2; // Query in snippet
+    }
+
+    // Length-based scoring
+    if (result.snippet.length > 100) {
+      score += 0.1; // Longer snippets are better
+    }
+
+    // Quality indicators
+    if (result.title.includes('example') || result.title.includes('tutorial')) {
+      score += 0.15; // Educational content
+    }
+    if (result.title.includes('error') || result.title.includes('solution')) {
+      score += 0.15; // Problem-solving content
+    }
+
+    return Math.min(score, 1.0); // Cap at 1.0
   }
 
   // Configuration methods (to be called from tool registry)
