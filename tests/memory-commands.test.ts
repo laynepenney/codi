@@ -13,38 +13,38 @@ import type { CommandContext } from '../src/commands/index.js';
 
 // Mock the memory module
 vi.mock('../src/memory.js', () => ({
-  loadProfile: vi.fn().mockReturnValue({
+  loadProfile: vi.fn().mockResolvedValue({
     name: 'TestUser',
     preferences: { language: 'TypeScript', style: 'functional' },
     expertise: ['React', 'Node.js'],
     avoid: ['jQuery'],
   }),
-  updateProfile: vi.fn().mockReturnValue({
+  updateProfile: vi.fn().mockResolvedValue({
     name: 'UpdatedUser',
     preferences: { language: 'TypeScript' },
   }),
-  loadMemories: vi.fn().mockReturnValue([
+  loadMemories: vi.fn().mockResolvedValue([
     { content: 'Prefers dark mode', category: 'preferences', timestamp: '2024-01-15T10:00:00.000Z', source: 'user' },
     { content: 'Uses pnpm', category: 'project', timestamp: '2024-01-15T11:00:00.000Z', source: 'user' },
     { content: 'No category memory', timestamp: '2024-01-15T12:00:00.000Z', source: 'user' },
   ]),
-  addMemory: vi.fn().mockReturnValue({
+  addMemory: vi.fn().mockResolvedValue({
     content: 'New memory content',
     category: 'test',
     timestamp: '2024-01-15T13:00:00.000Z',
     source: 'user',
   }),
-  removeMemories: vi.fn().mockReturnValue(2),
-  searchMemories: vi.fn().mockReturnValue([
+  removeMemories: vi.fn().mockResolvedValue(2),
+  searchMemories: vi.fn().mockResolvedValue([
     { content: 'Uses pnpm', category: 'project', timestamp: '2024-01-15T11:00:00.000Z', source: 'user' },
   ]),
-  clearMemories: vi.fn().mockReturnValue(3),
+  clearMemories: vi.fn().mockResolvedValue(3),
   getMemoryPaths: vi.fn().mockReturnValue({
     profile: '/home/user/.codi/profile.yaml',
     memories: '/home/user/.codi/memories.md',
     sessionNotes: '/home/user/.codi/session-notes.md',
   }),
-  consolidateSessionNotes: vi.fn().mockReturnValue(5),
+  consolidateSessionNotes: vi.fn().mockResolvedValue(5),
 }));
 
 // Mock the commands/index module
@@ -112,7 +112,7 @@ describe('Memory Commands', () => {
     });
 
     it('adds memory with category prefix', async () => {
-      mockAddMemory.mockReturnValueOnce({
+      mockAddMemory.mockResolvedValueOnce({
         content: 'Uses pnpm',
         category: 'project',
         timestamp: '2024-01-15T13:00:00.000Z',
@@ -156,7 +156,7 @@ describe('Memory Commands', () => {
     });
 
     it('handles no matches found', async () => {
-      mockRemoveMemories.mockReturnValueOnce(0);
+      mockRemoveMemories.mockResolvedValueOnce(0);
       const result = await forgetCommand.execute('NonexistentPattern', createContext());
 
       expect(result).toContain('__MEMORY_NOTFOUND__');
@@ -202,7 +202,7 @@ describe('Memory Commands', () => {
     });
 
     it('handles zero consolidations', async () => {
-      mockConsolidateSessionNotes.mockReturnValueOnce(0);
+      mockConsolidateSessionNotes.mockResolvedValueOnce(0);
       const result = await memoriesCommand.execute('consolidate', createContext());
 
       expect(result).toContain('__MEMORY_CONSOLIDATED__');

@@ -2960,7 +2960,7 @@ Begin by analyzing the query and planning your research approach.`;
   }
 
   // Inject memory context (profile + memories)
-  const memoryContext = generateMemoryContext(process.cwd());
+  const memoryContext = await generateMemoryContext(process.cwd());
   if (memoryContext) {
     systemPrompt += `\n\n${memoryContext}`;
   }
@@ -3148,7 +3148,7 @@ Begin by analyzing the query and planning your research approach.`;
     defaultModel: provider.getModel(),
 
     // Provide background context for spawned agents
-    contextProvider: (_childId, _task) => {
+    contextProvider: async (_childId, _task) => {
       const parts: string[] = [];
 
       // Add project info
@@ -3169,7 +3169,7 @@ Begin by analyzing the query and planning your research approach.`;
       }
 
       // Add memory context (profile + memories)
-      const memoryCtx = generateMemoryContext(process.cwd());
+      const memoryCtx = await generateMemoryContext(process.cwd());
       if (memoryCtx) {
         parts.push('## User Context');
         parts.push(memoryCtx.slice(0, 2000)); // Limit size

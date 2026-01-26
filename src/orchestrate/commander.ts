@@ -131,7 +131,7 @@ export type PermissionPromptCallback = (
 /**
  * Callback to provide background context for spawned agents.
  */
-export type ContextProviderCallback = (childId: string, task: string) => string | undefined;
+export type ContextProviderCallback = (childId: string, task: string) => string | undefined | Promise<string | undefined>;
 
 export interface OrchestratorConfig extends OrchestratorOptions {
   /** Readline interface for permission prompts */
@@ -726,7 +726,10 @@ export class Orchestrator extends EventEmitter {
    */
   private setupServerHandlers(): void {
     this.server.on('workerConnected', (childId, handshake) => {
-      this.handleWorkerConnected(childId, handshake);
+      this.handleWorkerConnected(childId, handshake).catch((err) => {
+        // Log error from async context provider
+        console.error(`[Orchestrator] Error handling worker connected: ${err}`);
+      });
     });
 
     this.server.on('workerDisconnected', (childId) => {
@@ -757,7 +760,7 @@ export class Orchestrator extends EventEmitter {
   /**
    * Handle worker connected via IPC.
    */
-  private handleWorkerConnected(childId: string, handshake: HandshakeMessage): void {
+  private async handleWorkerConnected(childId: string, handshake: HandshakeMessage): Promise<void> {
     const workerState = this.workers.get(childId);
     if (workerState) {
       workerState.status = 'idle';
@@ -765,7 +768,7 @@ export class Orchestrator extends EventEmitter {
       this.emit('workerStatus', childId, workerState);
       // Send background context if provider is configured
       if (this.config.contextProvider) {
-        const context = this.config.contextProvider(childId, workerState.config.task);
+        const context = await this.config.contextProvider(childId, workerState.config.task);
         if (context) {
           this.server.sendContext(childId, context);
         }
@@ -780,7 +783,7 @@ export class Orchestrator extends EventEmitter {
 
       // Send background context if provider is configured
       if (this.config.contextProvider) {
-        const context = this.config.contextProvider(childId, readerState.config.query);
+        const context = await this.config.contextProvider(childId, readerState.config.query);
         if (context) {
           this.server.sendContext(childId, context);
         }

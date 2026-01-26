@@ -164,7 +164,7 @@ describe('Memory Module Integration', () => {
     }
 
     const memory = await import('../src/memory.js');
-    const profile = memory.loadProfile();
+    const profile = await memory.loadProfile();
     expect(profile).toEqual({});
   });
 
@@ -176,8 +176,8 @@ describe('Memory Module Integration', () => {
 
     const memory = await import('../src/memory.js');
 
-    memory.addMemory('Test memory for integration test');
-    const memories = memory.loadMemories();
+    await memory.addMemory('Test memory for integration test');
+    const memories = await memory.loadMemories();
 
     expect(memories.length).toBeGreaterThan(0);
     expect(memories.some(m => m.content === 'Test memory for integration test')).toBe(true);
@@ -186,22 +186,22 @@ describe('Memory Module Integration', () => {
   it('should clear memories', async () => {
     const memory = await import('../src/memory.js');
 
-    memory.addMemory('Memory to clear');
-    memory.clearMemories();
+    await memory.addMemory('Memory to clear');
+    await memory.clearMemories();
 
-    const memories = memory.loadMemories();
+    const memories = await memory.loadMemories();
     expect(memories.length).toBe(0);
   });
 
   it('should save and load profile', async () => {
     const memory = await import('../src/memory.js');
 
-    memory.saveProfile({
+    await memory.saveProfile({
       name: 'Integration Test User',
       preferences: { language: 'TypeScript' },
     });
 
-    const profile = memory.loadProfile();
+    const profile = await memory.loadProfile();
     expect(profile.name).toBe('Integration Test User');
     expect(profile.preferences?.language).toBe('TypeScript');
   });
@@ -210,15 +210,15 @@ describe('Memory Module Integration', () => {
     const memory = await import('../src/memory.js');
 
     // Clear and set up test data
-    memory.clearMemories();
+    await memory.clearMemories();
     if (fs.existsSync(PROFILE_PATH)) {
       fs.unlinkSync(PROFILE_PATH);
     }
 
-    memory.saveProfile({ name: 'Context Test User' });
-    memory.addMemory('Important context fact');
+    await memory.saveProfile({ name: 'Context Test User' });
+    await memory.addMemory('Important context fact');
 
-    const context = memory.generateMemoryContext();
+    const context = await memory.generateMemoryContext();
     expect(context).not.toBeNull();
     expect(context).toContain('Context Test User');
     expect(context).toContain('Important context fact');
