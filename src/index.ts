@@ -3394,7 +3394,10 @@ Begin by analyzing the query and planning your research approach.`;
     console.log(chalk.dim('\nGoodbye!'));
   };
 
-  if (!useInkUi) {
+  // Skip readline creation for non-interactive mode
+  const isNonInteractive = Boolean(options.prompt);
+
+  if (!useInkUi && !isNonInteractive) {
     // Enable bracketed paste mode for better paste detection
     enableBracketedPaste();
 
@@ -3448,7 +3451,7 @@ Begin by analyzing the query and planning your research approach.`;
     rl.on('error', (err) => {
       logger.error(`Readline error: ${err.message}`, err);
     });
-  } else {
+  } else if (useInkUi) {
     exitApp = () => {
       inkController?.requestExit();
     };
