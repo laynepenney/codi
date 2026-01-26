@@ -1,0 +1,23 @@
+name: pr-review-workflow
+description: "Complete PR creation and review workflow"
+
+steps:
+  - id: create-pr
+    action: create-pr
+    description: "Create pull request"
+    title: "Feature implementation"
+    body: "This PR implements the requested feature"
+  - id: review-setup
+    action: switch-model
+    description: "Switch to review model"
+    model: "glm"
+  - id: review-pr
+    action: review-pr
+    description: "Review PR and suggest improvements"
+  - id: implement-fixes
+    action: interactive
+    description: "Implement suggested fixes"
+    prompt: "Please implement the PR review suggestions"
+  - id: merge-pr
+    action: merge-pr
+    description: "Merge the approved PR"
