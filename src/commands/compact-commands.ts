@@ -32,7 +32,6 @@ export const compactCommand: Command = {
     if (subcommand === 'debug') {
       const info = context.agent.getContextInfo();
       const messages = context.agent.getMessages();
-      const snapshot = context.agent.getStateSnapshot();
 
       // Build detailed debug output
       const debugInfo = {
