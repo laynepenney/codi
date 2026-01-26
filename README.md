@@ -354,7 +354,7 @@ Sessions auto-save after each response; use `/save` to name or snapshot a sessio
 <details>
 <summary><strong>🔧 Interactive Workflows</strong></summary>
 
-### Workflow Execution
+### Workflow Execution Commands
 | Command | Aliases | Description |
 |---------|---------|-------------|
 | `/workflow list` | `/workflow ls` | List available workflows |
@@ -362,30 +362,132 @@ Sessions auto-save after each response; use `/save` to name or snapshot a sessio
 | `/workflow validate <name>` | - | Validate workflow syntax |
 | `/workflow-run <name>` | `/wr` | Execute or resume a workflow |
 
-### Workflow Development
-| Command | Description |
-|---------|-------------|
-| `/new <type> <name>` | Create new component, hook, service, etc. |
-| `/scaffold <feature>` | Scaffold a complete feature |
-| `/debug <issue>` | Help debug an issue |
-| `/setup <tool>` | Set up tooling (eslint, prettier, testing) |
-| `/migrate <from> <to>` | Migrate code patterns |
+### AI-Assisted Workflow Builder
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/workflow-build "<description>"` | `/wbuild` | Create workflow from natural language |
+| `/workflow-build template list` | - | List available templates |
+| `/workflow-build template <name>` | - | Generate workflow from template |
 
-**Example workflow YAML**:
+### Available Templates
+**Built-in Templates** (5 professional workflows):
+- `deployment` - Git deployment with testing
+- `documentation` - AI-generated docs with human review  
+- `refactor` - Code refactoring workflow
+- `testing` - Smart testing with conditional logic
+- `pr-workflow` - Complete PR creation → review → merge cycle
+
+### Quick Start Examples
+
+**1. Create a workflow from natural language:**
+```
+/workflow-build "Create a workflow that deploys to staging, runs tests, and creates a PR if tests pass"
+```
+
+**2. Generate from a template:**
+```
+/workflow-build template pr-workflow
+```
+
+**3. List available workflows:**
+```
+/workflow list
+```
+
+**4. Execute a workflow:**
+```
+/workflow-run my-workflow
+```
+
+### Advanced Workflow Features
+
+**Model Switching:**
+```yaml
+- id: switch-to-haiku
+  action: switch-model
+  model: "claude-haiku"
+```
+
+**Conditional Logic:**
+```yaml
+- id: check-approval
+  action: conditional
+  check: "approved"
+  onTrue: "merge-pr"
+  onFalse: "fix-issues"
+```
+
+**Loop Support:**
+```yaml
+- id: review-loop
+  action: loop
+  condition: "!approved"
+  to: "review-step"
+  maxIterations: 5
+```
+
+**Built-in Actions:**
+- `shell` - Execute shell commands
+- `ai-prompt` - Send prompts to AI model
+- `git:commit`, `git:push`, `git:pull`, `git:sync` - Git operations
+- `create-pr`, `review-pr`, `merge-pr` - PR workflows
+- `switch-model` - Change AI model
+
+### Custom Templates
+
+Create custom templates in `workflows/templates/` directory:
+```yaml
+name: my-template
+description: My custom workflow template
+steps:
+  - id: step1
+    action: shell
+    command: echo "Hello"
+```
+
+Use custom templates:
+```
+/workflow-build template my-template
+```
+
+**Example workflow - PR Review Loop:**
 ```yaml
 name: pr-review-loop
 description: Automated PR review with model switching
 steps:
   - id: create-pr
     action: create-pr
-    title: "Automated PR"
+    title: "Automated feature"
   - id: cheap-review
     action: switch-model
     model: "claude-haiku"
   - id: review
     action: review-pr
     check: "approved"
+  - id: merge
+    action: merge-pr
 ```
+
+**Example workflow - Code Refactoring:**
+```yaml
+name: refactor-workflow
+description: AI-assisted code refactoring
+steps:
+  - id: analyze
+    action: ai-prompt
+    prompt: "Analyze {{file}} for refactoring opportunities"
+  - id: apply-changes
+    action: ai-prompt
+    model: "claude-sonnet-4"
+    prompt: "Refactor {{file}} based on analysis"
+  - id: test
+    action: shell
+    command: "npm test"
+  - id: commit
+    action: git:commit
+    message: "refactor: improve code quality"
+```
+
 </details>
 
 <details>
