@@ -72,25 +72,66 @@ describe('EnhancedWebSearchTool', () => {
 
   it('should calculate relevance scores', () => {
     const tool = new EnhancedWebSearchTool();
-    
+
     const result = {
       title: 'Stack Overflow: TypeScript Interface Example',
       url: 'https://stackoverflow.com/questions/123',
       snippet: 'Learn how to create TypeScript interfaces with examples',
       source: 'StackOverflow'
     };
-    
+
     const score = (tool as any).calculateRelevanceScore(result, 'typescript interface');
     expect(score).toBeGreaterThan(0.5); // Should be higher due to domain and content match
-    
+
     const lowRelevance = {
       title: 'Unrelated Page',
       url: 'https://example.com/unrelated',
       snippet: 'Some random content',
       source: 'General'
     };
-    
+
     const lowScore = (tool as any).calculateRelevanceScore(lowRelevance, 'typescript interface');
     expect(lowScore).toBeLessThanOrEqual(0.5); // Base score is 0.5
+  });
+
+  it('should enforce rate limiting for engines', () => {
+    const tool = new EnhancedWebSearchTool();
+
+    // Initial state - no rate limits
+    expect((tool as any).canMakeRequest('brave')).toBe(true);
+
+    // Record 5 requests (the limit)
+    for (let i = 0; i < 5; i++) {
+      (tool as any).recordRequest('brave');
+    }
+
+    // Should now be rate limited
+    expect((tool as any).canMakeRequest('brave')).toBe(false);
+
+    // Other engines should not be affected
+    expect((tool as any).canMakeRequest('google')).toBe(true);
+
+    // Record one more for google
+    (tool as any).recordRequest('google');
+    expect((tool as any).canMakeRequest('google')).toBe(true);
+  });
+
+  it('should reset rate limits after time period', () => {
+    const tool = new EnhancedWebSearchTool();
+
+    // Record requests to reach limit
+    for (let i = 0; i < 5; i++) {
+      (tool as any).recordRequest('brave');
+    }
+
+    // Simulate time passed by manipulating the rate limit timestamp
+    const rateLimit = (tool as any).rateLimits.get('brave');
+    if (rateLimit) {
+      rateLimit.lastRequest = Date.now() - 70000; // 70 seconds ago
+      (tool as any).rateLimits.set('brave', rateLimit);
+    }
+
+    // Should now be allowed again
+    expect((tool as any).canMakeRequest('brave')).toBe(true);
   });
 });
