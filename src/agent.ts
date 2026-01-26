@@ -73,6 +73,8 @@ import {
   type SecurityValidatorConfig,
   type SecurityValidationResult,
 } from './security-validator.js';
+import type { MemoryMonitor } from './memory-monitor.js';
+import { getMemoryMonitor } from './memory-monitor.js';
 
 /**
  * Security validation result for display in confirmation.
@@ -181,6 +183,7 @@ export class Agent {
   private workingSet: WorkingSet = createWorkingSet();
   private indexedFiles: Set<string> | null = null; // RAG indexed files for code relevance scoring
   private embeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null; // For semantic deduplication
+  private memoryMonitor: MemoryMonitor = getMemoryMonitor(); // Memory usage monitoring
   // Debug control (Phase 2)
   private debugPaused: boolean = false;
   private debugStepMode: boolean = false;
@@ -259,6 +262,95 @@ export class Agent {
       onToolResult: options.onToolResult,
       onConfirm: options.onConfirm,
     };
+  }
+
+  /**
+   * Proactive compaction triggered by high memory usage.
+   * More aggressive than normal token-based compaction.
+   */
+  private async proactiveCompact(): Promise<void> {
+    const beforeTokens = countMessageTokens(this.messages);
+    const beforeMessages = this.messages.length;
+
+    // Be more aggressive with compaction when memory is high
+    const scores = scoreMessages(
+      this.messages,
+      {
+        recency: 0.3, // Less weight on recent messages - let's compact more
+        referenceCount: CONTEXT_OPTIMIZATION.WEIGHTS.referenceCount,
+        userEmphasis: CONTEXT_OPTIMIZATION.WEIGHTS.userEmphasis,
+        actionRelevance: CONTEXT_OPTIMIZATION.WEIGHTS.actionRelevance,
+        codeRelevance: CONTEXT_OPTIMIZATION.WEIGHTS.codeRelevance,
+      },
+      undefined, // entities
+      this.indexedFiles ?? undefined
+    );
+
+    const windowConfig: WindowingConfig = {
+      minRecentMessages: Math.max(CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES - 2, 3), // Keep fewer recent messages
+      maxMessages: Math.min(CONTEXT_OPTIMIZATION.MAX_MESSAGES, 30), // Lower max messages
+      importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD + 0.1, // Higher threshold - be more selective
+      preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
+      preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
+    };
+
+    const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
+
+    logger.debug(`Proactive compaction: keeping ${selection.keep.length}/${beforeMessages} messages, summarizing ${selection.summarize.length}`);
+
+    if (selection.summarize.length === 0) {
+      this.messages = applySelection(this.messages, selection);
+      this.memoryMonitor.recordCompaction();
+      return;
+    }
+
+    // Summarize and apply selection
+    const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
+    const oldContent = messagesToSummarize
+      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 400)}`)
+      .join('\n\n');
+
+    const contextToSummarize = this.conversationSummary
+      ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
+      : oldContent;
+
+    try {
+      const summaryProvider = this.getSummaryProvider();
+      const summaryResponse = await summaryProvider.streamChat(
+        [{
+          role: 'user',
+          content: `Create a brief summary for context preservation due to high memory usage.
+
+## What to Include
+- **Goal**: What task is being worked on?
+- **Progress**: What has been done?
+- **Key State**: Where did we leave off?
+
+## Format
+Write 2-3 short paragraphs. Be concise.
+
+## Conversation to Summarize
+${contextToSummarize}`,
+        }],
+        undefined,
+        undefined
+      );
+
+      this.conversationSummary = summaryResponse.content;
+      this.messages = applySelection(this.messages, selection);
+
+      const afterTokens = countMessageTokens(this.messages);
+      const savedTokens = beforeTokens - afterTokens;
+      const savedPct = beforeTokens > 0 ? (savedTokens / beforeTokens) * 100 : 0;
+
+      logger.debug(`Proactive compaction: ${beforeMessages} → ${this.messages.length} messages, ${beforeTokens} → ${afterTokens} tokens (${savedPct.toFixed(1)}% saved)`);
+      this.memoryMonitor.recordCompaction();
+    } catch (error) {
+      // If summarization fails, still apply selection
+      logger.debug(`Proactive compaction summarization failed, using selection only: ${error}`);
+      this.messages = applySelection(this.messages, selection);
+      this.memoryMonitor.recordCompaction();
+    }
   }
 
   /**
@@ -721,7 +813,14 @@ ${contextToSummarize}`,
     // Enforce message limit
     this.enforceMessageLimit();
 
-    // Check if context needs compaction
+    // Check memory usage and trigger proactive compaction if needed
+    const memoryStatus = this.memoryMonitor.logStatus();
+    if (memoryStatus === 'compact' && this.memoryMonitor.shouldCompact()) {
+      logger.debug(`Memory usage high (${this.memoryMonitor.getSnapshot().formatted}), triggering proactive compaction`);
+      await this.proactiveCompact();
+    }
+
+    // Check if context needs compaction (token-based)
     await this.compactContext();
 
     let iterations = 0;
