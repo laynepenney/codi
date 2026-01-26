@@ -17,7 +17,7 @@ export const compactCommand: Command = {
   name: 'compact',
   aliases: ['summarize', 'compress', 'compression'],
   description: 'Manage context size through summarization and compression',
-  usage: '/compact [summarize|compress|status|memory] [options]',
+  usage: '/compact [summarize|compress|status|memory|debug] [options]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     if (!context.agent) {
@@ -27,6 +27,51 @@ export const compactCommand: Command = {
     const parts = args.trim().toLowerCase().split(/\s+/);
     const subcommand = parts[0] || 'status';
     const subArgs = parts.slice(1).join(' ');
+
+    // /compact debug - Show detailed context debugging info
+    if (subcommand === 'debug') {
+      const info = context.agent.getContextInfo();
+      const messages = context.agent.getMessages();
+
+      // Build detailed debug output
+      const debugInfo = {
+        context: {
+          tokens: info.tokens,
+          messageTokens: info.messageTokens,
+          systemPromptTokens: info.systemPromptTokens,
+          toolDefinitionTokens: info.toolDefinitionTokens,
+          messages: info.messages,
+          userMessages: info.userMessages,
+          assistantMessages: info.assistantMessages,
+          toolResultMessages: info.toolResultMessages,
+        },
+        limits: {
+          maxTokens: info.maxTokens,
+          contextWindow: info.contextWindow,
+          effectiveLimit: info.effectiveLimit,
+          outputReserve: info.outputReserve,
+          safetyBuffer: info.safetyBuffer,
+          tierName: info.tierName,
+        },
+        state: {
+          hasSummary: info.hasSummary,
+          compressionEnabled: info.compressionEnabled,
+          compressionStats: info.compression,
+          workingSetFiles: info.workingSetFiles,
+        },
+        messages: messages.map((msg, index) => ({
+          index,
+          role: msg.role,
+          contentPreview: typeof msg.content === 'string' 
+            ? msg.content.slice(0, 200) + (msg.content.length > 200 ? '...' : '')
+            : `[complex content: ${msg.content.length} blocks]`,
+          contentLength: typeof msg.content === 'string' ? msg.content.length : msg.content.reduce((acc, block) => acc + (typeof block.text === 'string' ? block.text.length : 0), 0),
+        })),
+        conversationSummary: info.hasSummary ? '[summary exists - use /compact status for token info]' : null,
+      };
+
+      return `CONTEXT_DEBUG:${JSON.stringify(debugInfo, null, 2)}`;
+    }
 
     // /compact memory - Show memory usage
     if (subcommand === 'memory') {
@@ -146,7 +191,7 @@ export const compactCommand: Command = {
       return `COMPRESS_STATS:${JSON.stringify(output)}`;
     }
 
-    return `COMPACT_ERROR:Unknown subcommand "${subcommand}". Use: status, summarize, compress`;
+    return `COMPACT_ERROR:Unknown subcommand "${subcommand}". Use: status, summarize, compress, debug`;
   },
 };
 
