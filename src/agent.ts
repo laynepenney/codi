@@ -593,7 +593,6 @@ Always use tools to interact with the filesystem rather than asking the user to 
   }
 
   private async doCompactContext(totalTokens: number): Promise<void> {
-
     const isProactive = totalTokens <= this.maxContextTokens;
     logger.debug(
       isProactive
