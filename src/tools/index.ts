@@ -15,7 +15,7 @@ export { InsertLineTool } from './insert-line.js';
 export { AnalyzeImageTool } from './analyze-image.js';
 export { RunTestsTool } from './run-tests.js';
 export { RAGSearchTool } from './rag-search.js';
-export { WebSearchTool } from './web-search.js';
+export { EnhancedWebSearchTool } from './enhanced-web-search.js';
 export { RefactorTool } from './refactor.js';
 export { ShellInfoTool } from './shell-info.js';
 export { PipelineTool } from './pipeline.js';
@@ -74,7 +74,7 @@ import { InsertLineTool } from './insert-line.js';
 import { AnalyzeImageTool } from './analyze-image.js';
 import { RunTestsTool } from './run-tests.js';
 import { RAGSearchTool } from './rag-search.js';
-import { WebSearchTool } from './web-search.js';
+import { EnhancedWebSearchTool } from './enhanced-web-search.js';
 import { RefactorTool } from './refactor.js';
 import { ShellInfoTool } from './shell-info.js';
 import { PipelineTool } from './pipeline.js';
@@ -131,7 +131,7 @@ export function registerDefaultTools(): void {
   globalRegistry.register(new RunTestsTool());
 
   // Web search
-  globalRegistry.register(new WebSearchTool());
+  globalRegistry.register(new EnhancedWebSearchTool());
 
   // Refactoring
   globalRegistry.register(new RefactorTool());
