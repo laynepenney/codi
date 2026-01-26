@@ -8,6 +8,7 @@ import { createTwoFilesPatch, structuredPatch } from 'diff';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
+import { logger } from './logger.js';
 
 /**
  * Represents a diff between two versions of content.
@@ -46,8 +47,8 @@ export async function generateWriteDiff(
   if (!isNewFile) {
     try {
       oldContent = await readFile(resolvedPath, 'utf-8');
-    } catch {
-      // If we can't read the file, treat it as new
+    } catch (error) {
+      logger.debug(`Cannot read file for diff, treating as new: ${error instanceof Error ? error.message : error}`);
     }
   }
 

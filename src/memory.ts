@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { logger } from './logger.js';
 
 const CODI_DIR = path.join(os.homedir(), '.codi');
 const PROFILE_PATH = path.join(CODI_DIR, 'profile.yaml');
@@ -163,7 +164,8 @@ export function loadProfile(): UserProfile {
   try {
     const content = fs.readFileSync(PROFILE_PATH, 'utf-8');
     return parseSimpleYaml(content);
-  } catch {
+  } catch (error) {
+    logger.debug(`Failed to load profile: ${error instanceof Error ? error.message : error}`);
     return {};
   }
 }
@@ -307,7 +309,8 @@ export function loadMemories(): MemoryEntry[] {
   try {
     const content = fs.readFileSync(MEMORIES_PATH, 'utf-8');
     return parseMemories(content);
-  } catch {
+  } catch (error) {
+    logger.debug(`Failed to load memories: ${error instanceof Error ? error.message : error}`);
     return [];
   }
 }
@@ -495,7 +498,8 @@ export function getSessionNotes(): string[] {
       .map(line => line.trim())
       .filter(line => line.startsWith('-'))
       .map(line => line.slice(1).trim());
-  } catch {
+  } catch (error) {
+    logger.debug(`Failed to load session notes: ${error instanceof Error ? error.message : error}`);
     return [];
   }
 }

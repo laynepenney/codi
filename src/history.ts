@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { homedir, tmpdir } from 'os';
+import { logger } from './logger.js';
 
 /** Maximum number of history entries to keep */
 const MAX_HISTORY_SIZE = 50;
@@ -101,7 +102,8 @@ function loadIndex(): HistoryIndex {
   try {
     const content = fs.readFileSync(indexPath, 'utf-8');
     return JSON.parse(content) as HistoryIndex;
-  } catch {
+  } catch (error) {
+    logger.debug(`Failed to load history index: ${error instanceof Error ? error.message : error}`);
     return { entries: [], version: 1 };
   }
 }
@@ -139,8 +141,8 @@ function pruneHistory(index: HistoryIndex): void {
     if (fs.existsSync(backupPath)) {
       try {
         fs.unlinkSync(backupPath);
-      } catch {
-        // Ignore cleanup errors
+      } catch (error) {
+        logger.debug(`Failed to delete backup ${backupPath}: ${error instanceof Error ? error.message : error}`);
       }
     }
   }
@@ -164,8 +166,8 @@ export function recordChange(options: {
   if (fs.existsSync(absolutePath)) {
     try {
       originalContent = fs.readFileSync(absolutePath, 'utf-8');
-    } catch {
-      // If we can't read it, treat as null
+    } catch (error) {
+      logger.debug(`Failed to read original content of ${absolutePath}: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -348,8 +350,8 @@ export function clearHistory(): number {
   if (fs.existsSync(backupsDir)) {
     try {
       fs.rmSync(backupsDir, { recursive: true });
-    } catch {
-      // Ignore errors
+    } catch (error) {
+      logger.debug(`Failed to remove backups directory: ${error instanceof Error ? error.message : error}`);
     }
   }
 

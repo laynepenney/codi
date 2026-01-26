@@ -461,8 +461,8 @@ ${contextToSummarize}`,
       try {
         const summarizeModel = this.modelMap.router.getSummarizeModel();
         return this.modelMap.registry.getProvider(summarizeModel.name);
-      } catch {
-        // Fall through to secondary/primary
+      } catch (error) {
+        logger.debug(`Model map summarize provider unavailable, using fallback: ${error instanceof Error ? error.message : error}`);
       }
     }
     return this.secondaryProvider ?? this.provider;
@@ -479,8 +479,8 @@ ${contextToSummarize}`,
         if (result.type === 'model') {
           return this.modelMap.registry.getProvider(result.model.name);
         }
-      } catch {
-        // Fall through to primary
+      } catch (error) {
+        logger.debug(`Task routing failed for '${taskType}', using primary: ${error instanceof Error ? error.message : error}`);
       }
     }
     return this.provider;
@@ -497,8 +497,8 @@ ${contextToSummarize}`,
         if (result.type === 'model') {
           return this.modelMap.registry.getProvider(result.model.name);
         }
-      } catch {
-        // Fall through to primary
+      } catch (error) {
+        logger.debug(`Command routing failed for '${commandName}', using primary: ${error instanceof Error ? error.message : error}`);
       }
     }
     return this.provider;
@@ -1286,8 +1286,8 @@ ${contextToSummarize}`,
                 diffPreview = await generateEditDiff(path, oldString, newString, replaceAll);
               }
             }
-          } catch {
-            // If diff generation fails, continue without preview
+          } catch (error) {
+            logger.debug(`Diff generation failed: ${error instanceof Error ? error.message : error}`);
           }
 
           // Get approval suggestions for bash commands (unless dangerous)
@@ -2337,7 +2337,8 @@ Label:`,
 
     try {
       return JSON.parse(readFileSync(filePath, 'utf8'));
-    } catch {
+    } catch (error) {
+      logger.debug(`Failed to load checkpoint ${checkpointId}: ${error instanceof Error ? error.message : error}`);
       return null;
     }
   }
@@ -2369,8 +2370,8 @@ Label:`,
           messageCount: cp.messageCount,
           tokenCount: cp.tokenCount,
         });
-      } catch {
-        // Skip invalid checkpoint files
+      } catch (error) {
+        logger.debug(`Skipping invalid checkpoint file ${file}: ${error instanceof Error ? error.message : error}`);
       }
     }
 
@@ -2529,8 +2530,8 @@ Label:`,
     try {
       this.timeline = JSON.parse(readFileSync(filePath, 'utf8'));
       this.currentBranch = this.timeline.activeBranch;
-    } catch {
-      // Keep default timeline
+    } catch (error) {
+      logger.debug(`Failed to load timeline: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -2618,7 +2619,8 @@ ${contextToSummarize}`,
       );
       this.conversationSummary = summaryResponse.content;
       this.messages = applySelection(this.messages, selection);
-    } catch {
+    } catch (error) {
+      logger.debug(`Summarization failed during compaction: ${error instanceof Error ? error.message : error}`);
       this.messages = applySelection(this.messages, selection);
     }
 

@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
 import type { TokenUsage } from './types.js';
+import { logger } from './logger.js';
 
 /** Directory where usage data is stored */
 const USAGE_DIR = path.join(homedir(), '.codi');
@@ -152,7 +153,8 @@ function loadUsageData(): UsageData {
   try {
     const content = fs.readFileSync(USAGE_FILE, 'utf-8');
     return JSON.parse(content) as UsageData;
-  } catch {
+  } catch (error) {
+    logger.debug(`Failed to load usage data: ${error instanceof Error ? error.message : error}`);
     return { records: [], version: 1 };
   }
 }
