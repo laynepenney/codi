@@ -21,6 +21,19 @@ export type {
   DEFAULT_NESTED_INTERFACE
 } from './types.js';
 
+// Export error handling utilities
+export type {
+  ErrorCategory
+} from './errors.js';
+
+export {
+  EnhancedWorkflowError,
+  createWorkflowError,
+  handleWorkflowError,
+  getWorkflowHints,
+  validateWorkflowWithFeedback
+} from './errors.js';
+
 // Export core classes
 export { WorkflowManager } from './manager.js';
 export { WorkflowExecutor } from './executor.js';

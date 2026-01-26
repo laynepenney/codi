@@ -96,11 +96,59 @@ export const workflowListCommand: Command = {
         }
 
         try {
-          getWorkflowByName(validateName);
-          return `✅ Workflow "${validateName}" is valid`;
-        } catch (error) {
-          return `❌ Workflow "${validateName}" is invalid: ${error instanceof Error ? error.message : String(error)}`;
-        }
+          const workflow = getWorkflowByName(validateName);
+          const { valid, errors, warnings, hints } = await import('../workflow/errors.js').then(m => 
+            m.validateWorkflowWithFeedback(workflow)
+          );
+
+          let output = '';
+          
+          if (valid) {
+            output += `✅ Workflow "${validateName}" is valid\n\n`;
+          } else {
+            output += `❌ Workflow "${validateName}" has validation errors\n\n`;
+          }
+
+          if (errors.length > 0) {
+            output += `🚨 Errors:\n`;
+            errors.forEach(error => {
+              output += `   • ${error}\n`;
+            });
+            output += '\n';
+          }
+
+          if (warnings.length > 0) {
+            output += `⚠️  Warnings:\n`;
+            warnings.forEach(warning => {
+              output += `   • ${warning}\n`;
+            });
+            output += '\n';
+          }
+
+          if (hints.length > 0) {
+            output += `💡 Hints:\n`;
+            hints.forEach(hint => {
+              output += `   ${hint}\n`;
+            });
+            output += '\n';
+          }
+
+          if (!valid && errors.length > 0) {
+            const stepsWithErrors = workflow.steps?.filter((step: any) => 
+              errors.some(err => err.includes(step.id))
+            ) || [];
+            if (stepsWithErrors.length > 0) {
+              output += `📋 Affected Steps:\n`;
+              stepsWithErrors.forEach((step: any, index: number) => {
+                output += `   ${index + 1}. [${step.id}] ${step.action}\n`;
+              });
+              output += '\n';
+              
+              output += `🔍 Run /workflow show ${validateName} for detailed step information\n`;
+            }
+          }
+
+          return output;
 
       default:
         return `Unknown workflow command: "${subcommand}"

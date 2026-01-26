@@ -28,7 +28,8 @@ Examples:
     
     // Need agent for workflow execution
     if (!context.agent) {
-      return 'Error: Agent not available for workflow execution';
+      const { handleWorkflowError } = await import('../workflow/errors.js');
+      return handleWorkflowError(new Error('Agent not available'), workflowName);
     }
 
     // Set agent on executor
@@ -38,33 +39,34 @@ Examples:
       let result: string;
       
       if (shouldResume) {
-        result = `Resuming workflow "${workflowName}"...\n`;
+        result = `🔄 Resuming workflow "${workflowName}"...\n`;
         const state = await manager.resumeWorkflow(workflowName);
         
         if (state.completed) {
           result += `✅ Workflow "${workflowName}" already completed\n`;
-          result += `History: ${state.history.length} steps executed\n`;
+          result += `📊 History: ${state.history.length} steps executed\n`;
         } else if (state.paused) {
-          result += `⚠️ Workflow "${workflowName}" is resumed from pause\n`;
-          result += `Current step: ${state.currentStep || 'none'}\n`;
+          result += `⏸️  Workflow "${workflowName}" is resumed from pause\n`;
+          result += `📍 Current step: ${state.currentStep || 'none'}\n`;
         } else {
-          result += `↻ Workflow "${workflowName}" execution started/resumed\n`;
+          result += `▶️  Workflow "${workflowName}" execution started/resumed\n`;
         }
         
         return result;
       } else {
-        result = `Starting workflow "${workflowName}"...\n`;
+        result = `🚀 Starting workflow "${workflowName}"...\n`;
         const state = await manager.startWorkflow(workflowName);
         
         result += `✅ Workflow "${workflowName}" execution started\n`;
-        result += `Current step: ${state.currentStep || 'none'}\n`;
-        result += `Total steps: ${state.history.length}\n`;
-        result += `Variables: ${Object.keys(state.variables).length}\n`;
+        result += `📍 Current step: ${state.currentStep || 'none'}\n`;
+        result += `📊 Total steps: ${state.history.length}\n`;
+        result += `🔧 Variables: ${Object.keys(state.variables).length}\n`;
         
         return result;
       }
     } catch (error) {
-      return `❌ Failed to ${shouldResume ? 'resume' : 'start'} workflow "${workflowName}":\n${error instanceof Error ? error.message : String(error)}`;
+      const { handleWorkflowError } = await import('../workflow/errors.js');
+      return handleWorkflowError(error, workflowName);
     }
   },
 };
