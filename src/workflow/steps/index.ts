@@ -8,6 +8,13 @@ import { executeCheckFileExistsStep, validateCheckFileExistsStep } from './file-
 import { executeLoopStep, validateLoopStep } from './loop.js';
 import { executeInteractiveStep, validateInteractiveStep } from './interactive.js';
 
+import { executeShellActionStep, validateShellActionStep } from './shell.js';
+import { executeAiPromptActionStep, validateAiPromptActionStep } from './ai-prompt.js';
+import { executeGitActionStep, validateGitActionStep } from './git.js';
+import { executePrActionStep, validatePrActionStep } from './pr.js';
+
+// Type imports for proper casting
+import type { ShellActionStep, AiPromptActionStep, GitActionStep, PrActionStep } from '../types.js';
 /**
  * Execute any workflow step
  */
@@ -34,22 +41,21 @@ export async function executeStep(
       return executeInteractiveStep(step as InteractiveStep, state, agent);
     
     case 'shell':
-      return executeShellActionStep(step, state);
+      return executeShellActionStep(step as ShellActionStep, state, agent);
     
     case 'ai-prompt':
-      console.log(`AI Prompt: ${(step as any).prompt}`);
-      return { response: 'AI response placeholder' };
+      return executeAiPromptActionStep(step as AiPromptActionStep, state, agent);
     
     case 'create-pr':
     case 'review-pr':
     case 'merge-pr':
-      return executePrActionStep(step, state);
+      return executePrActionStep(step as PrActionStep, state, agent);
     
     case 'commit':
     case 'push':
     case 'pull':
     case 'sync':
-      return executeGitActionStep(step, state);
+      return executeGitActionStep(step as GitActionStep, state, agent);
     
     default:
       throw new Error(`Unknown action: ${step.action}`);
@@ -77,6 +83,27 @@ export function validateStep(step: WorkflowStep): void {
       validateLoopStep(step as LoopStep);
       break;
     
+    case 'shell':
+      validateShellActionStep(step as ShellActionStep);
+      break;
+    
+    case 'ai-prompt':
+      validateAiPromptActionStep(step as AiPromptActionStep);
+      break;
+    
+    case 'create-pr':
+    case 'review-pr':
+    case 'merge-pr':
+      validatePrActionStep(step as PrActionStep);
+      break;
+    
+    case 'commit':
+    case 'push':
+    case 'pull':
+    case 'sync':
+      validateGitActionStep(step as GitActionStep);
+      break;
+    
     case 'interactive':
       validateInteractiveStep(step as InteractiveStep);
       break;
@@ -90,58 +117,5 @@ export function validateStep(step: WorkflowStep): void {
       if (!step.action || typeof step.action !== 'string') {
         throw new Error('Step must have an action');
       }
+    }
   }
-}
-
-// Placeholder implementations for shell actions
-async function executeShellActionStep(step: WorkflowStep, state: WorkflowState): Promise<any> {
-  const { spawn } = await import('node:child_process');
-  
-  return new Promise((resolve, reject) => {
-    const command = (step as any).command;
-    const child = spawn(command, { 
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve({ success: true, stdout, stderr });
-      } else {
-        reject(new Error(`Shell command failed with code ${code}: ${stderr}`));
-      }
-    });
-
-    child.on('error', (error) => {
-      reject(new Error(`Shell command failed: ${error.message}`));
-    });
-  });
-}
-
-// Placeholder implementations for Git/PR actions
-async function executePrActionStep(step: WorkflowStep, state: WorkflowState): Promise<any> {
-  return executeShellActionStep({
-    id: step.id,
-    action: 'shell',
-    command: 'echo "PR action placeholder"'
-  }, state);
-}
-
-async function executeGitActionStep(step: WorkflowStep, state: WorkflowState): Promise<any> {
-  return executeShellActionStep({
-    id: step.id,
-    action: 'shell',
-    command: 'echo "Git action placeholder"'
-  }, state);
-}
