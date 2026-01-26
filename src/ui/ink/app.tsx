@@ -624,23 +624,13 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const activityPanel = useMemo(() => {
     const hasWorkers = workerList.length > 0;
     const hasReaders = readerList.length > 0;
-    const hasActivity = status.activity && status.activity !== 'idle';
     const hasConfirmation = Boolean(confirmation);
-
-    if (!hasWorkers && !hasReaders && !hasActivity && !hasConfirmation) {
-      return {
-        lines: [] as ActivityLine[],
-        maxStart: 0,
-        scrollStep: 0,
-        total: 0,
-      };
-    }
 
     const nodes: TreeNode[] = [];
     const detailMax = Math.max(24, contentWidth - 10);
     const activityLabel = formatActivity(status);
     const active = status.activity && status.activity !== 'idle';
-    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '';
+    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '  ';
     const agentColor =
       status.activity === 'confirm' ? 'yellow' : status.activity === 'tool' ? 'magenta' : 'cyan';
 
@@ -761,12 +751,20 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       });
     }
 
+    const treeLines = renderTree(nodes, contentWidth);
+
+    // Ensure minimum height to prevent layout jumping
+    const minHeight = 3;
+    const paddingNeeded = Math.max(0, minHeight - 1 - treeLines.length);
+    const padding: ActivityLine[] = Array.from({ length: paddingNeeded }, () => ({ text: '', dim: true }));
+
     const allLines: ActivityLine[] = [
       { text: 'Activity', dim: true },
-      ...renderTree(nodes, contentWidth),
+      ...treeLines,
+      ...padding,
     ];
 
-    const maxHeight = Math.max(3, Math.min(allLines.length, Math.floor((stdout.rows ?? 24) / 3)));
+    const maxHeight = Math.max(minHeight, Math.min(allLines.length, Math.floor((stdout.rows ?? 24) / 3)));
     const maxStart = Math.max(0, allLines.length - maxHeight);
     const offset = clamp(activityScrollOffset, 0, maxStart);
     const start = offset;

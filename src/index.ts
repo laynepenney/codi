@@ -3394,7 +3394,10 @@ Begin by analyzing the query and planning your research approach.`;
     console.log(chalk.dim('\nGoodbye!'));
   };
 
-  if (!useInkUi) {
+  // Skip readline creation for non-interactive mode
+  const isNonInteractive = Boolean(options.prompt);
+
+  if (!useInkUi && !isNonInteractive) {
     // Enable bracketed paste mode for better paste detection
     enableBracketedPaste();
 
@@ -3448,7 +3451,7 @@ Begin by analyzing the query and planning your research approach.`;
     rl.on('error', (err) => {
       logger.error(`Readline error: ${err.message}`, err);
     });
-  } else {
+  } else if (useInkUi) {
     exitApp = () => {
       inkController?.requestExit();
     };
@@ -3813,6 +3816,7 @@ Begin by analyzing the query and planning your research approach.`;
       }
 
       if (useInkUi && inkController) {
+        inkController.addToolCall(name, input as Record<string, unknown>);
         inkController.setStatus({ activity: 'tool', activityDetail: name });
       } else if (workerStatusUI) {
         workerStatusUI.setAgentActivity('tool', name);
@@ -3848,13 +3852,11 @@ Begin by analyzing the query and planning your research approach.`;
           }
         }
         console.log();
-      } else if (isError && inkController) {
-        const preview = result.length > 200 ? `${result.slice(0, 200)}...` : result;
-        inkController.addMessage('system', `Tool error (${name}): ${preview}`);
-      }
-      if (useInkUi && inkController) {
+      } else if (inkController) {
+        inkController.addToolResult(name, result, isError, durationMs);
         inkController.setStatus({ activity: 'thinking', activityDetail: null });
-      } else if (workerStatusUI) {
+      }
+      if (!useInkUi && workerStatusUI) {
         workerStatusUI.setAgentActivity('thinking', null);
       }
     },
