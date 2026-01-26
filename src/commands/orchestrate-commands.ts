@@ -48,7 +48,6 @@ function generateWorkerId(): string {
 
 function normalizeProviderType(name: string): string {
   const lowered = name.trim().toLowerCase();
-  if (lowered === 'ollama cloud') return 'ollama-cloud';
   return lowered.replace(/\s+/g, '-');
 }
 

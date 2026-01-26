@@ -158,7 +158,7 @@ export const switchCommand: Command = {
         if (providerType === 'anthropic') providerType = 'anthropic';
         else if (providerType === 'openai') providerType = 'openai';
         else if (providerType === 'ollama') providerType = 'ollama';
-        else if (providerType === 'ollama cloud') providerType = 'ollama-cloud';
+        else if (providerType === 'ollama cloud') providerType = 'ollama';
         else if (providerType === 'runpod') providerType = 'runpod';
         modelName = firstArg;
       }
@@ -289,7 +289,7 @@ export const modelMapCommand: Command = {
       console.log('  --global                Apply to global config (~/.codi/models.yaml)');
       console.log('\nExamples:');
       console.log('  /modelmap                           Show current configuration');
-      console.log('  /modelmap add coder ollama-cloud qwen3-coder:480b-cloud');
+      console.log('  /modelmap add coder ollama qwen3-coder:480b-cloud');
       console.log('  /modelmap add --global fast anthropic claude-3-5-haiku-latest');
       console.log('  /modelmap init                      Create project codi-models.yaml');
       console.log('  /modelmap init --global             Create global ~/.codi/models.yaml');
@@ -318,7 +318,7 @@ export const modelMapCommand: Command = {
         }
 
         // Validate provider
-        const validProviders = ['anthropic', 'openai', 'ollama', 'ollama-cloud', 'runpod'];
+        const validProviders = ['anthropic', 'openai', 'ollama', 'runpod'];
         if (!validProviders.includes(provider.toLowerCase())) {
           return `__MODELMAP_ERROR__|Invalid provider "${provider}". Valid: ${validProviders.join(', ')}`;
         }

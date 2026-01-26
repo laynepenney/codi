@@ -490,8 +490,8 @@ Step 3: Choose solution
   });
 });
 
-describe('OllamaCloudProvider function-call style parsing', () => {
-  // Test the argument parsing function directly (mirrors implementation in ollama-cloud.ts)
+describe('Function-call style parsing (old OllamaCloudProvider implementation)', () => {
+  // Test the argument parsing function directly (mirrors implementation that was in ollama-cloud.ts)
   function parseFunctionCallArgs(argsString: string): Record<string, unknown> {
     const args: Record<string, unknown> = {};
     if (!argsString.trim()) return args;
@@ -666,7 +666,7 @@ describe('OllamaCloudProvider function-call style parsing', () => {
 
   // Test that tool extraction works on thinking content when regular content is empty
   it('extracts tool call from thinking content when content is empty', () => {
-    // Simulate the logic in ollama-cloud.ts where toolExtractionText falls back to thinking
+    // Simulate the logic that was in ollama-cloud.ts where toolExtractionText falls back to thinking
     const thinkingCleanedContent = ''; // empty regular content
     const combinedThinking = 'The test is failing. Let me check the file:\n\n[read_file(path="test.ts")]';
 
@@ -681,7 +681,7 @@ describe('OllamaCloudProvider function-call style parsing', () => {
 });
 
 describe('OllamaCloudProvider tool name normalization', () => {
-  // Test the normalization function directly (mirrors implementation in ollama-cloud.ts)
+  // Test the normalization function directly (mirrors implementation that was in ollama-cloud.ts)
   function normalizeToolName(name: string): string {
     const prefixes = [
       'repo_browser.',

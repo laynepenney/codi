@@ -547,7 +547,7 @@ export function getExampleModelMap(): string {
         description: 'Free local model',
       },
       'cloud-coder': {
-        provider: 'ollama-cloud',
+        provider: 'ollama',
         model: 'qwen3-coder:480b-cloud',
         description: 'Cloud coder',
       },
@@ -557,12 +557,12 @@ export function getExampleModelMap(): string {
         description: 'qwen lite',
       },
       'cloud-fast': {
-        provider: 'ollama-cloud',
+        provider: 'ollama',
         model: 'gemini-3-flash-preview:cloud',
         description: 'gemini cloud fast',
       },
       'cloud-reasoning': {
-        provider: 'ollama-cloud',
+        provider: 'ollama',
         model: 'gpt-oss:120b-cloud',
         description: 'cloud gpt oss 120b-cloud',
       },
@@ -572,32 +572,29 @@ export function getExampleModelMap(): string {
         anthropic: 'haiku',
         openai: 'gpt-5-nano',
         ollama: 'local',
-        'ollama-cloud': 'cloud-fast',
       },
       capable: {
         anthropic: 'sonnet',
         openai: 'gpt-5',
         ollama: 'local',
-        'ollama-cloud': 'cloud-coder',
       },
       reasoning: {
         anthropic: 'opus',
         openai: 'gpt-5',
         ollama: 'local',
-        'ollama-cloud': 'cloud-reasoning',
       },
     },
     tasks: {
       fast: {
-        model: 'cloud-fast',
+        model: 'local',
         description: 'Quick tasks (commits, summaries)',
       },
       code: {
-        model: 'cloud-coder',
+        model: 'local',
         description: 'Standard coding tasks',
       },
       complex: {
-        model: 'cloud-reasoning',
+        model: 'local',
         description: 'Architecture, debugging',
       },
       summarize: {

@@ -383,7 +383,7 @@ program
   .name('codi')
   .description('Your AI coding wingman')
   .version(VERSION, '-v, --version', 'Output the current version')
-  .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama, ollama-cloud, runpod)', 'auto')
+  .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama, runpod)', 'auto')
   .option('-m, --model <name>', 'Model to use')
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
   .option('--endpoint-id <id>', 'Endpoint ID (for RunPod serverless)')

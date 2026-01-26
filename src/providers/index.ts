@@ -4,14 +4,13 @@
 import { BaseProvider } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
-import { OllamaCloudProvider } from './ollama-cloud.js';
+
 import { MockProvider } from './mock.js';
 import type { ProviderConfig } from '../types.js';
 
 export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
-export { OllamaCloudProvider } from './ollama-cloud.js';
 export { MockProvider } from './mock.js';
 export type { MockProviderConfig, MockResponse, MockCall, MockResponsesFile } from './mock.js';
 
@@ -35,7 +34,6 @@ providerFactories.set('runpod', (options) => createRunPodProvider(
   options.model || 'default',
   options.apiKey
 ));
-providerFactories.set('ollama-cloud', (options) => new OllamaCloudProvider(options));
 providerFactories.set('mock', () => {
   // Support file-based configuration for E2E tests
   const responsesFile = process.env.CODI_MOCK_FILE;
@@ -146,14 +144,6 @@ export function detectProvider(): BaseProvider {
       process.env.RUNPOD_ENDPOINT_ID,
       process.env.RUNPOD_MODEL || 'default'
     );
-  }
-
-  // Check if user wants to use Ollama Cloud
-  const useOllamaCloud = process.env.OLLAMA_CLOUD === 'true' || process.env.CODI_PROVIDER === 'ollama-cloud';
-
-  if (useOllamaCloud) {
-    console.log('Using Ollama Cloud provider');
-    return new OllamaCloudProvider();
   }
 
   // Default to Ollama for local usage
