@@ -191,3 +191,25 @@ export interface IndexStats {
   lastUpdate: string;
   indexSizeBytes: number;
 }
+
+/**
+ * Symbol metadata with inheritance information.
+ */
+export interface SymbolMetadataWithExtends {
+  extends?: string[];
+  implements?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * Type guard to check if symbol metadata has extends information.
+ */
+export function hasExtendsMetadata(
+  metadata: Record<string, unknown> | undefined
+): metadata is SymbolMetadataWithExtends & { extends: string[] } {
+  return (
+    metadata !== undefined &&
+    'extends' in metadata &&
+    Array.isArray(metadata.extends)
+  );
+}

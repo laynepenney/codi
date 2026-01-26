@@ -1,22 +1,26 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { Agent } from '../../agent.js';
 import {
-  WorkflowStep,
   WorkflowState,
   ConditionalStep
 } from '../types.js';
-import { checkFileExists } from './file-exists.js';
+
+/**
+ * Context type for condition evaluation
+ */
+type ConditionContext = Record<string, unknown>;
 
 /**
  * Evaluate conditional expressions safely
  */
-export function evaluateCondition(condition: string, context: any): boolean {
+export function evaluateCondition(condition: string, context: ConditionContext): boolean {
   // Remove whitespace and normalize
   const normalizedCondition = condition.trim().toLowerCase();
-  
+
   // Simple condition evaluation
-  const simpleConditions: Record<string, (ctx: any) => boolean> = {
+  const simpleConditions: Record<string, (ctx: ConditionContext) => boolean> = {
     'true': () => true,
     'false': () => false,
     'approved': (ctx) => ctx?.approved === true,
@@ -88,16 +92,23 @@ export function evaluateCondition(condition: string, context: any): boolean {
   return !!context[normalizedCondition];
 }
 
+interface ConditionalResult {
+  condition: string;
+  result: boolean;
+  nextStep: string | null;
+  contextUsed: string[];
+}
+
 /**
  * Execute a conditional step
  */
 export async function executeConditionalStep(
   step: ConditionalStep,
   state: WorkflowState,
-  agent?: any
-): Promise<any> {
+  agent?: Agent
+): Promise<ConditionalResult> {
   // Merge state variables with additional context
-  const context = {
+  const context: ConditionContext = {
     ...state.variables,
     agentAvailable: !!agent,
     stepCount: state.history.length,
@@ -106,7 +117,7 @@ export async function executeConditionalStep(
   };
 
   const result = evaluateCondition(step.check, context);
-  
+
   return {
     condition: step.check,
     result,

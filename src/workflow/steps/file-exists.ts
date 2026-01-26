@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { promises as fs } from 'node:fs';
+import type { Agent } from '../../agent.js';
 import {
-  WorkflowStep,
   WorkflowState,
   CheckFileExistsStep
 } from '../types.js';
@@ -20,21 +20,27 @@ export async function checkFileExists(filePath: string): Promise<boolean> {
   }
 }
 
+interface FileExistsResult {
+  filePath: string;
+  exists: boolean;
+  fileExists: boolean; // Alias for condition evaluation
+}
+
 /**
  * Execute a file existence check step
  */
 export async function executeCheckFileExistsStep(
   step: CheckFileExistsStep,
-  state: WorkflowState,
-  agent?: any
-): Promise<any> {
+  _state: WorkflowState,
+  _agent?: Agent
+): Promise<FileExistsResult> {
   const filePath = step.file || 'test-file.txt';
   const exists = await checkFileExists(filePath);
-  
+
   return {
     filePath,
     exists,
-    fileExists: exists // Alias for condition evaluation
+    fileExists: exists
   };
 }
 
