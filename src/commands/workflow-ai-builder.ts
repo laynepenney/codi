@@ -2,23 +2,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { registerCommand, type Command, type CommandContext } from './index.js';
-import { WorkflowManager } from '../workflow/index.js';
 import type { Workflow, WorkflowStep } from '../workflow/types.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 // Type definitions for AI-generated workflow
 interface TemplateSuggestion {
   name: string;
   description: string;
   workflow: Workflow;
-}
-
-interface BuilderState {
-  context: string;
-  template?: TemplateSuggestion;
-  steps: WorkflowStep[];
 }
 
 /**
@@ -31,19 +23,16 @@ export const workflowBuildCommand: Command = {
   usage: '/workflow-build "natural language description" OR /workflow-build template <name>',
   taskType: 'complex',
   execute: async (args: string, context: CommandContext): Promise<string> => {
-    const manager = new WorkflowManager();
-    
     const parts = args.trim().split(/\s+/);
     const subcommand = parts[0]?.toLowerCase();
     
     if (subcommand === 'template' || subcommand === 'example') {
-      // Show template examples
       const templateName = parts[1] || 'list';
       
       if (templateName === 'list') {
-        return await showTemplates(manager);
+        return await showTemplates();
       } else {
-        return await generateFromTemplate(templateName, manager, context);
+        return await generateFromTemplate(templateName, context);
       }
     }
     
@@ -51,16 +40,16 @@ export const workflowBuildCommand: Command = {
       return getUsage();
     }
     
-    // Regular AI-assisted building
-    return await buildWorkflowFromDescription(args, manager, context);
+    // AI-assisted building with actual agent integration
+    return await buildWorkflowFromDescription(args, context);
   },
 };
 
 /**
  * Show available workflow templates
  */
-async function showTemplates(manager: WorkflowManager): Promise<string> {
-  const templates = await getAvailableTemplates();
+async function showTemplates(): Promise<string> {
+  const templates = getAvailableTemplates();
   
   let output = 'Available workflow templates:\n\n';
   templates.forEach(template => {
@@ -80,23 +69,23 @@ async function showTemplates(manager: WorkflowManager): Promise<string> {
  */
 async function generateFromTemplate(
   templateName: string, 
-  manager: WorkflowManager, 
   context: CommandContext
 ): Promise<string> {
-  const templates = await getAvailableTemplates();
+  const templates = getAvailableTemplates();
   const template = templates.find(t => t.name.toLowerCase() === templateName.toLowerCase());
   
   if (!template) {
     return `Template "${templateName}" not found. Use /workflow-build template list to see available templates.`;
   }
   
-  // Save the template as a new workflow
+  // Save the template as a new workflow with unique name
   const workflowsDir = path.join(process.cwd(), 'workflows');
   if (!fs.existsSync(workflowsDir)) {
     fs.mkdirSync(workflowsDir, { recursive: true });
   }
   
-  const workflowName = `generated-${templateName.replace(/[^a-zA-Z0-9]/g, '-')}-workflow`;
+  const timestamp = Date.now();
+  const workflowName = `generated-${templateName.replace(/[^a-zA-Z0-9]/g, '-')}-${timestamp}`;
   const workflowPath = path.join(workflowsDir, `${workflowName}.yaml`);
   
   // Generate YAML content
@@ -111,11 +100,10 @@ async function generateFromTemplate(
 }
 
 /**
- * Build workflow from natural language description
+ * Build workflow from natural language description using AI
  */
 async function buildWorkflowFromDescription(
   description: string, 
-  manager: WorkflowManager, 
   context: CommandContext
 ): Promise<string> {
   const aiPrompt = `You are a workflow builder AI. Create a workflow based on this description:
@@ -140,35 +128,115 @@ Use these available actions:
 
 The workflow should be practical, safe, and effective.
 
-Return ONLY the YAML content, no explanations.`;
+Important formatting rules:
+- Do NOT use markdown code blocks (like \`\`\`yaml)
+- Do NOT include explanations
+- Output ONLY the YAML content
+- Use single-line format for all properties
+- Quote string values with double quotes
+- No extra whitespace or blank lines
 
-  // Use the current agent to generate the workflow
-  try {
-    // TODO: Actually call the AI model to generate YAML
-    // For now, create a simple scaffold
-    const workflow = createScaffoldWorkflow(description);
+Example of expected format:
+name: workflow-name
+description: \"Workflow description\"
+steps:
+  - id: step1
+    action: shell
+    description: \"Step description\"
+    command: \"echo hello\"
+`;
+
+  // Try to use actual AI from agent context
+  let workflow: Workflow;
+  
+  if (context?.agent) {
+    try {
+      const response = await context.agent.chat(aiPrompt);
+      const responseText = (response as any)?.text || (response as any)?.response || '';
+      
+      // Parse the AI-generated YAML
+      workflow = parseYAMLWorkflow(responseText);
+    } catch (error) {
+      // Fallback to scaffold if AI fails
+      workflow = createScaffoldWorkflow(description);
+    }
+  } else {
+    // No agent available, use scaffold
+    workflow = createScaffoldWorkflow(description);
+  }
+  
+  // Save the workflow with unique timestamp
+  const workflowsDir = path.join(process.cwd(), 'workflows');
+  if (!fs.existsSync(workflowsDir)) {
+    fs.mkdirSync(workflowsDir, { recursive: true });
+  }
+  
+  const timestamp = Date.now();
+  const workflowName = `ai-generated-${timestamp}-workflow`;
+  const workflowPath = path.join(workflowsDir, `${workflowName}.yaml`);
+  
+  const yamlContent = workflowToYAML(workflow);
+  fs.writeFileSync(workflowPath, yamlContent);
+  
+  return `✅ Generated workflow from your description\n` +
+         `📁 File: ${workflowPath}\n` +
+         `📝 Steps: ${workflow.steps.length}\n\n` +
+         `Use /workflow-run ${workflowName} to test it.\n` +
+         `Use /workflow show ${workflowName} to review the workflow.`;
+}
+
+/**
+ * Simple YAML parser for AI-generated workflow
+ */
+function parseYAMLWorkflow(yamlText: string): Workflow {
+  // Very simple YAML parser - handles key-value pairs and arrays
+  const lines = yamlText.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
+  const workflow: any = {
+    name: 'ai-generated-workflow',
+    description: 'AI-generated workflow',
+    steps: []
+  };
+  
+  let currentStep: any = null;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const indent = lines[i].search(/\S/);
     
-    // Save the workflow
-    const workflowsDir = path.join(process.cwd(), 'workflows');
-    if (!fs.existsSync(workflowsDir)) {
-      fs.mkdirSync(workflowsDir, { recursive: true });
+    // Top-level properties
+    if (indent === 0) {
+      const [key, ...valueParts] = line.split(':');
+      const value = valueParts.join(':').trim();
+      
+      if (key === 'steps') {
+        continue; // Array handling below
+      } else if (key === 'name') {
+        workflow.name = value.replace(/"/g, '');
+      } else if (key === 'description') {
+        workflow.description = value.replace(/"/g, '');
+      }
     }
     
-    const workflowName = `ai-generated-workflow`;
-    const workflowPath = path.join(workflowsDir, `${workflowName}.yaml`);
-    
-    const yamlContent = workflowToYAML(workflow);
-    fs.writeFileSync(workflowPath, yamlContent);
-    
-    return `✅ Generated workflow from your description\n` +
-           `📁 File: ${workflowPath}\n` +
-           `📝 Steps: ${workflow.steps.length}\n\n` +
-           `Use /workflow-run ${workflowName} to test it.\n` +
-           `Use /workflow show ${workflowName} to review the workflow.`;
-    
-  } catch (error) {
-    return `❌ Failed to generate workflow: ${error instanceof Error ? error.message : String(error)}`;
+    // Array items (steps)
+    if (line.startsWith('- id:')) {
+      if (currentStep) {
+        workflow.steps.push({ ...currentStep });
+      }
+      currentStep = {
+        id: line.split(':')[1].trim().replace(/"/g, '')
+      };
+    } else if (currentStep && indent > 0) {
+      const [key, ...valueParts] = line.split(':');
+      const value = valueParts.join(':').trim().replace(/"/g, '');
+      currentStep[key.trim()] = value;
+    }
   }
+  
+  if (currentStep) {
+    workflow.steps.push(currentStep);
+  }
+  
+  return workflow as Workflow;
 }
 
 /**
@@ -178,7 +246,7 @@ function workflowToYAML(workflow: Workflow): string {
   let yaml = `name: ${workflow.name}\n`;
   
   if (workflow.description) {
-    yaml += `description: ${workflow.description}\n`;
+    yaml += `description: "${workflow.description}"\n`;
   }
   
   if (workflow.version) {
@@ -200,7 +268,7 @@ function workflowToYAML(workflow: Workflow): string {
     yaml += `    action: ${step.action}\n`;
     
     if (step.description) {
-      yaml += `    description: ${step.description}\n`;
+      yaml += `    description: "${step.description}"\n`;
     }
     
     // Add step-specific properties
@@ -208,7 +276,11 @@ function workflowToYAML(workflow: Workflow): string {
       if (!['id', 'action', 'description'].includes(key)) {
         const value = (step as any)[key];
         if (value !== undefined && value !== null) {
-          yaml += `    ${key}: ${typeof value === 'string' ? `"${value.replace(/"/g, '\\"')}"` : JSON.stringify(value)}\n`;
+          if (typeof value === 'string') {
+            yaml += `    ${key}: "${value.replace(/"/g, '\\"')}"\n`;
+          } else {
+            yaml += `    ${key}: ${JSON.stringify(value)}\n`;
+          }
         }
       }
     });
@@ -221,10 +293,8 @@ function workflowToYAML(workflow: Workflow): string {
  * Create a scaffold workflow from description
  */
 function createScaffoldWorkflow(description: string): Workflow {
-  // Simple workflow generation for now
-  // TODO: Use AI to generate more intelligent workflows
   return {
-    name: 'ai-generated-workflow',
+    name: `workflow-${Date.now()}`,
     description: `Generated from: ${description}`,
     steps: [
       {
@@ -252,9 +322,7 @@ function createScaffoldWorkflow(description: string): Workflow {
 /**
  * Get available workflow templates
  */
-async function getAvailableTemplates(): Promise<TemplateSuggestion[]> {
-  // TODO: Load from templates directory
-  // For now, provide some common templates
+function getAvailableTemplates(): TemplateSuggestion[] {
   return [
     {
       name: 'deployment',
@@ -359,7 +427,7 @@ function getUsage(): string {
 
 Usage:
   /workflow-build "natural language description"
-    Generate a workflow from a description
+    Generate a workflow from a description using AI
 
   /workflow-build template list
     Show available templates
@@ -371,11 +439,4 @@ Examples:
   /workflow-build "create a deployment workflow with testing"
   /workflow-build template deployment
   /workflow-build "generate documentation and commit it"`;
-}
-
-/**
- * Register the AI workflow builder command
- */
-export function registerWorkflowBuilderCommands(): void {
-  registerCommand(workflowBuildCommand);
 }
