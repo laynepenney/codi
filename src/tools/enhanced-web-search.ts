@@ -37,6 +37,8 @@ interface WebSearchConfig {
   cacheEnabled: boolean;
   enginePriority: string[];
   template?: 'docs' | 'pricing' | 'errors' | 'general';
+  /** Request timeout in milliseconds (default: 10000) */
+  timeout?: number;
 }
 
 class BraveEngine implements SearchEngine {
@@ -64,6 +66,7 @@ class BraveEngine implements SearchEngine {
         'Accept-Encoding': 'gzip',
         'X-Subscription-Token': config.braveApiKey,
       },
+      signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
     });
 
     if (!response.ok) {
@@ -100,7 +103,9 @@ class GoogleEngine implements SearchEngine {
       num: Math.min(config.maxResults, 10).toString(), // Google max is 10
     });
 
-    const response = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
+    const response = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`, {
+      signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
+    });
     
     if (!response.ok) {
       throw new Error(`Google API error: ${response.status}`);
@@ -132,6 +137,7 @@ class BingEngine implements SearchEngine {
       headers: {
         'Ocp-Apim-Subscription-Key': config.bingApiKey,
       },
+      signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
     });
 
     if (!response.ok) {
@@ -169,6 +175,7 @@ class DuckDuckGoEngine implements SearchEngine {
         'User-Agent': 'Mozilla/5.0 (compatible; Codi/1.0; +https://github.com/laynepenney/codi)',
       },
       body: params.toString(),
+      signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
     });
 
     if (!response.ok) {
