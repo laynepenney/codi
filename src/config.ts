@@ -1,5 +1,6 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import * as fs from 'fs';
 import * as os from 'os';
@@ -23,7 +24,7 @@ const GLOBAL_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, 'config.json');
  * Can be defined in .codi.json or .codi/config.json in the project root.
  */
 export interface WorkspaceConfig {
-  /** Provider to use (anthropic, openai, ollama, ollama-cloud, runpod) */
+  /** Provider to use (anthropic, openai, ollama, runpod) */
   provider?: string;
 
   /** Model name to use */
@@ -465,7 +466,7 @@ export function validateConfig(config: WorkspaceConfig): string[] {
   const warnings: string[] = [];
 
   // Validate provider
-  const validProviders = ['anthropic', 'openai', 'ollama', 'ollama-cloud', 'runpod', 'auto'];
+  const validProviders = ['anthropic', 'openai', 'ollama', 'runpod', 'auto'];
   if (config.provider && !validProviders.includes(config.provider)) {
     warnings.push(`Unknown provider "${config.provider}". Valid: ${validProviders.join(', ')}`);
   }
@@ -739,7 +740,7 @@ export function mergeToolInput(
  */
 export function getExampleConfig(): string {
   const example: WorkspaceConfig = {
-    provider: 'ollama-cloud',
+     provider: 'ollama',
     model: 'gpt-oss:120b-cloud',
     autoApprove: ['read_file', 'glob', 'grep', 'list_directory'],
     approvedPatterns: [],

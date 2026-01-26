@@ -11,7 +11,7 @@
  * Named model definition with provider and settings.
  */
 export interface ModelDefinition {
-  /** Provider type (anthropic, openai, ollama, ollama-cloud, runpod) */
+  /** Provider type (anthropic, openai, ollama, runpod) */
   provider: string;
   /** Model name/ID */
   model: string;
@@ -55,7 +55,6 @@ export type ProviderContext =
   | 'anthropic'
   | 'openai'
   | 'ollama'
-  | 'ollama-cloud'
   | string;
 
 /**

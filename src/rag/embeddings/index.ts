@@ -31,7 +31,6 @@ export function createEmbeddingProviderFromModelDef(
       return new OpenAIEmbeddingProvider(modelDef.model);
 
     case 'ollama':
-    case 'ollama-cloud':
       return new OllamaEmbeddingProvider(
         modelDef.model,
         modelDef.baseUrl || 'http://localhost:11434'
@@ -40,7 +39,7 @@ export function createEmbeddingProviderFromModelDef(
     default:
       throw new Error(
         `Unsupported embedding provider: ${modelDef.provider}. ` +
-        `Supported providers: openai, ollama, ollama-cloud`
+        `Supported providers: openai, ollama`
       );
   }
 }
