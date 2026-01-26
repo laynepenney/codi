@@ -44,9 +44,7 @@ grep("saveSession", "src/") // Finds all references to saveSession
 get_context_status() // Checks current context usage
 ```
 
-This project's architecture anticipates intelligent tool use and context management.
-
-**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, Ollama Cloud, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools.
+**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, Ollama Cloud, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools, and this project's architecture anticipates intelligent tool use and context management.
 
 ## Quick Reference
 
@@ -59,11 +57,6 @@ pnpm test:watch       # Watch mode
 
 # Interactive mode (default)
 ANTHROPIC_API_KEY=... pnpm dev
-
-# Non-interactive mode (single prompt and exit)
-codi -P "explain this code" -f json           # JSON output
-codi --prompt "fix the bug" --quiet          # Suppress spinners
-codi -P "write tests" -y                      # Auto-approve all tools
 
 # Testing with different providers
 ANTHROPIC_API_KEY=... pnpm dev
@@ -853,7 +846,7 @@ export default {
 
 ### Lower Priority / Nice to Have
 
-#### 9. Interactive File Selection
+#### 12. Interactive File Selection
 **What**: Fuzzy file finder for commands.
 
 **Implementation**:
@@ -863,7 +856,7 @@ export default {
 
 **Dependencies**: `inquirer` or `prompts` package
 
-#### 10. Parallel Tool Execution
+#### 13. Parallel Tool Execution
 **What**: Execute independent tools concurrently.
 
 **Implementation**:
@@ -874,7 +867,7 @@ export default {
 **Files to modify**:
 - Modify: `src/agent.ts` (parallel execution logic)
 
-#### 16. Web Search Tool - IMPLEMENTED
+#### 14. Web Search Tool - IMPLEMENTED
 
 **Status**: Complete
 
@@ -907,7 +900,7 @@ Search results for: "TypeScript 5.0 features"
 - `src/tools/web-search.ts` - Web search tool implementation
 - `tests/web-search.test.ts` - Unit tests
 
-#### 17. Multi-Model Orchestration - IMPLEMENTED
+#### 15. Multi-Model Orchestration - IMPLEMENTED
 
 **Status**: Complete
 
@@ -956,7 +949,7 @@ codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
 - `src/agent.ts` - `getSummaryProvider()` method
 - `tests/multi-model.test.ts` - Unit tests
 
-#### 18. Model Map (Multi-Model Orchestration) - COMPLETE
+#### 16. Model Map (Multi-Model Orchestration) - COMPLETE
 
 **Status**: Complete (Phases 1-3 + Model Roles)
 
@@ -1100,7 +1093,7 @@ pipelines:
 - [ ] Config hot-reload support (watch file changes)
 - [ ] Cost tracking per model/pipeline
 
-#### 19. Multi-Agent Orchestration - IMPLEMENTED
+#### 17. Multi-Agent Orchestration - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1186,7 +1179,7 @@ codi
 - ✅ Ollama (glm-4.7:cloud, qwen3-coder:480b-cloud)
 - ✅ OpenAI
 
-#### 20. Symbol Index - IMPLEMENTED
+#### 18. Symbol Index - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1216,7 +1209,7 @@ codi
 - [ ] Symbol rename/refactor support
 - [ ] Call graph tracking
 
-#### 15. Code Snippets Library
+#### 19. Code Snippets Library
 **What**: Save and reuse code snippets.
 
 **Implementation**:
@@ -1224,7 +1217,7 @@ codi
 - Add `/snippet save <name>` and `/snippet use <name>` commands
 - Support tags and search
 
-#### 16. Multi-file Refactoring
+#### 20. Multi-file Refactoring
 **What**: Coordinated changes across multiple files.
 
 **Implementation**:
@@ -1233,7 +1226,7 @@ codi
 - Generate coordinated edit plan
 - Apply changes atomically (all or nothing)
 
-#### 12. Test Runner Integration - IMPLEMENTED
+#### 21. Test Runner Integration - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1254,7 +1247,7 @@ codi
 - `src/tools/run-tests.ts` - Test runner tool implementation
 - `tests/run-tests.test.ts` - Comprehensive test coverage
 
-#### 13. Context Optimization - IMPLEMENTED
+#### 22. Context Optimization - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1284,7 +1277,7 @@ codi
 - `-c, --compress` - Enable context compression (entity normalization) at startup
 - Automatic compaction happens regardless of flag when needed
 
-#### 14. RAG System (Embeddings) - IMPLEMENTED
+#### 23. RAG System (Embeddings) - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1311,7 +1304,7 @@ codi
 - OpenAI API key (for embeddings)
 - Automatic fallback if unavailable
 
-#### 15. Debug UI - IMPLEMENTED
+#### 24. Debug UI - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1364,15 +1357,22 @@ For maximum impact with reasonable effort:
 4. ~~**Diff Preview** - Safety improvement~~ DONE
 5. ~~**Undo System** - Safety net for file changes~~ DONE
 6. ~~**Cost Tracking** - API usage and cost monitoring~~ DONE
-7. ~~**Test Runner** - Automated test execution~~ DONE
-8. ~~**Context Optimization** - Smart compaction and deduplication~~ DONE
-9. ~~**RAG System** - Semantic code search~~ DONE
-10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
+7. ~~**Plugin System** - Third-party extensions (DISABLED)~~ DONE
+8. ~~**Vision Support** - Image analysis capabilities~~ DONE
+9. ~~**Interactive File Selection** - Fuzzy file finder (LOWER PRIORITY)~~ PLANNED
+10. ~~**Parallel Tool Execution** - Concurrent operations (LOWER PRIORITY)~~ PLANNED
 11. ~~**Web Search** - Search web via DuckDuckGo~~ DONE
 12. ~~**Multi-Model Orchestration** - Use cheaper models for summarization~~ DONE
 13. ~~**Model Map** - Docker-compose style multi-model config~~ DONE (Phases 1-3 complete)
 14. ~~**Multi-Agent Orchestration** - Parallel agents with IPC permission bubbling~~ DONE
-15. ~~**Security Model Validation** - AI-powered security analysis for bash commands~~ DONE
+15. ~~**Symbol Index** - Code navigation enhancements~~ DONE
+16. ~~**Code Snippets Library** - Code reuse system (LOWER PRIORITY)~~ PLANNED
+17. ~~**Multi-file Refactoring** - Coordinated changes (LOWER PRIORITY)~~ PLANNED
+18. ~~**Test Runner** - Automated test execution~~ DONE
+19. ~~**Context Optimization** - Smart compaction and deduplication~~ DONE
+20. ~~**RAG System** - Semantic code search~~ DONE
+21. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
+22. ~~**Security Model Validation** - AI-powered security analysis for bash commands~~ DONE
 
 ## Security Guidelines
 
@@ -1475,8 +1475,6 @@ See `workflow-status-roadmap.md` for detailed roadmap:
 ```
 
 **Status**: ✅ **Production Ready** - Workflow execution fully functional
-
-Previous versions had a vulnerability where chained commands like `!echo "?" | pnpm dev --quiet` only required permission for the first command (`echo`) but would silently execute subsequent commands (`pnpm`). This has been fixed by requiring explicit permission for ALL commands in a chain.
 
 ### AI-Powered Security Model Validation
 
