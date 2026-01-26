@@ -58,7 +58,7 @@ export async function executeSwitchModelStep(
   
   // Switch to the new provider
   agent.setProvider(provider);
-  
+
   return {
     success: true,
     previousProvider: {

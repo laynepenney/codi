@@ -3768,6 +3768,15 @@ Begin by analyzing the query and planning your research approach.`;
     logLevel,
     enableCompression: options.compress ?? resolvedConfig.enableCompression,
     maxContextTokens: resolvedConfig.maxContextTokens,
+    onProviderChange: (newProvider) => {
+      // Update ink UI status when provider changes (e.g., during workflow model switch)
+      if (useInkUi && inkController) {
+        inkController.setStatus({
+          provider: newProvider.getName(),
+          model: newProvider.getModel()
+        });
+      }
+    },
     onText: (text) => {
       // Stop spinner when we start receiving text
       if (!isStreaming) {

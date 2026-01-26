@@ -147,6 +147,7 @@ export interface AgentOptions {
   onToolResult?: (name: string, result: string, isError: boolean) => void;
   onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
   onCompaction?: (status: 'start' | 'end') => void; // Notify when context compaction starts/ends
+  onProviderChange?: (provider: BaseProvider) => void; // Notify when provider changes (e.g., during workflow model switch)
 }
 
 /**
@@ -213,6 +214,7 @@ export class Agent {
     onToolResult?: (name: string, result: string, isError: boolean) => void;
     onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>;
     onCompaction?: (status: 'start' | 'end') => void;
+    onProviderChange?: (provider: BaseProvider) => void;
   };
 
   constructor(options: AgentOptions) {
@@ -264,6 +266,7 @@ export class Agent {
       onToolResult: options.onToolResult,
       onConfirm: options.onConfirm,
       onCompaction: options.onCompaction,
+      onProviderChange: options.onProviderChange,
     };
   }
 
@@ -1195,10 +1198,10 @@ ${contextToSummarize}`,
         break;
       }
 
-      // =================================================================
+      // ==
       // PHASE 1: Pre-process and confirm all tool calls
       // Confirmations must be sequential (diffs depend on current state)
-      // =================================================================
+      // ==
       const toolResults: ToolResult[] = [];
       const approvedTools: ToolCall[] = [];
       let hasError = false;
@@ -1443,10 +1446,10 @@ ${contextToSummarize}`,
         }
       }
 
-      // =================================================================
+      // ==
       // PHASE 2: Batch and execute approved tools
       // Read-only tools on different files can run in parallel
-      // =================================================================
+      // ==
       if (!aborted && approvedTools.length > 0) {
         const batches = batchToolCalls(approvedTools);
         const stats = getBatchStats(batches);
@@ -1896,6 +1899,10 @@ Label:`,
     if (!this.maxContextTokensExplicit) {
       this.maxContextTokens = this.calculateAdaptiveContextLimit(provider);
     }
+    // Notify callbacks about provider change
+    if (this.callbacks.onProviderChange) {
+      this.callbacks.onProviderChange(provider);
+    }
   }
 
   /**
@@ -2017,9 +2024,9 @@ Label:`,
     return this.enableCompression;
   }
 
-  // ============================================
+  // ==
   // Debug control (Phase 2)
-  // ============================================
+  // ==
 
   /**
    * Set the debug paused state.
@@ -2145,9 +2152,9 @@ Label:`,
     }
   }
 
-  // ============================================
+  // ==
   // Breakpoints (Phase 4)
-  // ============================================
+  // ==
 
   /**
    * Add a breakpoint.
@@ -2230,9 +2237,9 @@ Label:`,
     return null;
   }
 
-  // ============================================
+  // ==
   // Checkpoints (Phase 4)
-  // ============================================
+  // ==
 
   /**
    * Create a checkpoint with current state.
@@ -2289,9 +2296,9 @@ Label:`,
     this.checkpointInterval = interval;
   }
 
-  // ============================================
+  // ==
   // Time Travel (Phase 5)
-  // ============================================
+  // ==
 
   /**
    * Save a full checkpoint to disk.
