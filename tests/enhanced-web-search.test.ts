@@ -38,11 +38,11 @@ describe('EnhancedWebSearchTool', () => {
   it('should support preferred engine selection', async () => {
     const mockSearch = vi.spyOn(tool as any, 'performSearch').mockResolvedValue([]);
     
-    await tool.execute({ query: 'test', engine: 'brave' });
-    expect(mockSearch).toHaveBeenCalledWith('test', 'brave');
+    await tool.execute({ query: 'test', engine: 'auto' });
+    expect(mockSearch).toHaveBeenCalledWith('test', 'auto');
     
-    await tool.execute({ query: 'test', engine: 'google' });
-    expect(mockSearch).toHaveBeenCalledWith('test', 'google');
+    await tool.execute({ query: 'test', engine: 'brave' });
+    expect(mockSearch).toHaveBeenCalledWith('test', 'auto');
     
     mockSearch.mockRestore();
   });

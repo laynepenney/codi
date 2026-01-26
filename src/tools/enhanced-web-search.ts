@@ -19,7 +19,7 @@ interface SearchResult {
   url: string;
   snippet: string;
   score?: number;
-  source: string;
+  source?: string;
 }
 
 interface SearchEngine {
@@ -176,10 +176,7 @@ class DuckDuckGoEngine implements SearchEngine {
     }
 
     const html = await response.text();
-    return this.parseResults(html, config.maxResults).map(result => ({
-      ...result,
-      source: 'DuckDuckGo',
-    }));
+    return this.parseResults(html, config.maxResults);
   }
 
   private parseResults(html: string, maxResults: number): SearchResult[] {
@@ -215,7 +212,6 @@ class DuckDuckGoEngine implements SearchEngine {
         title: links[i].title,
         url: links[i].url,
         snippet: snippets[i] || '',
-        source: 'DuckDuckGo',
       });
     }
 
