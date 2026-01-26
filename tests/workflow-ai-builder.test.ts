@@ -29,4 +29,36 @@ describe('Workflow AI Builder Command', () => {
     expect(result).toContain('documentation');
     expect(result).toContain('refactor');
   });
+
+  it('should handle unknown templates', async () => {
+    const mockContext = {};
+    const result = await workflowBuildCommand.execute('template unknown', mockContext);
+    
+    expect(result).toContain('Template "unknown" not found');
+  });
+
+  it('should handle natural language descriptions', async () => {
+    const mockContext = {};
+    const result = await workflowBuildCommand.execute('create a testing workflow', mockContext);
+    
+    expect(result).toContain('Generated workflow from your description');
+  });
+
+  it('should handle templates with AI context', async () => {
+    const mockAgent = {
+      chat: vi.fn().mockResolvedValue({ text: 'name: test-workflow\ndescription: Test\nsteps: []' })
+    };
+    const mockContext = { agent: mockAgent };
+    
+    const result = await workflowBuildCommand.execute('template deployment', mockContext);
+    
+    expect(result).toContain('Generated workflow from template "deployment"');
+  });
+
+  it('should include timestamp in generated workflow names', async () => {
+    const mockContext = {};
+    const result = await workflowBuildCommand.execute('template deployment', mockContext);
+    
+    expect(result).toMatch(/-\d{13}\.yaml/); // 13-digit timestamp in filename
+  });
 });
