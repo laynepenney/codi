@@ -11,12 +11,13 @@ import {
   generateEntityLegend,
   getCompressionStats,
 } from '../compression.js';
+import { getMemoryMonitor } from '../memory-monitor.js';
 
 export const compactCommand: Command = {
   name: 'compact',
   aliases: ['summarize', 'compress', 'compression'],
   description: 'Manage context size through summarization and compression',
-  usage: '/compact [summarize|compress|status] [options]',
+  usage: '/compact [summarize|compress|status|memory] [options]',
   taskType: 'fast',
   execute: async (args: string, context: CommandContext): Promise<string | null> => {
     if (!context.agent) {
@@ -26,6 +27,23 @@ export const compactCommand: Command = {
     const parts = args.trim().toLowerCase().split(/\s+/);
     const subcommand = parts[0] || 'status';
     const subArgs = parts.slice(1).join(' ');
+
+    // /compact memory - Show memory usage
+    if (subcommand === 'memory') {
+      const monitor = getMemoryMonitor();
+      const snapshot = monitor.getSnapshot();
+      const stats = monitor.getStats();
+
+      return `MEMORY_STATUS:${JSON.stringify({
+        heap: {
+          used_mb: (snapshot.heapStats.usedHeapSize / 1024 / 1024).toFixed(1),
+          total_mb: (snapshot.heapStats.heapSizeLimit / 1024 / 1024).toFixed(1),
+          usage_percent: snapshot.usagePercent.toFixed(1),
+        },
+        monitoring: stats,
+        status: monitor.logStatus(),
+      })}`;
+    }
 
     // /compact status - Show overall context info
     if (subcommand === 'status' || subcommand === '') {

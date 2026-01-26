@@ -611,7 +611,7 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.bold('\nBuilt-in Commands:'));
   console.log(chalk.dim('  /help              - Show this help message'));
   console.log(chalk.dim('  /clear [what]      - Clear conversation (all|context|workingset)'));
-  console.log(chalk.dim('  /compact           - Summarize old messages to save context'));
+  console.log(chalk.dim('  /compact [memory]   - Summarize old messages (add "memory" to check heap)'));
   console.log(chalk.dim('  /status            - Show current context usage'));
   console.log(chalk.dim('  /context           - Show detected project context'));
   console.log(chalk.dim('  /label [text|update|clear] - Set/show/regenerate conversation label'));
@@ -2344,6 +2344,32 @@ function handleCompactOutput(output: string): void {
     console.log(chalk.dim(`  Saved: ${data.tokensSaved} tokens`));
     if (data.summary) {
       console.log(chalk.dim(`\nSummary: ${data.summary.slice(0, 200)}${data.summary.length > 200 ? '...' : ''}`));
+    }
+    return;
+  }
+
+  if (output.startsWith('MEMORY_STATUS:')) {
+    const data = JSON.parse(output.slice('MEMORY_STATUS:'.length));
+    const statusText = data.status as string;
+    const statusColor = statusText === 'critical' ? chalk.red :
+                       statusText === 'compact' ? chalk.yellow :
+                       statusText === 'warning' ? chalk.cyan : chalk.green;
+
+    console.log(chalk.bold('\n📊 Memory Status'));
+    console.log(chalk.dim('─────────────────────────────'));
+    console.log(`  Heap Usage: ${data.heap.used_mb}MB / ${data.heap.total_mb}MB`);
+    console.log(`  Utilization: ${statusColor(`${data.heap.usage_percent}%`)}`);
+    if (data.monitoring.compactionsTriggered > 0) {
+      console.log(chalk.dim(`  Auto-compactions: ${data.monitoring.compactionsTriggered}`));
+      if (data.monitoring.lastCompactionTime) {
+        const lastTime = new Date(data.monitoring.lastCompactionTime);
+        console.log(chalk.dim(`  Last: ${lastTime.toLocaleTimeString()}`));
+      }
+    }
+    console.log();
+
+    if (data.heap.status === 'critical' || data.heap.status === 'compact') {
+      console.log(chalk.yellow('  Tip: Use /clear to reset session or /compact summarize to free memory'));
     }
     return;
   }
