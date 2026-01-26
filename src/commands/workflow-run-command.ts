@@ -37,30 +37,50 @@ Examples:
 
     try {
       let result: string;
+      const startTime = Date.now();
       
       if (shouldResume) {
-        result = `🔄 Resuming workflow "${workflowName}"...\n`;
+        const { getWorkflowByName, formatWorkflowStart, formatWorkflowProgress, generateCompletionSummary } = await import('../workflow/index.js');
+        
+        const workflow = getWorkflowByName(workflowName);
+        if (!workflow) {
+          const { handleWorkflowError } = await import('../workflow/errors.js');
+          return handleWorkflowError(new Error(`Workflow "${workflowName}" not found`), workflowName);
+        }
+        
+        result = formatWorkflowStart(workflow, true);
         const state = await manager.resumeWorkflow(workflowName);
         
         if (state.completed) {
-          result += `✅ Workflow "${workflowName}" already completed\n`;
-          result += `📊 History: ${state.history.length} steps executed\n`;
+          result += `\n${formatWorkflowProgress(workflow, state, false)}`;
+          result += generateCompletionSummary(workflow, state, startTime);
         } else if (state.paused) {
-          result += `⏸️  Workflow "${workflowName}" is resumed from pause\n`;
-          result += `📍 Current step: ${state.currentStep || 'none'}\n`;
+          result += `\n${formatWorkflowProgress(workflow, state, true)}`;
+          result += `\n⏸️  Workflow paused - resume with: /workflow-run ${workflowName}\n`;
         } else {
-          result += `▶️  Workflow "${workflowName}" execution started/resumed\n`;
+          result += `\n${formatWorkflowProgress(workflow, state, true)}`;
         }
         
         return result;
       } else {
-        result = `🚀 Starting workflow "${workflowName}"...\n`;
+        const { getWorkflowByName, formatWorkflowStart, formatWorkflowProgress, generateCompletionSummary } = await import('../workflow/index.js');
+        
+        const workflow = getWorkflowByName(workflowName);
+        if (!workflow) {
+          const { handleWorkflowError } = await import('../workflow/errors.js');
+          return handleWorkflowError(new Error(`Workflow "${workflowName}" not found`), workflowName);
+        }
+        
+        result = formatWorkflowStart(workflow, false);
         const state = await manager.startWorkflow(workflowName);
         
-        result += `✅ Workflow "${workflowName}" execution started\n`;
-        result += `📍 Current step: ${state.currentStep || 'none'}\n`;
-        result += `📊 Total steps: ${state.history.length}\n`;
-        result += `🔧 Variables: ${Object.keys(state.variables).length}\n`;
+        result += `\n${formatWorkflowProgress(workflow, state, true)}`;
+        
+        if (state.completed) {
+          result += generateCompletionSummary(workflow, state, startTime);
+        } else if (state.history.some(h => h.status === 'failed')) {
+          result += generateCompletionSummary(workflow, state, startTime);
+        }
         
         return result;
       }

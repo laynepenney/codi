@@ -47,3 +47,14 @@ export {
   getWorkflowByName,
   listWorkflows
 } from './parser.js';
+
+// Export UX enhancements
+export {
+  getProgressBar,
+  getStepEmoji,
+  getActionEmoji,
+  formatWorkflowProgress,
+  generateCompletionSummary,
+  getExecutionHint,
+  formatWorkflowStart
+} from './ux.js';
