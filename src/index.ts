@@ -3964,6 +3964,23 @@ Begin by analyzing the query and planning your research approach.`;
         workerStatusUI?.setAgentActivity('thinking', null);
       }
     },
+    onCompaction: (status) => {
+      if (status === 'start') {
+        spinner.toolStart('compacting context');
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'tool', activityDetail: 'compacting' });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('tool', 'compacting');
+        }
+      } else {
+        spinner.stop();
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'thinking', activityDetail: null });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('thinking', null);
+        }
+      }
+    },
   });
 
   // Add agent and session state to command context
