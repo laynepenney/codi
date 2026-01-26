@@ -107,6 +107,14 @@ export class ProcessHarness {
     throw new Error(`Timeout waiting for pattern: ${pattern}\n\nOutput:\n${this.output}`);
   }
 
+  /**
+   * Wait for output buffer to flush. Use between sequential operations
+   * to prevent race conditions where responses arrive before being captured.
+   */
+  async waitForOutputFlush(ms = 100): Promise<void> {
+    await new Promise(r => setTimeout(r, ms));
+  }
+
   kill(): void {
     this.proc.kill('SIGTERM');
   }

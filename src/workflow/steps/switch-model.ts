@@ -1,20 +1,41 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { WorkflowStep, WorkflowState, WorkflowError } from '../types.js';
+import type { Agent } from '../../agent.js';
+import { WorkflowStep, WorkflowState, WorkflowError, SwitchModelStep, isSwitchModelStep } from '../types.js';
 import { createProvider, type BaseProvider } from '../../providers/index.js';
+
+interface SwitchModelResult {
+  success: boolean;
+  previousProvider: {
+    name: string;
+    model: string;
+  };
+  newProvider: {
+    name: string;
+    model: string;
+  };
+  contextPreserved: boolean;
+}
 
 /**
  * Executes switch-model steps
  */
 export async function executeSwitchModelStep(
   step: WorkflowStep,
-  state: WorkflowState,
-  agent: any,
+  _state: WorkflowState,
+  agent: Agent,
   availableModels: Map<string, BaseProvider>
-): Promise<any> {
-  const targetModel = (step as any).model;
-  
+): Promise<SwitchModelResult> {
+  if (!isSwitchModelStep(step)) {
+    throw new WorkflowError(
+      `Step ${step.id} is not a valid switch-model step`,
+      step.id
+    );
+  }
+
+  const targetModel = step.model;
+
   if (!targetModel || typeof targetModel !== 'string') {
     throw new WorkflowError(
       `Switch-model step ${step.id} must specify a model`,
@@ -34,7 +55,7 @@ export async function executeSwitchModelStep(
         : ['', targetModel];
       
       // Default to current provider if no provider specified
-      const effectiveProvider = providerName || agent.provider.getName();
+      const effectiveProvider = providerName || agent.getProvider().getName();
       const effectiveModel = modelName || targetModel;
       
       provider = createProvider({
@@ -53,7 +74,7 @@ export async function executeSwitchModelStep(
   }
 
   // Save current provider context before switching
-  const previousProvider = agent.provider;
+  const previousProvider = agent.getProvider();
   const previousModel = previousProvider.getModel();
   
   // Switch to the new provider
@@ -77,7 +98,14 @@ export async function executeSwitchModelStep(
  * Validates that a switch-model step has required properties
  */
 export function validateSwitchModelStep(step: WorkflowStep): void {
-  if (!(step as any).model || typeof (step as any).model !== 'string') {
+  if (!isSwitchModelStep(step)) {
+    throw new WorkflowError(
+      `Step ${step.id} is not a valid switch-model step`,
+      step.id
+    );
+  }
+
+  if (!step.model || typeof step.model !== 'string') {
     throw new WorkflowError(
       `Switch-model step ${step.id} must specify a model`,
       step.id

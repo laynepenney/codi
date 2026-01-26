@@ -7,13 +7,17 @@ import { WorkflowState } from '../src/workflow/types.js';
 
 // Mock Agent class
 class MockAgent {
-  provider = {
+  private _provider = {
     getName: () => 'ollama',
     getModel: () => 'llama3.2'
   };
-  
-  setProvider(newProvider: any) {
-    this.provider = {
+
+  getProvider() {
+    return this._provider;
+  }
+
+  setProvider(newProvider: { type: string; model: string; getName: () => string; getModel: () => string }) {
+    this._provider = {
       getName: () => newProvider.type,
       getModel: () => newProvider.model
     };
