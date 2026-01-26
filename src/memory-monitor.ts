@@ -2,22 +2,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { logger } from './logger.js';
+import { getHeapStatistics } from 'node:v8';
 
 /**
  * Memory usage statistics from Node.js v8.getHeapStatistics()
  */
 export interface HeapStats {
-  totalHeapSize: number;
-  totalHeapSizeExecutable: number;
-  totalPhysicalSize: number;
-  totalAvailableSize: number;
-  usedHeapSize: number;
-  heapSizeLimit: number;
-  mallocedMemory: number;
-  peakMallocedMemory: number;
-  doesZapGarbage: boolean;
-  numberOfNativeContexts: number;
-  numberOfDetachedContexts: number;
+  total_heap_size: number;
+  total_heap_size_executable: number;
+  total_physical_size: number;
+  total_available_size: number;
+  used_heap_size: number;
+  heap_size_limit: number;
+  malloced_memory: number;
+  peak_malloced_memory: number;
+  does_zap_garbage: number;
+  number_of_native_contexts: number;
+  number_of_detached_contexts: number;
 }
 
 /**
@@ -63,8 +64,7 @@ export class MemoryMonitor {
    * Get current heap statistics from Node.js.
    */
   getHeapStats(): HeapStats {
-    const v8 = require('node:v8');
-    return v8.getHeapStatistics();
+    return getHeapStatistics();
   }
 
   /**
@@ -72,14 +72,14 @@ export class MemoryMonitor {
    */
   getSnapshot(): MemorySnapshot {
     const heapStats = this.getHeapStats();
-    const usagePercent = (heapStats.usedHeapSize / heapStats.heapSizeLimit) * 100;
+    const usagePercent = (heapStats.used_heap_size / heapStats.heap_size_limit) * 100;
 
     // Format sizes in MB
     const formatMB = (bytes: number): string => {
       return (bytes / 1024 / 1024).toFixed(1);
     };
 
-    const formatted = `Heap: ${formatMB(heapStats.usedHeapSize)}MB / ${formatMB(heapStats.heapSizeLimit)}MB (${usagePercent.toFixed(1)}%)`;
+    const formatted = `Heap: ${formatMB(heapStats.used_heap_size)}MB / ${formatMB(heapStats.heap_size_limit)}MB (${usagePercent.toFixed(1)}%)`;
 
     return {
       timestamp: new Date(),
@@ -194,12 +194,12 @@ export class MemoryMonitor {
     };
 
     return [
-      `Total Heap: ${formatMB(stats.totalHeapSize)}MB`,
-      `Used Heap: ${formatMB(stats.usedHeapSize)}MB`,
-      `Heap Limit: ${formatMB(stats.heapSizeLimit)}MB`,
-      `Physical: ${formatMB(stats.totalPhysicalSize)}MB`,
-      `Available: ${formatMB(stats.totalAvailableSize)}MB`,
-      `Malloced: ${formatMB(stats.mallocedMemory)}MB`,
+      `Total Heap: ${formatMB(stats.total_heap_size)}MB`,
+      `Used Heap: ${formatMB(stats.used_heap_size)}MB`,
+      `Heap Limit: ${formatMB(stats.heap_size_limit)}MB`,
+      `Physical: ${formatMB(stats.total_physical_size)}MB`,
+      `Available: ${formatMB(stats.total_available_size)}MB`,
+      `Malloced: ${formatMB(stats.malloced_memory)}MB`,
     ].join(', ');
   }
 
@@ -207,7 +207,7 @@ export class MemoryMonitor {
    * Get the Node.js heap size limit in bytes.
    */
   getHeapSizeLimit(): number {
-    return this.getHeapStats().heapSizeLimit;
+    return this.getHeapStats().heap_size_limit;
   }
 
   /**
@@ -226,6 +226,25 @@ export class MemoryMonitor {
   isHeapLimitAdequate(): boolean {
     const limit = this.getHeapSizeLimit();
     return limit >= 4 * 1024 * 1024 * 1024; // At least 4GB
+  }
+
+  /**
+   * Check if the memory usage is in critical state.
+   */
+  isCritical(): boolean {
+    return this.isAboveThreshold(this.thresholds.criticalPercent);
+  }
+
+  /**
+   * Get a more detailed snapshot for debugging.
+   */
+  getDetailedSnapshot(): MemorySnapshot & { isCritical: boolean; canCompact: boolean } {
+    const snapshot = this.getSnapshot();
+    return {
+      ...snapshot,
+      isCritical: this.isCritical(),
+      canCompact: this.shouldCompact(),
+    };
   }
 }
 

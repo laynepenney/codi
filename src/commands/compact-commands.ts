@@ -36,8 +36,8 @@ export const compactCommand: Command = {
 
       return `MEMORY_STATUS:${JSON.stringify({
         heap: {
-          used_mb: (snapshot.heapStats.usedHeapSize / 1024 / 1024).toFixed(1),
-          total_mb: (snapshot.heapStats.heapSizeLimit / 1024 / 1024).toFixed(1),
+          used_mb: (snapshot.heapStats.used_heap_size / 1024 / 1024).toFixed(1),
+          total_mb: (snapshot.heapStats.heap_size_limit / 1024 / 1024).toFixed(1),
           usage_percent: snapshot.usagePercent.toFixed(1),
         },
         monitoring: stats,
