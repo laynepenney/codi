@@ -251,8 +251,21 @@ Generate a practical, safe, and effective workflow that matches the user's descr
 /**
  * Enhanced YAML parser for AI-generated workflow
  * Handles complex workflows with conditional logic, loops, and advanced features
+ * Exported for external testing and validation
+ * 
+ * @param yamlText - YAML string to parse, possibly from AI generation
+ * @returns Parsed Workflow object with validated structure
+ * 
+ * @throws Error if YAML cannot be parsed or validated
+ * 
+ * Features:
+ * - Removes markdown code blocks and comments
+ * - Parses multi-level YAML structures
+ * - Handles boolean, numeric, and array value types
+ * - Validates workflow structure and provides fallbacks
+ * - Cleans and normalizes parsed data
  */
-function parseYAMLWorkflow(yamlText: string): Workflow {
+export function parseYAMLWorkflow(yamlText: string): Workflow {
   // Preprocess: Clean the YAML text
   const cleanedYAML = yamlText
     .replace(/^\`\`\`yaml\s*/g, '')  // Remove markdown code blocks
@@ -631,31 +644,50 @@ async function getAvailableTemplates(): Promise<TemplateSuggestion[]> {
   
   templates.push(...builtInTemplates);
   
-  // Load custom templates from workflows/ directory
+  // Load custom templates from workflows/ directory (recursively)
   const workflowsDir = path.join(process.cwd(), 'workflows');
   if (fs.existsSync(workflowsDir)) {
     try {
-      const files = fs.readdirSync(workflowsDir);
-      for (const file of files) {
-        if (file.endsWith('.yaml') || file.endsWith('.yml')) {
-          try {
-            const workflowPath = path.join(workflowsDir, file);
-            const yamlContent = fs.readFileSync(workflowPath, 'utf8');
-            const workflow = parseYAMLWorkflow(yamlContent);
-            
-            templates.push({
-              name: path.parse(file).name,
-              description: workflow.description || `Custom workflow: ${workflow.name}`,
-              workflow: workflow
-            });
-          } catch (error) {
-            // Skip invalid YAML files
-            continue;
+      const loadTemplatesRecursively = (dir: string, basePath = '') => {
+        const files = fs.readdirSync(dir);
+        const results: TemplateSuggestion[] = [];
+        
+        for (const file of files) {
+          const fullPath = path.join(dir, file);
+          const stat = fs.statSync(fullPath);
+          
+          if (stat.isDirectory()) {
+            // Recursively process subdirectories
+            results.push(...loadTemplatesRecursively(fullPath, basePath ? `${basePath}/${file}` : file));
+          } else if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+            try {
+              const yamlContent = fs.readFileSync(fullPath, 'utf8');
+              const workflow = parseYAMLWorkflow(yamlContent);
+              
+              results.push({
+                name: basePath ? `${basePath}/${path.parse(file).name}` : path.parse(file).name,
+                description: workflow.description || `Custom workflow: ${workflow.name}`,
+                workflow: workflow
+              });
+            } catch (error) {
+              // Provide helpful error message for invalid YAML files
+              console.warn(`⚠️  Warning: Invalid workflow YAML in ${fullPath}: ${error instanceof Error ? error.message : String(error)}`);
+              continue;
+            }
           }
         }
+        
+        return results;
+      };
+      
+      const customTemplates = loadTemplatesRecursively(workflowsDir);
+      templates.push(...customTemplates);
+      
+      if (customTemplates.length > 0) {
+        console.log(`📂 Loaded ${customTemplates.length} custom template(s) from ${workflowsDir}`);
       }
     } catch (error) {
-      // Directory might be empty or inaccessible
+      console.error(`Error loading custom templates: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   
