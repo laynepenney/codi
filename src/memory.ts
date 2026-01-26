@@ -10,7 +10,8 @@
  * - Memory injection into system prompt
  * - Memory consolidation across sessions
  */
-import * as fs from 'fs';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { appendFile, readFile, writeFile } from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { logger } from './logger.js';
@@ -50,8 +51,8 @@ export interface MemoryEntry {
  * Ensure the .codi directory exists.
  */
 function ensureCodiDir(): void {
-  if (!fs.existsSync(CODI_DIR)) {
-    fs.mkdirSync(CODI_DIR, { recursive: true });
+  if (!existsSync(CODI_DIR)) {
+    mkdirSync(CODI_DIR, { recursive: true });
   }
 }
 
@@ -156,13 +157,13 @@ function serializeProfile(profile: UserProfile): string {
 /**
  * Load user profile from disk.
  */
-export function loadProfile(): UserProfile {
-  if (!fs.existsSync(PROFILE_PATH)) {
+export async function loadProfile(): Promise<UserProfile> {
+  if (!existsSync(PROFILE_PATH)) {
     return {};
   }
 
   try {
-    const content = fs.readFileSync(PROFILE_PATH, 'utf-8');
+    const content = await readFile(PROFILE_PATH, 'utf-8');
     return parseSimpleYaml(content);
   } catch (error) {
     logger.debug(`Failed to load profile: ${error instanceof Error ? error.message : error}`);
@@ -173,17 +174,17 @@ export function loadProfile(): UserProfile {
 /**
  * Save user profile to disk.
  */
-export function saveProfile(profile: UserProfile): void {
+export async function saveProfile(profile: UserProfile): Promise<void> {
   ensureCodiDir();
   const content = serializeProfile(profile);
-  fs.writeFileSync(PROFILE_PATH, content);
+  await writeFile(PROFILE_PATH, content);
 }
 
 /**
  * Update a specific field in the profile.
  */
-export function updateProfile(key: string, value: string): UserProfile {
-  const profile = loadProfile();
+export async function updateProfile(key: string, value: string): Promise<UserProfile> {
+  const profile = await loadProfile();
 
   // Handle nested keys like "preferences.language"
   const parts = key.split('.');
@@ -210,7 +211,7 @@ export function updateProfile(key: string, value: string): UserProfile {
     }
   }
 
-  saveProfile(profile);
+  await saveProfile(profile);
   return profile;
 }
 
@@ -301,13 +302,13 @@ function serializeMemories(memories: MemoryEntry[]): string {
 /**
  * Load memories from disk.
  */
-export function loadMemories(): MemoryEntry[] {
-  if (!fs.existsSync(MEMORIES_PATH)) {
+export async function loadMemories(): Promise<MemoryEntry[]> {
+  if (!existsSync(MEMORIES_PATH)) {
     return [];
   }
 
   try {
-    const content = fs.readFileSync(MEMORIES_PATH, 'utf-8');
+    const content = await readFile(MEMORIES_PATH, 'utf-8');
     return parseMemories(content);
   } catch (error) {
     logger.debug(`Failed to load memories: ${error instanceof Error ? error.message : error}`);
@@ -318,17 +319,17 @@ export function loadMemories(): MemoryEntry[] {
 /**
  * Save memories to disk.
  */
-export function saveMemories(memories: MemoryEntry[]): void {
+export async function saveMemories(memories: MemoryEntry[]): Promise<void> {
   ensureCodiDir();
   const content = serializeMemories(memories);
-  fs.writeFileSync(MEMORIES_PATH, content);
+  await writeFile(MEMORIES_PATH, content);
 }
 
 /**
  * Add a new memory.
  */
-export function addMemory(content: string, category?: string, source?: string): MemoryEntry {
-  const memories = loadMemories();
+export async function addMemory(content: string, category?: string, source?: string): Promise<MemoryEntry> {
+  const memories = await loadMemories();
 
   // Check for duplicates (case-insensitive)
   const lowerContent = content.toLowerCase();
@@ -347,7 +348,7 @@ export function addMemory(content: string, category?: string, source?: string): 
   };
 
   memories.push(entry);
-  saveMemories(memories);
+  await saveMemories(memories);
 
   return entry;
 }
@@ -355,8 +356,8 @@ export function addMemory(content: string, category?: string, source?: string): 
 /**
  * Remove memories matching a pattern.
  */
-export function removeMemories(pattern: string): number {
-  const memories = loadMemories();
+export async function removeMemories(pattern: string): Promise<number> {
+  const memories = await loadMemories();
   const lowerPattern = pattern.toLowerCase();
 
   const filtered = memories.filter(m =>
@@ -365,7 +366,7 @@ export function removeMemories(pattern: string): number {
 
   const removed = memories.length - filtered.length;
   if (removed > 0) {
-    saveMemories(filtered);
+    await saveMemories(filtered);
   }
 
   return removed;
@@ -374,8 +375,8 @@ export function removeMemories(pattern: string): number {
 /**
  * Search memories by content.
  */
-export function searchMemories(query: string): MemoryEntry[] {
-  const memories = loadMemories();
+export async function searchMemories(query: string): Promise<MemoryEntry[]> {
+  const memories = await loadMemories();
   const lowerQuery = query.toLowerCase();
 
   return memories.filter(m =>
@@ -387,8 +388,8 @@ export function searchMemories(query: string): MemoryEntry[] {
 /**
  * Get memories by category.
  */
-export function getMemoriesByCategory(category: string): MemoryEntry[] {
-  const memories = loadMemories();
+export async function getMemoriesByCategory(category: string): Promise<MemoryEntry[]> {
+  const memories = await loadMemories();
   return memories.filter(m =>
     m.category?.toLowerCase() === category.toLowerCase()
   );
@@ -397,12 +398,12 @@ export function getMemoriesByCategory(category: string): MemoryEntry[] {
 /**
  * Clear all memories.
  */
-export function clearMemories(): number {
-  const memories = loadMemories();
+export async function clearMemories(): Promise<number> {
+  const memories = await loadMemories();
   const count = memories.length;
 
   if (count > 0) {
-    saveMemories([]);
+    await saveMemories([]);
   }
 
   return count;
@@ -412,9 +413,9 @@ export function clearMemories(): number {
  * Generate context injection for system prompt.
  * Combines profile and relevant memories into a concise context block.
  */
-export function generateMemoryContext(projectPath?: string): string | null {
-  const profile = loadProfile();
-  const memories = loadMemories();
+export async function generateMemoryContext(projectPath?: string): Promise<string | null> {
+  const profile = await loadProfile();
+  const memories = await loadMemories();
 
   if (Object.keys(profile).length === 0 && memories.length === 0) {
     return null;
@@ -477,23 +478,23 @@ export function generateMemoryContext(projectPath?: string): string | null {
 /**
  * Add session notes (temporary, for consolidation later).
  */
-export function addSessionNote(note: string): void {
+export async function addSessionNote(note: string): Promise<void> {
   ensureCodiDir();
   const timestamp = new Date().toISOString();
   const entry = `- ${note} (${timestamp})\n`;
-  fs.appendFileSync(SESSION_NOTES_PATH, entry);
+  await appendFile(SESSION_NOTES_PATH, entry);
 }
 
 /**
  * Get session notes.
  */
-export function getSessionNotes(): string[] {
-  if (!fs.existsSync(SESSION_NOTES_PATH)) {
+export async function getSessionNotes(): Promise<string[]> {
+  if (!existsSync(SESSION_NOTES_PATH)) {
     return [];
   }
 
   try {
-    const content = fs.readFileSync(SESSION_NOTES_PATH, 'utf-8');
+    const content = await readFile(SESSION_NOTES_PATH, 'utf-8');
     return content.split('\n')
       .map(line => line.trim())
       .filter(line => line.startsWith('-'))
@@ -508,8 +509,8 @@ export function getSessionNotes(): string[] {
  * Clear session notes.
  */
 export function clearSessionNotes(): void {
-  if (fs.existsSync(SESSION_NOTES_PATH)) {
-    fs.unlinkSync(SESSION_NOTES_PATH);
+  if (existsSync(SESSION_NOTES_PATH)) {
+    unlinkSync(SESSION_NOTES_PATH);
   }
 }
 
@@ -517,8 +518,8 @@ export function clearSessionNotes(): void {
  * Consolidate session notes into permanent memories.
  * Returns the number of notes consolidated.
  */
-export function consolidateSessionNotes(): number {
-  const notes = getSessionNotes();
+export async function consolidateSessionNotes(): Promise<number> {
+  const notes = await getSessionNotes();
   if (notes.length === 0) return 0;
 
   let consolidated = 0;
@@ -526,7 +527,7 @@ export function consolidateSessionNotes(): number {
     // Extract the actual note content (remove timestamp if present)
     const match = note.match(/^(.+?)(?:\s*\(\d{4}-\d{2}-\d{2}.*\))?$/);
     if (match) {
-      addMemory(match[1], undefined, 'auto');
+      await addMemory(match[1], undefined, 'auto');
       consolidated++;
     }
   }
@@ -548,8 +549,8 @@ export function getMemoryPaths(): { profile: string; memories: string } {
 /**
  * Check if user has any memories or profile.
  */
-export function hasMemoryContext(): boolean {
-  const profile = loadProfile();
-  const memories = loadMemories();
+export async function hasMemoryContext(): Promise<boolean> {
+  const profile = await loadProfile();
+  const memories = await loadMemories();
   return Object.keys(profile).length > 0 || memories.length > 0;
 }

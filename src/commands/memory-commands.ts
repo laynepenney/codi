@@ -130,7 +130,7 @@ Examples:
       content = categoryMatch[2];
     }
 
-    const entry = addMemory(content, category, 'user');
+    const entry = await addMemory(content, category, 'user');
 
     return `__MEMORY_ADDED__|${entry.content}|${entry.category || ''}|${entry.timestamp}`;
   },
@@ -157,11 +157,11 @@ Examples:
     }
 
     if (pattern.toLowerCase() === 'all') {
-      const count = clearMemories();
+      const count = await clearMemories();
       return `__MEMORY_CLEARED__|${count}`;
     }
 
-    const removed = removeMemories(pattern);
+    const removed = await removeMemories(pattern);
 
     if (removed === 0) {
       return `__MEMORY_NOTFOUND__|${pattern}`;
@@ -189,7 +189,7 @@ Examples:
     const query = args.trim();
 
     if (query.toLowerCase() === 'consolidate') {
-      const count = consolidateSessionNotes();
+      const count = await consolidateSessionNotes();
       if (count === 0) {
         return '__MEMORY_CONSOLIDATED__|0';
       }
@@ -198,9 +198,9 @@ Examples:
 
     let memories: MemoryEntry[];
     if (query) {
-      memories = searchMemories(query);
+      memories = await searchMemories(query);
     } else {
-      memories = loadMemories();
+      memories = await loadMemories();
     }
 
     const paths = getMemoryPaths();
@@ -238,11 +238,11 @@ Examples:
     if (parts[0] === 'set' && parts.length >= 3) {
       const key = parts[1];
       const value = parts.slice(2).join(' ');
-      const profile = updateProfile(key, value);
+      const profile = await updateProfile(key, value);
       return `__PROFILE_UPDATED__|${key}|${value}|${JSON.stringify(profile)}`;
     }
 
-    const profile = loadProfile();
+    const profile = await loadProfile();
     const paths = getMemoryPaths();
     return `__PROFILE_SHOW__|${JSON.stringify(profile)}|${paths.profile}`;
   },
