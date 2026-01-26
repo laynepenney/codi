@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../src/agent.js';
 import { createProvider } from '../src/providers/index.js';
 
-// Mock tool registry
+// Mock tool registry to avoid initialization issues in tests
 const mockToolRegistry = {
   getDefinitions: () => [],
   getTool: () => null,
@@ -14,6 +14,7 @@ const mockToolRegistry = {
 };
 
 describe('Agent Provider Change Callback', () => {
+  // Test that verifies the callback is properly invoked when provider changes
   it('should call onProviderChange callback when provider is changed via setProvider', async () => {
     const onProviderChange = vi.fn();
 
@@ -52,6 +53,7 @@ describe('Agent Provider Change Callback', () => {
     expect(currentProvider.getModel()).toBe('gpt-4o');
   });
 
+  // Test that ensures the agent works even without the callback (backward compatibility)
   it('should handle missing onProviderChange callback gracefully', async () => {
     const provider1 = createProvider({
       type: 'anthropic',
@@ -78,6 +80,7 @@ describe('Agent Provider Change Callback', () => {
     }).not.toThrow();
   });
 
+  // Test that simulates the ink UI integration to verify proper status updates
   it('should update ink UI status when provider changes', async () => {
     // This test verifies the integration with ink UI
     const mockStatusUpdates: Array<{provider: string; model?: string}> = [];
