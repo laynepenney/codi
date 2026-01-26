@@ -49,7 +49,7 @@ export const workflowBuildCommand: Command = {
  * Show available workflow templates
  */
 async function showTemplates(): Promise<string> {
-  const templates = getAvailableTemplates();
+  const templates = await getAvailableTemplates();
   
   let output = 'Available workflow templates:\n\n';
   templates.forEach(template => {
@@ -71,7 +71,7 @@ async function generateFromTemplate(
   templateName: string, 
   context: CommandContext
 ): Promise<string> {
-  const templates = getAvailableTemplates();
+  const templates = await getAvailableTemplates();
   const template = templates.find(t => t.name.toLowerCase() === templateName.toLowerCase());
   
   if (!template) {
@@ -106,45 +106,108 @@ async function buildWorkflowFromDescription(
   description: string, 
   context: CommandContext
 ): Promise<string> {
-  const aiPrompt = `You are a workflow builder AI. Create a workflow based on this description:
+  // Enhanced prompt engineering with examples and context
+  const aiPrompt = `You are an expert workflow builder AI for the Codi CLI tool.
 
-${description}
+TASK: Create a workflow based on this user description:
+"${description}"
 
-Generate a YAML workflow file with the following structure:
-- Name: descriptive workflow name
-- Description: clear description
-- Steps: sequential workflow steps
+CONTEXT:
+- This is for Codi's workflow system
+- Workflows are defined in YAML format
+- Each workflow has steps executed sequentially
+- Steps can be actions like shell commands, AI prompts, Git operations
 
-Use these available actions:
-- shell: Execute shell commands
-- ai-prompt: Generate AI content
-- conditional: Conditional logic
-- loop: Looping logic
-- interactive: User interaction
-- switch-model: Change AI model
-- check-file-exists: File verification
-- commit/push/pull/sync: Git operations
-- create-pr/review-pr/merge-pr: GitHub PR operations
+AVAILABLE ACTIONS:
+- shell: Execute shell commands (with "command" property)
+- ai-prompt: Generate AI content (with "prompt" property)
+- conditional: Conditional logic (with "check", "onTrue", "onFalse")
+- loop: Looping logic (with "condition", "maxIterations", "to")
+- interactive: User interaction (with "prompt", "inputType", "timeoutMs")
+- switch-model: Change AI model (with "model" property)
+- check-file-exists: File verification (with "file" property)
+- commit/push/pull/sync: Git operations (with "message" for commit)
+- create-pr/review-pr/merge-pr: GitHub PR operations (with "title", "body", "base")
 
-The workflow should be practical, safe, and effective.
+WORKFLOW STRUCTURE:
+- name: meaningful workflow name
+- description: clear description matching user request
+- steps: array of step objects
+Each step has:
+- id: unique step identifier
+- action: action type (from available actions above)
+- description: human-readable step description
+- action-specific properties (see examples below)
 
-Important formatting rules:
-- Do NOT use markdown code blocks (like \`\`\`yaml)
-- Do NOT include explanations
-- Output ONLY the YAML content
+EXAMPLES FOR COMMON WORKFLOW PATTERNS:
+
+Example 1: Development Workflow
+name: development-pipeline
+description: "Automated development workflow"
+steps:
+  - id: pull-code
+    action: shell
+    description: "Pull latest code"
+    command: "git pull origin main"
+  - id: run-tests
+    action: shell
+    description: "Run test suite"
+    command: "pnpm test"
+  - id: build-project
+    action: shell
+    description: "Build the project"
+    command: "pnpm build"
+
+Example 2: Documentation Workflow
+name: documentation-workflow
+description: "Generate and publish documentation"
+steps:
+  - id: generate-docs
+    action: ai-prompt
+    description: "Generate documentation"
+    prompt: "Please generate comprehensive documentation for the project"
+  - id: review-docs
+    action: interactive
+    description: "Review documentation"
+    prompt: "Please review and edit the generated documentation"
+    inputType: "multiline"
+    timeoutMs: 300000
+  - id: commit-docs
+    action: commit
+    description: "Commit documentation"
+    message: "docs: update documentation"
+
+Example 3: Testing Workflow with Conditional Logic
+name: smart-testing-workflow
+description: "Smart testing with conditional execution"
+steps:
+  - id: check-test-file
+    action: check-file-exists
+    description: "Check if test file exists"
+    file: "src/somefile.test.ts"
+    check: "file-exists"
+    onTrue: "run-specific-test"
+    onFalse: "run-all-tests"
+  - id: run-specific-test
+    action: shell
+    description: "Run specific test file"
+    command: "pnpm test src/somefile.test.ts"
+  - id: run-all-tests
+    action: shell
+    description: "Run all tests"
+    command: "pnpm test"
+
+OUTPUT FORMAT RULES:
+- Output ONLY the YAML content, nothing else
+- No markdown code blocks (no \`\`\`yaml)
+- No explanations or comments
 - Use single-line format for all properties
 - Quote string values with double quotes
 - No extra whitespace or blank lines
+- Include meaningful step descriptions
+- Use appropriate action properties based on step type
 
-Example of expected format:
-name: workflow-name
-description: \"Workflow description\"
-steps:
-  - id: step1
-    action: shell
-    description: \"Step description\"
-    command: \"echo hello\"
-`;
+Generate a practical, safe, and effective workflow that matches the user's description.`;
 
   // Try to use actual AI from agent context
   let workflow: Workflow;
@@ -186,11 +249,18 @@ steps:
 }
 
 /**
- * Simple YAML parser for AI-generated workflow
+ * Enhanced YAML parser for AI-generated workflow
+ * Handles complex workflows with conditional logic, loops, and advanced features
  */
 function parseYAMLWorkflow(yamlText: string): Workflow {
-  // Very simple YAML parser - handles key-value pairs and arrays
-  const lines = yamlText.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
+  // Preprocess: Clean the YAML text
+  const cleanedYAML = yamlText
+    .replace(/^\`\`\`yaml\s*/g, '')  // Remove markdown code blocks
+    .replace(/\`\`\`$/g, '')         // Remove closing markdown
+    .replace(/^#.*$/gm, '')           // Remove comments
+    .trim();
+  
+  const lines = cleanedYAML.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
   const workflow: any = {
     name: 'ai-generated-workflow',
     description: 'AI-generated workflow',
@@ -198,43 +268,106 @@ function parseYAMLWorkflow(yamlText: string): Workflow {
   };
   
   let currentStep: any = null;
+  let inStepsArray = false;
+  let currentIndent = 0;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    const indent = lines[i].search(/\S/);
+    const trimmedLine = lines[i];
+    const indent = trimmedLine.search(/\S/);
     
-    // Top-level properties
-    if (indent === 0) {
-      const [key, ...valueParts] = line.split(':');
-      const value = valueParts.join(':').trim();
-      
-      if (key === 'steps') {
-        continue; // Array handling below
-      } else if (key === 'name') {
-        workflow.name = value.replace(/"/g, '');
-      } else if (key === 'description') {
-        workflow.description = value.replace(/"/g, '');
-      }
+    // Detect steps section
+    if (!inStepsArray && line === 'steps:') {
+      inStepsArray = true;
+      currentIndent = indent;
+      continue;
     }
     
-    // Array items (steps)
-    if (line.startsWith('- id:')) {
-      if (currentStep) {
-        workflow.steps.push({ ...currentStep });
-      }
-      currentStep = {
-        id: line.split(':')[1].trim().replace(/"/g, '')
-      };
-    } else if (currentStep && indent > 0) {
+    // Top-level properties (before steps)
+    if (!inStepsArray && indent === 0) {
       const [key, ...valueParts] = line.split(':');
-      const value = valueParts.join(':').trim().replace(/"/g, '');
-      currentStep[key.trim()] = value;
+      const value = valueParts.join(':').trim().replace(/^"|"$/g, ''); // Remove surrounding quotes
+      
+      if (key === 'name') {
+        workflow.name = value || 'ai-generated-workflow';
+      } else if (key === 'description') {
+        workflow.description = value || 'AI-generated workflow';
+      } else if (['version', 'interactive', 'persistent'].includes(key)) {
+        workflow[key] = value === 'true' ? true : value === 'false' ? false : value;
+      }
+      continue;
+    }
+    
+    // Handle steps array
+    if (inStepsArray && indent > currentIndent) {
+      // Start of new step
+      if (line.startsWith('- id:') || line.match(/^-\s*id:/)) {
+        if (currentStep) {
+          workflow.steps.push({ ...currentStep });
+        }
+        
+        const idMatch = line.match(/id:\s*(\S+)/);
+        currentStep = {
+          id: idMatch ? idMatch[1].replace(/^"|"$/g, '') : `step-${workflow.steps.length + 1}`
+        };
+      }
+      // Step property
+      else if (currentStep && line.includes(':')) {
+        const [key, ...valueParts] = line.split(':');
+        const value = valueParts.join(':').trim().replace(/^"|"$/g, '');
+        
+        const cleanKey = key.trim();
+        if (cleanKey && value !== undefined) {
+          // Handle boolean values
+          if (value === 'true' || value === 'false') {
+            currentStep[cleanKey] = value === 'true';
+          }
+          // Handle numeric values
+          else if (/^-?\d+$/.test(value)) {
+            currentStep[cleanKey] = parseInt(value, 10);
+          }
+          // Handle array values like choices
+          else if (value.startsWith('[') && value.endsWith(']')) {
+            try {
+              currentStep[cleanKey] = JSON.parse(value);
+            } catch {
+              currentStep[cleanKey] = value;
+            }
+          }
+          else {
+            currentStep[cleanKey] = value;
+          }
+        }
+      }
     }
   }
   
+  // Don't forget the last step
   if (currentStep) {
     workflow.steps.push(currentStep);
   }
+  
+  // Ensure steps array exists
+  if (!workflow.steps || workflow.steps.length === 0) {
+    workflow.steps = [
+      {
+        id: 'shell-default',
+        action: 'shell',
+        command: 'echo "Default workflow step"'
+      }
+    ];
+  }
+  
+  // Validate and clean up workflow
+  workflow.name = workflow.name || 'ai-generated-workflow';
+  workflow.description = workflow.description || 'AI-generated workflow';
+  
+  // Clean up each step
+  workflow.steps.forEach((step: any) => {
+    step.id = step.id || 'unknown-step';
+    step.action = step.action || 'shell';
+    step.description = step.description || `${step.action} step`;
+  });
   
   return workflow as Workflow;
 }
@@ -320,10 +453,18 @@ function createScaffoldWorkflow(description: string): Workflow {
 }
 
 /**
- * Get available workflow templates
+ * Enhanced workflow templates with custom user templates support
+ * Loads templates from workflows/ directory in addition to built-in templates
  */
-function getAvailableTemplates(): TemplateSuggestion[] {
-  return [
+/**
+ * Enhanced workflow templates with custom user templates support
+ * Loads templates from workflows/ directory in addition to built-in templates
+ */
+async function getAvailableTemplates(): Promise<TemplateSuggestion[]> {
+  const templates: TemplateSuggestion[] = [];
+  
+  // Add built-in templates
+  const builtInTemplates = [
     {
       name: 'deployment',
       description: 'Git deployment workflow with testing and deployment',
@@ -415,8 +556,110 @@ function getAvailableTemplates(): TemplateSuggestion[] {
           }
         ]
       }
+    },
+    {
+      name: 'testing',
+      description: 'Smart testing workflow with conditional execution',
+      workflow: {
+        name: 'smart-testing-workflow',
+        description: 'Smart testing with conditional logic',
+        steps: [
+          {
+            id: 'check-test-file',
+            action: 'check-file-exists',
+            description: 'Check if test file exists',
+            file: 'src/file.test.ts',
+            check: 'file-exists',
+            onTrue: 'run-specific-test',
+            onFalse: 'run-all-tests'
+          },
+          {
+            id: 'run-specific-test',
+            action: 'shell',
+            description: 'Run specific test file',
+            command: 'pnpm test src/file.test.ts'
+          },
+          {
+            id: 'run-all-tests',
+            action: 'shell',
+            description: 'Run all tests',
+            command: 'pnpm test'
+          }
+        ]
+      }
+    },
+    {
+      name: 'pr-workflow',
+      description: 'Complete PR creation and review workflow',
+      workflow: {
+        name: 'pr-review-workflow',
+        description: 'Complete PR creation and review workflow',
+        steps: [
+          {
+            id: 'create-pr',
+            action: 'create-pr',
+            description: 'Create pull request',
+            title: 'Feature implementation',
+            body: 'This PR implements the requested feature'
+          },
+          {
+            id: 'review-setup',
+            action: 'switch-model',
+            description: 'Switch to review model',
+            model: 'glm'
+          },
+          {
+            id: 'review-pr',
+            action: 'review-pr',
+            description: 'Review PR and suggest improvements'
+          },
+          {
+            id: 'implement-fixes',
+            action: 'interactive',
+            description: 'Implement suggested fixes',
+            prompt: 'Please implement the PR review suggestions'
+          },
+          {
+            id: 'merge-pr',
+            action: 'merge-pr',
+            description: 'Merge the approved PR'
+          }
+        ]
+      }
     }
   ];
+  
+  templates.push(...builtInTemplates);
+  
+  // Load custom templates from workflows/ directory
+  const workflowsDir = path.join(process.cwd(), 'workflows');
+  if (fs.existsSync(workflowsDir)) {
+    try {
+      const files = fs.readdirSync(workflowsDir);
+      for (const file of files) {
+        if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+          try {
+            const workflowPath = path.join(workflowsDir, file);
+            const yamlContent = fs.readFileSync(workflowPath, 'utf8');
+            const workflow = parseYAMLWorkflow(yamlContent);
+            
+            templates.push({
+              name: path.parse(file).name,
+              description: workflow.description || `Custom workflow: ${workflow.name}`,
+              workflow: workflow
+            });
+          } catch (error) {
+            // Skip invalid YAML files
+            continue;
+          }
+        }
+      }
+    } catch (error) {
+      // Directory might be empty or inaccessible
+    }
+  }
+  
+  return templates;
 }
 
 /**

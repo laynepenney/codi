@@ -46,13 +46,26 @@ describe('Workflow AI Builder Command', () => {
 
   it('should handle templates with AI context', async () => {
     const mockAgent = {
-      chat: vi.fn().mockResolvedValue({ text: 'name: test-workflow\ndescription: Test\nsteps: []' })
+      chat: vi.fn().mockResolvedValue({ text: 'name: test-workflow\ndescription: Test\nsteps:\n  - id: step1\n    action: shell\n    description: "Step description"\n    command: "echo hello"' })
     };
     const mockContext = { agent: mockAgent };
     
     const result = await workflowBuildCommand.execute('template deployment', mockContext);
     
     expect(result).toContain('Generated workflow from template "deployment"');
+  });
+
+  it('should handle AI workflow generation', async () => {
+    const mockAgent = {
+      chat: vi.fn().mockResolvedValue({ 
+        text: 'name: testing-workflow\ndescription: "Generated workflow for testing"\nsteps:\n  - id: test-step\n    action: shell\n    description: "Test step"\n    command: "echo test"' 
+      })
+    };
+    const mockContext = { agent: mockAgent };
+    
+    const result = await workflowBuildCommand.execute('create a testing workflow', mockContext);
+    
+    expect(result).toContain('Generated workflow from your description');
   });
 
   it('should include timestamp in generated workflow names', async () => {
