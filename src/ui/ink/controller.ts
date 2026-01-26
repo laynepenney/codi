@@ -73,6 +73,10 @@ export class InkUiController extends EventEmitter {
   private sessionSelectionCounter = 0;
   private sessionSelection: PendingSessionSelection | null = null;
   private status: UiStatus = {};
+  private statusDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingStatus: UiStatus | null = null;
+  private chunkBuffer: Map<string, string> = new Map();
+  private chunkFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   addMessage(kind: UiMessageKind, text: string, workerId?: string): void {
     const message: UiMessage = {
@@ -98,7 +102,25 @@ export class InkUiController extends EventEmitter {
 
   appendToMessage(id: string, chunk: string): void {
     if (!chunk) return;
-    this.emit('messageChunk', { id, chunk });
+
+    // Buffer chunks to reduce re-renders during high-frequency streaming
+    const existing = this.chunkBuffer.get(id) ?? '';
+    this.chunkBuffer.set(id, existing + chunk);
+
+    if (this.chunkFlushTimer) {
+      return; // Already scheduled
+    }
+
+    this.chunkFlushTimer = setTimeout(() => {
+      this.chunkFlushTimer = null;
+      // Flush all buffered chunks
+      for (const [msgId, bufferedChunk] of this.chunkBuffer.entries()) {
+        if (bufferedChunk) {
+          this.emit('messageChunk', { id: msgId, chunk: bufferedChunk });
+        }
+      }
+      this.chunkBuffer.clear();
+    }, 16); // ~60fps
   }
 
   addToolCall(name: string, input: Record<string, unknown>): void {
@@ -158,12 +180,55 @@ export class InkUiController extends EventEmitter {
   }
 
   setStatus(status: UiStatus): void {
-    this.status = { ...this.status, ...status };
-    this.emit('status', this.status);
+    // Merge with pending status to coalesce rapid updates
+    this.pendingStatus = { ...(this.pendingStatus ?? this.status), ...status };
+
+    // Debounce status updates to prevent excessive re-renders that drop key events
+    if (this.statusDebounceTimer) {
+      return; // Already scheduled, will pick up pendingStatus
+    }
+
+    this.statusDebounceTimer = setTimeout(() => {
+      this.statusDebounceTimer = null;
+      if (this.pendingStatus) {
+        this.status = this.pendingStatus;
+        this.pendingStatus = null;
+        this.emit('status', this.status);
+      }
+    }, 16); // ~60fps, allows event loop to process key events between renders
   }
 
   getStatus(): UiStatus {
     return this.status;
+  }
+
+  /**
+   * Flush any pending debounced updates immediately.
+   * Useful for testing or when immediate updates are needed.
+   */
+  flush(): void {
+    // Flush status updates
+    if (this.statusDebounceTimer) {
+      clearTimeout(this.statusDebounceTimer);
+      this.statusDebounceTimer = null;
+    }
+    if (this.pendingStatus) {
+      this.status = this.pendingStatus;
+      this.pendingStatus = null;
+      this.emit('status', this.status);
+    }
+
+    // Flush chunk buffer
+    if (this.chunkFlushTimer) {
+      clearTimeout(this.chunkFlushTimer);
+      this.chunkFlushTimer = null;
+    }
+    for (const [msgId, bufferedChunk] of this.chunkBuffer.entries()) {
+      if (bufferedChunk) {
+        this.emit('messageChunk', { id: msgId, chunk: bufferedChunk });
+      }
+    }
+    this.chunkBuffer.clear();
   }
 
   requestExit(): void {

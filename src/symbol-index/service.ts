@@ -24,6 +24,7 @@ import type {
   DependencyResult,
   InheritanceResult,
 } from './types.js';
+import { hasExtendsMetadata } from './types.js';
 
 // Import extractors from model-map
 import { RegexSymbolExtractor } from '../model-map/symbols/regex-extractor.js';
@@ -1076,8 +1077,8 @@ export class SymbolIndexService {
     // For ancestors, look at the 'extends' metadata
     if (direction === 'ancestors' || direction === 'both') {
       for (const sym of symbols) {
-        if (sym.metadata && Array.isArray((sym.metadata as any).extends)) {
-          for (const ext of (sym.metadata as any).extends) {
+        if (hasExtendsMetadata(sym.metadata)) {
+          for (const ext of sym.metadata.extends) {
             // Find the extended class/interface
             const extSymbols = this.db.findSymbols(ext, { exact: true, limit: 1 });
             if (extSymbols.length > 0) {
@@ -1098,16 +1099,14 @@ export class SymbolIndexService {
     if (direction === 'descendants' || direction === 'both') {
       const allSymbols = this.db.findSymbols('', { limit: 1000 }); // Get all symbols
       for (const sym of allSymbols) {
-        if (sym.metadata && Array.isArray((sym.metadata as any).extends)) {
-          if ((sym.metadata as any).extends.includes(name)) {
-            results.push({
-              name: sym.name,
-              kind: sym.kind as 'class' | 'interface',
-              file: sym.file,
-              line: sym.line,
-              direction: sym.kind === 'interface' ? 'implemented-by' : 'extended-by',
-            });
-          }
+        if (hasExtendsMetadata(sym.metadata) && sym.metadata.extends.includes(name)) {
+          results.push({
+            name: sym.name,
+            kind: sym.kind as 'class' | 'interface',
+            file: sym.file,
+            line: sym.line,
+            direction: sym.kind === 'interface' ? 'implemented-by' : 'extended-by',
+          });
         }
       }
     }

@@ -11,284 +11,28 @@ import {
 } from './paste-debounce.js';
 import { program } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, appendFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { glob } from 'node:fs/promises';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { format as formatUtil } from 'util';
 import { getInterruptHandler, destroyInterruptHandler } from './interrupt.js';
-import { isPathWithinProject } from './utils/path-validation.js';
 import { parseCommandChain, requestPermissionForChainedCommands } from './bash-utils.js';
-
-// History configuration - allow override for testing
-const HISTORY_FILE = process.env.CODI_HISTORY_FILE || join(homedir(), '.codi_history');
-const MAX_HISTORY_SIZE = 1000;
-
-/**
- * Load command history from file.
- * Node.js readline shows index 0 first when pressing UP, so newest must be first.
- */
-function loadHistory(): string[] {
-  try {
-    if (existsSync(HISTORY_FILE)) {
-      const content = readFileSync(HISTORY_FILE, 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim());
-      // File has oldest first, newest last. Reverse so newest is at index 0.
-      return lines.slice(-MAX_HISTORY_SIZE).reverse();
-    }
-  } catch {
-    // Ignore errors reading history
-  }
-  return [];
-}
-
-/**
- * Append a command to history file.
- */
-function saveToHistory(command: string): void {
-  try {
-    appendFileSync(HISTORY_FILE, command + '\n');
-  } catch {
-    // Ignore errors writing history
-  }
-}
-
-/**
- * Configuration for pipeline input resolution.
- */
-interface PipelineInputConfig {
-  maxFiles: number;
-  maxFileSize: number;
-  maxTotalSize: number;
-}
-
-const DEFAULT_PIPELINE_INPUT_CONFIG: PipelineInputConfig = {
-  maxFiles: 20,
-  maxFileSize: 50000, // 50KB per file
-  maxTotalSize: 200000, // 200KB total
-};
-
-/**
- * Check if a string looks like a glob pattern or file path.
- */
-function isGlobOrFilePath(input: string): boolean {
-  // Check for glob patterns
-  if (input.includes('*') || input.includes('?')) {
-    return true;
-  }
-  // Check if it looks like a file path (starts with ./ or / or contains file extensions)
-  if (input.startsWith('./') || input.startsWith('/') || input.startsWith('src/')) {
-    return true;
-  }
-  // Check for common file extensions
-  if (/\.(ts|js|tsx|jsx|py|go|rs|java|md|json|yaml|yml)$/i.test(input)) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Resolve pipeline input to actual file contents.
- * If input is a glob pattern or file path, reads the files and returns their contents.
- * Otherwise, returns the input as-is.
- */
-async function resolvePipelineInput(
-  input: string,
-  config: PipelineInputConfig = DEFAULT_PIPELINE_INPUT_CONFIG
-): Promise<{ resolvedInput: string; filesRead: number; truncated: boolean }> {
-  if (!isGlobOrFilePath(input)) {
-    return { resolvedInput: input, filesRead: 0, truncated: false };
-  }
-
-  const cwd = process.cwd();
-  const files: string[] = [];
-
-  // Check if it's a direct file path or a glob pattern
-  if (input.includes('*') || input.includes('?')) {
-    // It's a glob pattern
-    for await (const file of glob(input, { cwd })) {
-      // Validate each file is within project (handles symlinks)
-      const fullPath = join(cwd, file);
-      if (isPathWithinProject(fullPath, cwd)) {
-        files.push(file);
-      }
-    }
-  } else {
-    // It's a direct file path
-    const fullPath = input.startsWith('/') ? input : join(cwd, input);
-
-    // Validate path is within project directory (prevent path traversal)
-    if (!isPathWithinProject(fullPath, cwd)) {
-      return {
-        resolvedInput: `Security error: Path "${input}" resolves outside the project directory.`,
-        filesRead: 0,
-        truncated: false
-      };
-    }
-
-    if (existsSync(fullPath)) {
-      try {
-        const stat = statSync(fullPath);
-        if (stat.isFile()) {
-          files.push(input);
-        } else if (stat.isDirectory()) {
-          // If it's a directory, glob for common code files
-          for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
-            // Validate each file is within project (handles symlinks)
-            const filePath = join(cwd, file);
-            if (isPathWithinProject(filePath, cwd)) {
-              files.push(file);
-            }
-          }
-        }
-      } catch {
-        // Ignore stat errors
-      }
-    }
-  }
-
-  if (files.length === 0) {
-    return { resolvedInput: `No files found matching: ${input}`, filesRead: 0, truncated: false };
-  }
-
-  // Sort files for consistent ordering
-  files.sort();
-
-  // Limit number of files
-  const filesToRead = files.slice(0, config.maxFiles);
-  const truncatedFiles = files.length > config.maxFiles;
-
-  // Read file contents
-  const contents: string[] = [];
-  let totalSize = 0;
-  let truncatedSize = false;
-
-  for (const file of filesToRead) {
-    const fullPath = file.startsWith('/') ? file : join(cwd, file);
-
-    // Defense in depth: validate path again before reading
-    if (!isPathWithinProject(fullPath, cwd)) {
-      contents.push(`\n### File: ${file}\n\`\`\`\n[Skipped: path resolves outside project directory]\n\`\`\`\n`);
-      continue;
-    }
-
-    try {
-      const stat = statSync(fullPath);
-      if (!stat.isFile()) continue;
-
-      // Check file size
-      if (stat.size > config.maxFileSize) {
-        contents.push(`\n### File: ${file}\n\`\`\`\n[File too large: ${(stat.size / 1024).toFixed(1)}KB > ${(config.maxFileSize / 1024).toFixed(0)}KB limit]\n\`\`\`\n`);
-        continue;
-      }
-
-      // Check total size limit
-      if (totalSize + stat.size > config.maxTotalSize) {
-        truncatedSize = true;
-        contents.push(`\n### File: ${file}\n\`\`\`\n[Skipped: total size limit reached]\n\`\`\`\n`);
-        continue;
-      }
-
-      const content = readFileSync(fullPath, 'utf-8');
-      const ext = file.split('.').pop() || '';
-      contents.push(`\n### File: ${file}\n\`\`\`${ext}\n${content}\n\`\`\`\n`);
-      totalSize += stat.size;
-    } catch (error) {
-      contents.push(`\n### File: ${file}\n\`\`\`\n[Error reading file: ${error instanceof Error ? error.message : 'Unknown error'}]\n\`\`\`\n`);
-    }
-  }
-
-  // Build the resolved input
-  let resolvedInput = `## Files matching: ${input}\n\nFound ${files.length} file(s)`;
-  if (truncatedFiles) {
-    resolvedInput += ` (showing first ${config.maxFiles})`;
-  }
-  resolvedInput += `:\n${contents.join('')}`;
-
-  if (truncatedSize) {
-    resolvedInput += `\n\n[Note: Some files skipped due to total size limit of ${(config.maxTotalSize / 1024).toFixed(0)}KB]`;
-  }
-
-  return {
-    resolvedInput,
-    filesRead: filesToRead.length,
-    truncated: truncatedFiles || truncatedSize,
-  };
-}
-
-/**
- * Resolve a glob pattern or file path to a list of files (without reading contents).
- * Used for iterative pipeline execution.
- */
-async function resolveFileList(
-  input: string,
-  maxFileSize: number = DEFAULT_PIPELINE_INPUT_CONFIG.maxFileSize
-): Promise<string[]> {
-  if (!isGlobOrFilePath(input)) {
-    return [];
-  }
-
-  const cwd = process.cwd();
-  const files: string[] = [];
-
-  if (input.includes('*') || input.includes('?')) {
-    // Glob pattern
-    for await (const file of glob(input, { cwd })) {
-      const fullPath = join(cwd, file);
-      // Validate path is within project (handles symlinks)
-      if (!isPathWithinProject(fullPath, cwd)) {
-        continue;
-      }
-      try {
-        const stat = statSync(fullPath);
-        if (stat.isFile() && stat.size <= maxFileSize) {
-          files.push(file);
-        }
-      } catch {
-        // Skip files we can't stat
-      }
-    }
-  } else {
-    // Direct file path
-    const fullPath = input.startsWith('/') ? input : join(cwd, input);
-
-    // Validate path is within project directory (prevent path traversal)
-    if (!isPathWithinProject(fullPath, cwd)) {
-      return []; // Return empty list for invalid paths
-    }
-
-    if (existsSync(fullPath)) {
-      try {
-        const stat = statSync(fullPath);
-        if (stat.isFile() && stat.size <= maxFileSize) {
-          files.push(input);
-        } else if (stat.isDirectory()) {
-          // If directory, glob for code files
-          for await (const file of glob(`${input}/**/*.{ts,js,tsx,jsx,py,go,rs,java,md,json,yaml,yml}`, { cwd })) {
-            const filePath = join(cwd, file);
-            // Validate each file is within project (handles symlinks)
-            if (!isPathWithinProject(filePath, cwd)) {
-              continue;
-            }
-            try {
-              const fileStat = statSync(filePath);
-              if (fileStat.isFile() && fileStat.size <= maxFileSize) {
-                files.push(file);
-              }
-            } catch {
-              // Skip
-            }
-          }
-        }
-      } catch {
-        // Ignore
-      }
-    }
-  }
-
-  return files.sort();
-}
+import {
+  HISTORY_FILE,
+  MAX_HISTORY_SIZE,
+  loadHistory,
+  saveToHistory,
+  type PipelineInputConfig,
+  DEFAULT_PIPELINE_INPUT_CONFIG,
+  isGlobOrFilePath,
+  resolvePipelineInput,
+  resolveFileList,
+  type NonInteractiveResult,
+  type NonInteractiveOptions,
+  runNonInteractive,
+} from './cli/index.js';
 
 import { Agent, type ToolConfirmation, type ConfirmationResult, type SecurityWarning } from './agent.js';
 import { SecurityValidator, createSecurityValidator } from './security-validator.js';
@@ -383,7 +127,7 @@ program
   .name('codi')
   .description('Your AI coding wingman')
   .version(VERSION, '-v, --version', 'Output the current version')
-  .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama, ollama-cloud, runpod)', 'auto')
+  .option('-p, --provider <type>', 'Provider to use (anthropic, openai, ollama, runpod)', 'auto')
   .option('-m, --model <name>', 'Model to use')
   .option('--base-url <url>', 'Base URL for API (for self-hosted models)')
   .option('--endpoint-id <id>', 'Endpoint ID (for RunPod serverless)')
@@ -2604,136 +2348,6 @@ function handleSymbolsOutput(output: string): void {
 }
 
 /**
- * Non-interactive mode result type for JSON output.
- */
-interface NonInteractiveResult {
-  success: boolean;
-  response: string;
-  toolCalls: Array<{ name: string; input: Record<string, unknown> }>;
-  usage: { inputTokens: number; outputTokens: number } | null;
-  error?: string;
-}
-
-/**
- * Options for non-interactive mode execution.
- */
-interface NonInteractiveOptions {
-  outputFormat: 'text' | 'json';
-  quiet: boolean;
-  auditLogger: AuditLogger;
-  ragIndexer: BackgroundIndexer | null;
-  mcpManager: MCPClientManager | null;
-  autoSave?: () => void;
-}
-
-/**
- * Run Codi in non-interactive mode with a single prompt.
- * Outputs result to stdout and exits with appropriate code.
- */
-async function runNonInteractive(
-  agent: Agent,
-  prompt: string,
-  options: NonInteractiveOptions
-): Promise<void> {
-  const { outputFormat, quiet, auditLogger, ragIndexer, mcpManager, autoSave } = options;
-
-  // Disable spinner in quiet mode
-  if (quiet) {
-    spinner.setEnabled(false);
-  }
-
-  // Track tool calls for JSON output
-  const toolCalls: Array<{ name: string; input: Record<string, unknown> }> = [];
-  let lastUsage: { inputTokens: number; outputTokens: number } | null = null;
-
-  try {
-    // Suppress normal output in JSON mode, collect for later
-    let responseText = '';
-
-    if (outputFormat === 'json') {
-      // In JSON mode, suppress streaming output - we'll collect it
-      // Note: The agent's callbacks are already set up, but we need to
-      // track the response ourselves
-    }
-
-    // Log user input
-    auditLogger.userInput(prompt);
-
-    // Run the agent
-    if (!quiet) {
-      spinner.thinking();
-    }
-
-    const response = await agent.chat(prompt);
-    responseText = response;
-
-    // Stop spinner
-    spinner.stop();
-
-    autoSave?.();
-
-    // Get usage info from agent's context
-    const contextInfo = agent.getContextInfo();
-
-    // Output based on format
-    if (outputFormat === 'json') {
-      const result: NonInteractiveResult = {
-        success: true,
-        response: responseText,
-        toolCalls,
-        usage: lastUsage,
-      };
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      // Text format - response was already streamed by agent callbacks
-      // Just add a newline for clean output
-      if (!responseText.endsWith('\n')) {
-        console.log();
-      }
-    }
-
-    // Cleanup
-    if (ragIndexer) {
-      ragIndexer.shutdown();
-    }
-    if (mcpManager) {
-      await mcpManager.disconnectAll();
-    }
-    auditLogger.sessionEnd();
-
-    process.exit(0);
-  } catch (error) {
-    spinner.stop();
-
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    if (outputFormat === 'json') {
-      const result: NonInteractiveResult = {
-        success: false,
-        response: '',
-        toolCalls,
-        usage: lastUsage,
-        error: errorMessage,
-      };
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.error(chalk.red('Error: ' + errorMessage));
-    }
-
-    // Cleanup
-    if (ragIndexer) {
-      ragIndexer.shutdown();
-    }
-    if (mcpManager) {
-      await mcpManager.disconnectAll();
-    }
-    auditLogger.sessionEnd();
-
-    process.exit(1);
-  }
-}
-
-/**
  * CLI entrypoint.
  *
  * Initializes project context, registers tools and slash-commands, creates the
@@ -3768,6 +3382,15 @@ Begin by analyzing the query and planning your research approach.`;
     logLevel,
     enableCompression: options.compress ?? resolvedConfig.enableCompression,
     maxContextTokens: resolvedConfig.maxContextTokens,
+    onProviderChange: (newProvider) => {
+      // Update ink UI status when provider changes (e.g., during workflow model switch)
+      if (useInkUi && inkController) {
+        inkController.setStatus({
+          provider: newProvider.getName(),
+          model: newProvider.getModel()
+        });
+      }
+    },
     onText: (text) => {
       // Stop spinner when we start receiving text
       if (!isStreaming) {
@@ -3962,6 +3585,23 @@ Begin by analyzing the query and planning your research approach.`;
       } finally {
         workerStatusUI?.setConfirmation(null);
         workerStatusUI?.setAgentActivity('thinking', null);
+      }
+    },
+    onCompaction: (status) => {
+      if (status === 'start') {
+        spinner.toolStart('compacting context');
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'tool', activityDetail: 'compacting' });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('tool', 'compacting');
+        }
+      } else {
+        spinner.stop();
+        if (useInkUi && inkController) {
+          inkController.setStatus({ activity: 'thinking', activityDetail: null });
+        } else if (workerStatusUI) {
+          workerStatusUI.setAgentActivity('thinking', null);
+        }
       }
     },
   });

@@ -1,8 +1,0 @@
-name: testing-workflow
-description: "Generated workflow for testing"
-
-steps:
-  - id: test-step
-    action: shell
-    description: "Test step"
-    command: "echo test"

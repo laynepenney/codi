@@ -561,9 +561,9 @@ describe('Embedding Providers', () => {
       expect(provider.getModel()).toBe('nomic-embed-text');
     });
 
-    it('creates Ollama-cloud provider', () => {
+    it('creates Ollama provider with cloud URL', () => {
       const modelDef = {
-        provider: 'ollama-cloud' as const,
+        provider: 'ollama' as const,
         model: 'glm-4.7:cloud',
         baseUrl: 'https://api.ollama.ai',
       };

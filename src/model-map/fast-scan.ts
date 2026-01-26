@@ -158,7 +158,7 @@ export async function fastScanFiles(
 ): Promise<FastScanResult[]> {
   // Get fast model provider
   const roleName = options.fastRole || 'fast';
-  const resolved = router.resolveRole(roleName, options.providerContext || 'ollama-cloud');
+  const resolved = router.resolveRole(roleName, options.providerContext || 'ollama');
 
   if (!resolved) {
     throw new Error(`No model found for role '${roleName}'`);

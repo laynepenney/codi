@@ -146,6 +146,8 @@ export interface AgentOptions {
   onToolCall?: (name: string, input: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string, isError: boolean) => void;
   onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
+  onCompaction?: (status: 'start' | 'end') => void; // Notify when context compaction starts/ends
+  onProviderChange?: (provider: BaseProvider) => void; // Notify when provider changes (e.g., during workflow model switch)
 }
 
 /**
@@ -211,6 +213,8 @@ export class Agent {
     onToolCall?: (name: string, input: Record<string, unknown>) => void;
     onToolResult?: (name: string, result: string, isError: boolean) => void;
     onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>;
+    onCompaction?: (status: 'start' | 'end') => void;
+    onProviderChange?: (provider: BaseProvider) => void;
   };
 
   constructor(options: AgentOptions) {
@@ -261,6 +265,8 @@ export class Agent {
       onToolCall: options.onToolCall,
       onToolResult: options.onToolResult,
       onConfirm: options.onConfirm,
+      onCompaction: options.onCompaction,
+      onProviderChange: options.onProviderChange,
     };
   }
 
@@ -269,6 +275,17 @@ export class Agent {
    * More aggressive than normal token-based compaction.
    */
   private async proactiveCompact(): Promise<void> {
+    this.callbacks.onCompaction?.('start');
+    // Yield to event loop so UI can render the status update
+    await new Promise(resolve => setImmediate(resolve));
+    try {
+      await this.doProactiveCompact();
+    } finally {
+      this.callbacks.onCompaction?.('end');
+    }
+  }
+
+  private async doProactiveCompact(): Promise<void> {
     const beforeTokens = countMessageTokens(this.messages);
     const beforeMessages = this.messages.length;
 
@@ -567,6 +584,18 @@ Always use tools to interact with the filesystem rather than asking the user to 
       return; // No compaction needed
     }
 
+    // Notify UI that compaction is starting
+    this.callbacks.onCompaction?.('start');
+    // Yield to event loop so UI can render the status update
+    await new Promise(resolve => setImmediate(resolve));
+    try {
+      await this.doCompactContext(totalTokens);
+    } finally {
+      this.callbacks.onCompaction?.('end');
+    }
+  }
+
+  private async doCompactContext(totalTokens: number): Promise<void> {
     const isProactive = totalTokens <= this.maxContextTokens;
     logger.debug(
       isProactive
@@ -1169,10 +1198,10 @@ ${contextToSummarize}`,
         break;
       }
 
-      // =================================================================
+      // ==
       // PHASE 1: Pre-process and confirm all tool calls
       // Confirmations must be sequential (diffs depend on current state)
-      // =================================================================
+      // ==
       const toolResults: ToolResult[] = [];
       const approvedTools: ToolCall[] = [];
       let hasError = false;
@@ -1417,10 +1446,10 @@ ${contextToSummarize}`,
         }
       }
 
-      // =================================================================
+      // ==
       // PHASE 2: Batch and execute approved tools
       // Read-only tools on different files can run in parallel
-      // =================================================================
+      // ==
       if (!aborted && approvedTools.length > 0) {
         const batches = batchToolCalls(approvedTools);
         const stats = getBatchStats(batches);
@@ -1870,6 +1899,10 @@ Label:`,
     if (!this.maxContextTokensExplicit) {
       this.maxContextTokens = this.calculateAdaptiveContextLimit(provider);
     }
+    // Notify callbacks about provider change
+    if (this.callbacks.onProviderChange) {
+      this.callbacks.onProviderChange(provider);
+    }
   }
 
   /**
@@ -1991,9 +2024,9 @@ Label:`,
     return this.enableCompression;
   }
 
-  // ============================================
+  // ==
   // Debug control (Phase 2)
-  // ============================================
+  // ==
 
   /**
    * Set the debug paused state.
@@ -2119,9 +2152,9 @@ Label:`,
     }
   }
 
-  // ============================================
+  // ==
   // Breakpoints (Phase 4)
-  // ============================================
+  // ==
 
   /**
    * Add a breakpoint.
@@ -2204,9 +2237,9 @@ Label:`,
     return null;
   }
 
-  // ============================================
+  // ==
   // Checkpoints (Phase 4)
-  // ============================================
+  // ==
 
   /**
    * Create a checkpoint with current state.
@@ -2263,9 +2296,9 @@ Label:`,
     this.checkpointInterval = interval;
   }
 
-  // ============================================
+  // ==
   // Time Travel (Phase 5)
-  // ============================================
+  // ==
 
   /**
    * Save a full checkpoint to disk.
