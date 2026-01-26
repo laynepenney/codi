@@ -124,6 +124,51 @@ export interface WorkspaceConfig {
     };
   };
 
+  /** Enhanced web search settings */
+  webSearch?: {
+    /** Search engines to use (order indicates priority) */
+    engines?: Array<'brave' | 'google' | 'bing' | 'duckduckgo'>;
+    /** Whether to cache search results */
+    cacheEnabled?: boolean;
+    /** Maximum cache size (number of entries) */
+    cacheMaxSize?: number;
+    /** Default TTL for cached results (seconds) */
+    defaultTTL?: number;
+    /** Maximum results per search */
+    maxResults?: number;
+    /** Search templates for domain-specific optimization */
+    templates?: {
+      /** Documentation search template */
+      docs?: {
+        /** Preferred sites for documentation */
+        sites?: string[];
+        /** Sort by relevance or date */
+        sort?: 'relevance' | 'date';
+      };
+      /** Pricing information search template */
+      pricing?: {
+        /** Preferred sites for pricing info */
+        sites?: string[];
+        /** Sort by relevance or date */
+        sort?: 'relevance' | 'date';
+      };
+      /** Error resolution search template */
+      errors?: {
+        /** Preferred sites for error solutions */
+        sites?: string[];
+        /** Sort by relevance or date */
+        sort?: 'relevance' | 'date';
+      };
+      /** General search template */
+      general?: {
+        /** Preferred sites */
+        sites?: string[];
+        /** Sort by relevance or date */
+        sort?: 'relevance' | 'date';
+      };
+    };
+  };
+
   /** RAG (Retrieval-Augmented Generation) settings */
   rag?: {
     /** Enable RAG code indexing and search */
@@ -265,6 +310,19 @@ export interface ResolvedConfig {
   /** Per-tool configuration */
   toolsConfig: ToolsConfig;
   contextOptimization: WorkspaceConfig['contextOptimization'];
+  /** Enhanced web search settings */
+  webSearch?: {
+    /** Search engines priority */
+    engines: Array<string>;
+    /** Whether to cache search results */
+    cacheEnabled: boolean;
+    /** Maximum cache size */
+    cacheMaxSize: number;
+    /** Default TTL for cached results */
+    defaultTTL: number;
+    /** Maximum results per search */
+    maxResults: number;
+  };
   /** Security model validation settings */
   securityModel?: {
     enabled: boolean;
@@ -302,6 +360,13 @@ const DEFAULT_CONFIG: ResolvedConfig = {
     minRecentMessages: 3,
     importanceThreshold: 0.4,
     maxOutputReserveScale: 3,
+  },
+  webSearch: {
+    engines: ['brave', 'google', 'bing', 'duckduckgo'],
+    cacheEnabled: true,
+    cacheMaxSize: 1000,
+    defaultTTL: 3600,
+    maxResults: 15,
   },
 };
 
@@ -499,6 +564,14 @@ export function mergeConfig(
     if (globalConfig.models?.summarize?.model) config.summarizeModel = globalConfig.models.summarize.model;
     if (globalConfig.tools?.disabled) config.toolsConfig.disabled = globalConfig.tools.disabled;
     if (globalConfig.tools?.defaults) config.toolsConfig.defaults = globalConfig.tools.defaults;
+    if (globalConfig.webSearch) config.webSearch = {
+      engines: ['brave', 'google', 'bing', 'duckduckgo'],
+      cacheEnabled: true,
+      cacheMaxSize: 1000,
+      defaultTTL: 3600,
+      maxResults: 15,
+      ...globalConfig.webSearch,
+    };
     if (globalConfig.securityModel) {
       config.securityModel = {
         enabled: globalConfig.securityModel.enabled ?? false,
@@ -542,6 +615,14 @@ export function mergeConfig(
     if (workspaceConfig.models?.summarize?.model) config.summarizeModel = workspaceConfig.models.summarize.model;
     if (workspaceConfig.tools?.disabled) config.toolsConfig.disabled = workspaceConfig.tools.disabled;
     if (workspaceConfig.tools?.defaults) config.toolsConfig.defaults = workspaceConfig.tools.defaults;
+    if (workspaceConfig.webSearch) config.webSearch = {
+      engines: ['brave', 'google', 'bing', 'duckduckgo'],
+      cacheEnabled: true,
+      cacheMaxSize: 1000,
+      defaultTTL: 3600,
+      maxResults: 15,
+      ...workspaceConfig.webSearch,
+    };
     if (workspaceConfig.securityModel) {
       config.securityModel = {
         enabled: workspaceConfig.securityModel.enabled ?? config.securityModel?.enabled ?? false,
@@ -679,6 +760,13 @@ export function getExampleConfig(): string {
         model: 'llama3.2',
       },
     },
+     webSearch: {
+       engines: ['brave', 'google', 'bing'],
+       cacheEnabled: true,
+       cacheMaxSize: 1000,
+       defaultTTL: 3600,
+       maxResults: 15,
+     },
     contextOptimization: {
       mergeCaseVariants: true,
       mergeSimilarNames: true,
