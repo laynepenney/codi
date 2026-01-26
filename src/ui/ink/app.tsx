@@ -63,6 +63,265 @@ const MAX_LIVE_OUTPUT_FRACTION = 0.35;
 const SPINNER_FRAMES = ['-', '\\', '|', '/'];
 const INACTIVE_STATUSES = new Set(['idle', 'complete', 'failed', 'cancelled']);
 
+const isActiveStatus = (status: string) => !INACTIVE_STATUSES.has(status);
+
+interface ActivityPanelProps {
+  workerList: WorkerState[];
+  workerLogs: Map<string, string[]>;
+  workerResults: Map<string, WorkerResult>;
+  selectedWorkerId: string | null;
+  showWorkerLogs: boolean;
+  showWorkerDetails: boolean;
+  readerList: ReaderState[];
+  readerLogs: Map<string, string[]>;
+  readerResults: Map<string, ReaderResult>;
+  status: UiStatus;
+  confirmation: UiConfirmationRequest | null;
+  contentWidth: number;
+  rows: number;
+  scrollOffset: number;
+}
+
+interface ActivityPanelResult {
+  lines: ActivityLine[];
+  maxStart: number;
+  scrollStep: number;
+  total: number;
+}
+
+/**
+ * Separate component for the activity panel that manages its own spinner state.
+ * This isolates spinner animation from the main App component, preventing
+ * full app re-renders every 120ms which can drop key events.
+ */
+function ActivityPanel({
+  workerList,
+  workerLogs,
+  workerResults,
+  selectedWorkerId,
+  showWorkerLogs,
+  showWorkerDetails,
+  readerList,
+  readerLogs,
+  readerResults,
+  status,
+  confirmation,
+  contentWidth,
+  rows,
+  scrollOffset,
+}: ActivityPanelProps) {
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
+
+  const hasBackgroundProgress = useMemo(() => {
+    return workerList.some((worker) => isActiveStatus(worker.status)) ||
+      readerList.some((reader) => isActiveStatus(reader.status));
+  }, [workerList, readerList]);
+
+  const hasActiveProgress = Boolean(confirmation) ||
+    Boolean(status.activity && status.activity !== 'idle') ||
+    hasBackgroundProgress;
+
+  useEffect(() => {
+    if (!hasActiveProgress) {
+      setSpinnerFrame(0);
+      return;
+    }
+    const handle = setInterval(() => {
+      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, 120);
+    return () => clearInterval(handle);
+  }, [hasActiveProgress]);
+
+  const panel = useMemo((): ActivityPanelResult => {
+    const hasWorkers = workerList.length > 0;
+    const hasReaders = readerList.length > 0;
+    const hasConfirmation = Boolean(confirmation);
+
+    const nodes: TreeNode[] = [];
+    const detailMax = Math.max(24, contentWidth - 10);
+    const activityLabel = formatActivity(status);
+    const active = status.activity && status.activity !== 'idle';
+    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '  ';
+    const agentColor =
+      status.activity === 'confirm' ? 'yellow' : status.activity === 'tool' ? 'magenta' : 'cyan';
+
+    const agentChildren: TreeNode[] = [];
+    if (status.activity === 'tool' && status.activityDetail) {
+      agentChildren.push({ label: `Tool: ${status.activityDetail}`, dim: true });
+    }
+    if (status.activity === 'confirm' && status.activityDetail) {
+      agentChildren.push({ label: `Confirm: ${status.activityDetail}`, dim: true });
+    }
+
+    nodes.push({
+      label: `${spinner}Agent: ${activityLabel}`.trimEnd(),
+      color: active ? agentColor : 'gray',
+      dim: !active,
+      children: agentChildren,
+    });
+
+    if (hasConfirmation && confirmation) {
+      const source =
+        confirmation.source === 'worker' ? `Worker ${confirmation.workerId ?? ''}` : 'Agent';
+      const confirmChildren: TreeNode[] = [
+        { label: `Source: ${source}`, dim: true },
+        { label: formatConfirmationTarget(confirmation), dim: true },
+      ];
+      nodes.push({
+        label: `Confirm: ${confirmation.confirmation.toolName}`,
+        color: 'yellow',
+        children: confirmChildren,
+      });
+    }
+
+    if (hasWorkers) {
+      const workerNodes: TreeNode[] = workerList.map((worker) => {
+        const statusLabel = STATUS_LABELS[worker.status] || worker.status.toUpperCase();
+        const statusColor = STATUS_COLORS[worker.status] ?? undefined;
+        const name = worker.config.branch || worker.config.id;
+        const isSelected = worker.config.id === selectedWorkerId;
+        const detail = truncate(
+          normalizeInline(
+            worker.statusMessage ||
+              (worker.currentTool ? `tool: ${worker.currentTool}` : '') ||
+              (worker.progress !== undefined ? `progress: ${worker.progress}%` : '')
+          ),
+          detailMax
+        );
+        const label = detail
+          ? `${isSelected ? '> ' : ''}${name} [${statusLabel}] - ${detail}`
+          : `${isSelected ? '> ' : ''}${name} [${statusLabel}]`;
+
+        const children: TreeNode[] = [];
+        if (isSelected && showWorkerDetails) {
+          if (worker.config.task) {
+            children.push({ label: `task: ${normalizeInline(worker.config.task)}`, dim: true });
+          }
+          if (worker.error) {
+            children.push({ label: `error: ${worker.error}`, color: 'red' });
+          }
+          if (showWorkerLogs) {
+            const logs = workerLogs.get(worker.config.id) ?? [];
+            const lastLog = logs.length > 0 ? normalizeInline(logs[logs.length - 1] ?? '') : '';
+            if (lastLog) {
+              children.push({ label: `last: ${lastLog}`, dim: true });
+            }
+          } else {
+            const result = workerResults.get(worker.config.id);
+            const snippet = result?.response ? firstNonEmptyLine(result.response) : null;
+            if (snippet) {
+              children.push({ label: `result: ${normalizeInline(snippet)}`, dim: true });
+            }
+          }
+        }
+
+        return {
+          label,
+          color: statusColor,
+          children,
+        };
+      });
+
+      nodes.push({
+        label: `Workers (${workerList.length})`,
+        children: workerNodes,
+      });
+    }
+
+    if (hasReaders) {
+      const readerNodes: TreeNode[] = readerList.map((reader) => {
+        const statusLabel = STATUS_LABELS[reader.status] || reader.status.toUpperCase();
+        const statusColor = STATUS_COLORS[reader.status] ?? undefined;
+        const name = `reader:${reader.config.id.slice(-5)}`;
+        const logs = readerLogs.get(reader.config.id) ?? [];
+        const lastLog = logs.length > 0 ? normalizeInline(logs[logs.length - 1] ?? '') : '';
+        const result = readerResults.get(reader.config.id);
+        const snippet = result?.response ? firstNonEmptyLine(result.response) : null;
+        const errorDetail = reader.error ? `error: ${reader.error}` : '';
+        const detail = truncate(
+          normalizeInline(
+            showWorkerLogs
+              ? (errorDetail || lastLog || (reader.currentTool ? `tool: ${reader.currentTool}` : ''))
+              : (errorDetail || snippet || lastLog || (reader.currentTool ? `tool: ${reader.currentTool}` : ''))
+          ),
+          detailMax
+        );
+        const label = detail
+          ? `${name} [${statusLabel}] - ${detail}`
+          : `${name} [${statusLabel}]`;
+
+        return {
+          label,
+          color: statusColor,
+        };
+      });
+
+      nodes.push({
+        label: `Readers (${readerList.length})`,
+        children: readerNodes,
+      });
+    }
+
+    const treeLines = renderTree(nodes, contentWidth);
+
+    // Ensure minimum height to prevent layout jumping
+    const minHeight = 3;
+    const paddingNeeded = Math.max(0, minHeight - 1 - treeLines.length);
+    const padding: ActivityLine[] = Array.from({ length: paddingNeeded }, () => ({ text: '', dim: true }));
+
+    const allLines: ActivityLine[] = [
+      { text: 'Activity', dim: true },
+      ...treeLines,
+      ...padding,
+    ];
+
+    const maxHeight = Math.max(minHeight, Math.min(allLines.length, Math.floor(rows / 3)));
+    const maxStart = Math.max(0, allLines.length - maxHeight);
+    const offset = clamp(scrollOffset, 0, maxStart);
+    const start = offset;
+    const end = Math.min(allLines.length, start + maxHeight);
+    const scrollStep = Math.max(2, Math.floor(maxHeight / 2));
+
+    return {
+      lines: allLines.slice(start, end),
+      maxStart,
+      scrollStep,
+      total: allLines.length,
+    };
+  }, [
+    workerList,
+    workerLogs,
+    workerResults,
+    selectedWorkerId,
+    showWorkerLogs,
+    showWorkerDetails,
+    readerList,
+    readerLogs,
+    readerResults,
+    status,
+    confirmation,
+    hasActiveProgress,
+    contentWidth,
+    rows,
+    scrollOffset,
+    spinnerFrame,
+  ]);
+
+  if (panel.lines.length === 0) {
+    return null;
+  }
+
+  return (
+    <Box flexDirection="column">
+      {panel.lines.map((line, index) => (
+        <Text key={`activity-${index}`} color={line.color} dimColor={line.dim}>
+          {line.text || ' '}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
 const STATUS_LABELS: Record<string, string> = {
   starting: 'STARTING',
   idle: 'IDLE',
@@ -84,8 +343,6 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'red',
   cancelled: 'gray',
 };
-
-const isActiveStatus = (status: string) => !INACTIVE_STATUSES.has(status);
 
 const MESSAGE_LABELS: Record<UiMessage['kind'], string> = {
   user: 'You',
@@ -117,7 +374,6 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const [showWorkerLogs, setShowWorkerLogs] = useState(true);
   const [showWorkerDetails, setShowWorkerDetails] = useState(true);
   const [activityScrollOffset, setActivityScrollOffset] = useState(0);
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [confirmation, setConfirmation] = useState<UiConfirmationRequest | null>(null);
   const [confirmIndex, setConfirmIndex] = useState(0);
   const [sessionSelection, setSessionSelection] = useState<UiSessionSelectionRequest | null>(null);
@@ -534,8 +790,8 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
         key.pageDown ||
         (key.ctrl && (input.toLowerCase() === 'u' || input.toLowerCase() === 'd'))
       ) {
-        const step = activityPanel.scrollStep || 3;
-        const maxStart = activityPanel.maxStart;
+        const step = activityScrollInfo.scrollStep || 3;
+        const maxStart = activityScrollInfo.maxStart;
         if (maxStart > 0) {
           const delta = (key.pageUp || (key.ctrl && input.toLowerCase() === 'u')) ? -step : step;
           setActivityScrollOffset((prev) => clamp(prev + delta, 0, maxStart));
@@ -602,203 +858,28 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
 
   const workerCount = workerList.length;
   const readerCount = readerList.length;
-  const hasBackgroundProgress = useMemo(() => {
-    return workerList.some((worker) => isActiveStatus(worker.status)) ||
-      readerList.some((reader) => isActiveStatus(reader.status));
-  }, [workerList, readerList]);
-  const hasActiveProgress = Boolean(confirmation) ||
-    Boolean(status.activity && status.activity !== 'idle') ||
-    hasBackgroundProgress;
 
-  useEffect(() => {
-    if (!hasActiveProgress) {
-      setSpinnerFrame(0);
-      return;
-    }
-    const handle = setInterval(() => {
-      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
-    }, 120);
-    return () => clearInterval(handle);
-  }, [hasActiveProgress]);
+  // Simplified scroll info calculation - doesn't depend on spinnerFrame
+  // This avoids triggering re-renders every 120ms in the parent component
+  const activityScrollInfo = useMemo(() => {
+    // Estimate total lines: header + agent + workers + readers + details
+    const baseLines = 3; // Activity header, Agent line, padding
+    const workerLines = workerList.length * (showWorkerDetails ? 3 : 1);
+    const readerLines = readerList.length;
+    const confirmLines = confirmation ? 3 : 0;
+    const estimatedTotal = baseLines + workerLines + readerLines + confirmLines;
 
-  const activityPanel = useMemo(() => {
-    const hasWorkers = workerList.length > 0;
-    const hasReaders = readerList.length > 0;
-    const hasConfirmation = Boolean(confirmation);
-
-    const nodes: TreeNode[] = [];
-    const detailMax = Math.max(24, contentWidth - 10);
-    const activityLabel = formatActivity(status);
-    const active = status.activity && status.activity !== 'idle';
-    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '  ';
-    const agentColor =
-      status.activity === 'confirm' ? 'yellow' : status.activity === 'tool' ? 'magenta' : 'cyan';
-
-    const agentChildren: TreeNode[] = [];
-    if (status.activity === 'tool' && status.activityDetail) {
-      agentChildren.push({ label: `Tool: ${status.activityDetail}`, dim: true });
-    }
-    if (status.activity === 'confirm' && status.activityDetail) {
-      agentChildren.push({ label: `Confirm: ${status.activityDetail}`, dim: true });
-    }
-
-    nodes.push({
-      label: `${spinner}Agent: ${activityLabel}`.trimEnd(),
-      color: active ? agentColor : 'gray',
-      dim: !active,
-      children: agentChildren,
-    });
-
-    if (hasConfirmation && confirmation) {
-      const source =
-        confirmation.source === 'worker' ? `Worker ${confirmation.workerId ?? ''}` : 'Agent';
-      const confirmChildren: TreeNode[] = [
-        { label: `Source: ${source}`, dim: true },
-        { label: formatConfirmationTarget(confirmation), dim: true },
-      ];
-      nodes.push({
-        label: `Confirm: ${confirmation.confirmation.toolName}`,
-        color: 'yellow',
-        children: confirmChildren,
-      });
-    }
-
-    if (hasWorkers) {
-      const workerNodes: TreeNode[] = workerList.map((worker) => {
-        const statusLabel = STATUS_LABELS[worker.status] || worker.status.toUpperCase();
-        const statusColor = STATUS_COLORS[worker.status] ?? undefined;
-        const name = worker.config.branch || worker.config.id;
-        const isSelected = worker.config.id === selectedWorkerId;
-        const detail = truncate(
-          normalizeInline(
-            worker.statusMessage ||
-              (worker.currentTool ? `tool: ${worker.currentTool}` : '') ||
-              (worker.progress !== undefined ? `progress: ${worker.progress}%` : '')
-          ),
-          detailMax
-        );
-        const label = detail
-          ? `${isSelected ? '> ' : ''}${name} [${statusLabel}] - ${detail}`
-          : `${isSelected ? '> ' : ''}${name} [${statusLabel}]`;
-
-        const children: TreeNode[] = [];
-        if (isSelected && showWorkerDetails) {
-          if (worker.config.task) {
-            children.push({ label: `task: ${normalizeInline(worker.config.task)}`, dim: true });
-          }
-          if (worker.error) {
-            children.push({ label: `error: ${worker.error}`, color: 'red' });
-          }
-          if (showWorkerLogs) {
-            const logs = workerLogs.get(worker.config.id) ?? [];
-            const lastLog = logs.length > 0 ? normalizeInline(logs[logs.length - 1] ?? '') : '';
-            if (lastLog) {
-              children.push({ label: `last: ${lastLog}`, dim: true });
-            }
-          } else {
-            const result = workerResults.get(worker.config.id);
-            const snippet = result?.response ? firstNonEmptyLine(result.response) : null;
-            if (snippet) {
-              children.push({ label: `result: ${normalizeInline(snippet)}`, dim: true });
-            }
-          }
-        }
-
-        return {
-          label,
-          color: statusColor,
-          children,
-        };
-      });
-
-      nodes.push({
-        label: `Workers (${workerList.length})`,
-        children: workerNodes,
-      });
-    }
-
-    if (hasReaders) {
-      const readerNodes: TreeNode[] = readerList.map((reader) => {
-        const statusLabel = STATUS_LABELS[reader.status] || reader.status.toUpperCase();
-        const statusColor = STATUS_COLORS[reader.status] ?? undefined;
-        const name = `reader:${reader.config.id.slice(-5)}`;
-        const logs = readerLogs.get(reader.config.id) ?? [];
-        const lastLog = logs.length > 0 ? normalizeInline(logs[logs.length - 1] ?? '') : '';
-        const result = readerResults.get(reader.config.id);
-        const snippet = result?.response ? firstNonEmptyLine(result.response) : null;
-        const errorDetail = reader.error ? `error: ${reader.error}` : '';
-        const detail = truncate(
-          normalizeInline(
-            showWorkerLogs
-              ? (errorDetail || lastLog || (reader.currentTool ? `tool: ${reader.currentTool}` : ''))
-              : (errorDetail || snippet || lastLog || (reader.currentTool ? `tool: ${reader.currentTool}` : ''))
-          ),
-          detailMax
-        );
-        const label = detail
-          ? `${name} [${statusLabel}] - ${detail}`
-          : `${name} [${statusLabel}]`;
-
-        return {
-          label,
-          color: statusColor,
-        };
-      });
-
-      nodes.push({
-        label: `Readers (${readerList.length})`,
-        children: readerNodes,
-      });
-    }
-
-    const treeLines = renderTree(nodes, contentWidth);
-
-    // Ensure minimum height to prevent layout jumping
-    const minHeight = 3;
-    const paddingNeeded = Math.max(0, minHeight - 1 - treeLines.length);
-    const padding: ActivityLine[] = Array.from({ length: paddingNeeded }, () => ({ text: '', dim: true }));
-
-    const allLines: ActivityLine[] = [
-      { text: 'Activity', dim: true },
-      ...treeLines,
-      ...padding,
-    ];
-
-    const maxHeight = Math.max(minHeight, Math.min(allLines.length, Math.floor((stdout.rows ?? 24) / 3)));
-    const maxStart = Math.max(0, allLines.length - maxHeight);
-    const offset = clamp(activityScrollOffset, 0, maxStart);
-    const start = offset;
-    const end = Math.min(allLines.length, start + maxHeight);
+    const rows = stdout.rows ?? 24;
+    const maxHeight = Math.max(3, Math.min(estimatedTotal, Math.floor(rows / 3)));
+    const maxStart = Math.max(0, estimatedTotal - maxHeight);
     const scrollStep = Math.max(2, Math.floor(maxHeight / 2));
 
-    return {
-      lines: allLines.slice(start, end),
-      maxStart,
-      scrollStep,
-      total: allLines.length,
-    };
-  }, [
-    workerList,
-    workerLogs,
-    workerResults,
-    selectedWorkerId,
-    showWorkerLogs,
-    showWorkerDetails,
-    readerList,
-    readerLogs,
-    readerResults,
-    status,
-    confirmation,
-    hasActiveProgress,
-    contentWidth,
-    stdout.rows,
-    activityScrollOffset,
-    spinnerFrame,
-  ]);
+    return { maxStart, scrollStep };
+  }, [workerList.length, readerList.length, showWorkerDetails, confirmation, stdout.rows]);
 
   useEffect(() => {
-    setActivityScrollOffset((prev) => clamp(prev, 0, activityPanel.maxStart));
-  }, [activityPanel.maxStart]);
+    setActivityScrollOffset((prev) => clamp(prev, 0, activityScrollInfo.maxStart));
+  }, [activityScrollInfo.maxStart]);
 
   const confirmationLines = useMemo(() => {
     if (!confirmation) return [];
@@ -841,9 +922,6 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
   const statusLines = useMemo(() => {
     const session = status.sessionName ? status.sessionName : 'none';
     const modelLabel = status.provider && status.model ? `${status.provider}/${status.model}` : 'unknown';
-    const activityLabel = formatActivity(status);
-    const spinner = hasActiveProgress ? `${SPINNER_FRAMES[spinnerFrame]} ` : '';
-    const activityLine = `${spinner}${activityLabel}`.trimEnd();
 
     const infoParts = [
       `Session ${session}`,
@@ -855,11 +933,9 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       infoParts.push('Focus activity');
     }
     const infoLine = infoParts.join(' | ');
-    const combined = `${activityLine} | ${infoLine}`;
 
-    const baseLines = combined.length <= contentWidth ? [combined] : [activityLine, infoLine];
-    return wrapDisplayLines(baseLines, contentWidth);
-  }, [status, focus, contentWidth, workerCount, readerCount, hasActiveProgress, spinnerFrame]);
+    return wrapDisplayLines([infoLine], contentWidth);
+  }, [status, focus, contentWidth, workerCount, readerCount]);
 
   const hintLine = useMemo(() => {
     if (confirmation) {
@@ -936,15 +1012,22 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
           ))}
         </Box>
       )}
-      {activityPanel.lines.length > 0 && (
-        <Box flexDirection="column">
-          {activityPanel.lines.map((line, index) => (
-            <Text key={`activity-${index}`} color={line.color} dimColor={line.dim}>
-              {line.text || ' '}
-            </Text>
-          ))}
-        </Box>
-      )}
+      <ActivityPanel
+        workerList={workerList}
+        workerLogs={workerLogs}
+        workerResults={workerResults}
+        selectedWorkerId={selectedWorkerId}
+        showWorkerLogs={showWorkerLogs}
+        showWorkerDetails={showWorkerDetails}
+        readerList={readerList}
+        readerLogs={readerLogs}
+        readerResults={readerResults}
+        status={status}
+        confirmation={confirmation}
+        contentWidth={contentWidth}
+        rows={stdout.rows ?? 24}
+        scrollOffset={activityScrollOffset}
+      />
       {confirmationLines.length > 0 && (
         <Box flexDirection="column">
           {confirmationLines.map((line, index) => (

@@ -254,19 +254,21 @@ describe('Ink UI Controller', () => {
   });
 
   describe('Status Updates', () => {
-    it('should handle rapid status updates', () => {
+    it('should debounce rapid status updates', () => {
       const statusHandler = vi.fn();
       controller.on('status', statusHandler);
 
-      // Simulate rapid status changes
+      // Simulate rapid status changes - these are debounced to reduce re-renders
       controller.setStatus({ activity: 'tool', activityDetail: 'read_file' });
       controller.setStatus({ activity: 'thinking' });
       controller.setStatus({ activity: 'tool', activityDetail: 'write_file' });
       controller.setStatus({ activity: 'thinking' });
       controller.setStatus({ activity: 'idle' });
+      controller.flush();
 
-      expect(statusHandler).toHaveBeenCalledTimes(5);
-      expect(statusHandler.mock.calls[4][0].activity).toBe('idle');
+      // Debounced: only final state is emitted
+      expect(statusHandler).toHaveBeenCalledTimes(1);
+      expect(statusHandler.mock.calls[0][0].activity).toBe('idle');
     });
 
     it('should merge status updates', () => {
@@ -275,8 +277,11 @@ describe('Ink UI Controller', () => {
 
       controller.setStatus({ provider: 'anthropic', model: 'claude-3-5-sonnet' });
       controller.setStatus({ activity: 'thinking' });
+      controller.flush();
 
-      const lastStatus = statusHandler.mock.calls[1][0];
+      // Merged into single emission
+      expect(statusHandler).toHaveBeenCalledTimes(1);
+      const lastStatus = statusHandler.mock.calls[0][0];
       expect(lastStatus.provider).toBe('anthropic');
       expect(lastStatus.model).toBe('claude-3-5-sonnet');
       expect(lastStatus.activity).toBe('thinking');
@@ -288,8 +293,10 @@ describe('Ink UI Controller', () => {
 
       controller.setStatus({ sessionName: 'test-session' });
       controller.setStatus({ sessionName: null });
+      controller.flush();
 
-      const lastStatus = statusHandler.mock.calls[1][0];
+      // Merged with final null value
+      const lastStatus = statusHandler.mock.calls[0][0];
       expect(lastStatus.sessionName).toBeNull();
     });
 
@@ -298,6 +305,7 @@ describe('Ink UI Controller', () => {
       controller.on('status', statusHandler);
 
       controller.setStatus({ activity: 'tool', activityDetail: '' });
+      controller.flush();
 
       const status = statusHandler.mock.calls[0][0];
       expect(status.activity).toBe('tool');
@@ -307,6 +315,7 @@ describe('Ink UI Controller', () => {
     it('should preserve previous status values', () => {
       controller.setStatus({ provider: 'openai', model: 'gpt-4' });
       controller.setStatus({ activity: 'thinking' });
+      controller.flush();
 
       const status = controller.getStatus();
       expect(status.provider).toBe('openai');
@@ -431,18 +440,19 @@ describe('Ink UI Controller', () => {
   });
 
   describe('Message Streaming', () => {
-    it('should handle message chunks', () => {
+    it('should handle message chunks (batched)', () => {
       const chunkHandler = vi.fn();
       controller.on('messageChunk', chunkHandler);
 
+      // Chunks are now batched to reduce re-renders
       controller.appendToMessage('m1', 'Hello ');
       controller.appendToMessage('m1', 'World');
       controller.appendToMessage('m1', '!');
+      controller.flush();
 
-      expect(chunkHandler).toHaveBeenCalledTimes(3);
-      expect(chunkHandler.mock.calls[0][0]).toEqual({ id: 'm1', chunk: 'Hello ' });
-      expect(chunkHandler.mock.calls[1][0]).toEqual({ id: 'm1', chunk: 'World' });
-      expect(chunkHandler.mock.calls[2][0]).toEqual({ id: 'm1', chunk: '!' });
+      // Batched into single emission
+      expect(chunkHandler).toHaveBeenCalledTimes(1);
+      expect(chunkHandler.mock.calls[0][0]).toEqual({ id: 'm1', chunk: 'Hello World!' });
     });
 
     it('should ignore empty chunks', () => {
@@ -451,6 +461,7 @@ describe('Ink UI Controller', () => {
 
       controller.appendToMessage('m1', '');
       controller.appendToMessage('m1', null as unknown as string);
+      controller.flush();
 
       expect(chunkHandler).not.toHaveBeenCalled();
     });
@@ -464,16 +475,18 @@ describe('Ink UI Controller', () => {
       expect(completeHandler).toHaveBeenCalledWith('m1');
     });
 
-    it('should handle chunks with unicode', () => {
+    it('should handle chunks with unicode (batched)', () => {
       const chunkHandler = vi.fn();
       controller.on('messageChunk', chunkHandler);
 
       controller.appendToMessage('m1', '你好');
       controller.appendToMessage('m1', '世界');
       controller.appendToMessage('m1', '🌍');
+      controller.flush();
 
-      expect(chunkHandler).toHaveBeenCalledTimes(3);
-      expect(chunkHandler.mock.calls[2][0].chunk).toBe('🌍');
+      // Batched into single emission
+      expect(chunkHandler).toHaveBeenCalledTimes(1);
+      expect(chunkHandler.mock.calls[0][0].chunk).toBe('你好世界🌍');
     });
 
     it('should handle chunks with newlines', () => {
@@ -481,6 +494,7 @@ describe('Ink UI Controller', () => {
       controller.on('messageChunk', chunkHandler);
 
       controller.appendToMessage('m1', 'line1\nline2\n');
+      controller.flush(); // Flush debounced chunks
 
       expect(chunkHandler).toHaveBeenCalledWith({ id: 'm1', chunk: 'line1\nline2\n' });
     });
@@ -489,16 +503,17 @@ describe('Ink UI Controller', () => {
       const chunkHandler = vi.fn();
       controller.on('messageChunk', chunkHandler);
 
+      // Chunks are now batched per message ID to reduce re-renders
       controller.appendToMessage('m1', 'A');
       controller.appendToMessage('m2', 'B');
       controller.appendToMessage('m1', 'C');
       controller.appendToMessage('m2', 'D');
+      controller.flush(); // Flush debounced chunks
 
-      expect(chunkHandler).toHaveBeenCalledTimes(4);
-      expect(chunkHandler.mock.calls[0][0]).toEqual({ id: 'm1', chunk: 'A' });
-      expect(chunkHandler.mock.calls[1][0]).toEqual({ id: 'm2', chunk: 'B' });
-      expect(chunkHandler.mock.calls[2][0]).toEqual({ id: 'm1', chunk: 'C' });
-      expect(chunkHandler.mock.calls[3][0]).toEqual({ id: 'm2', chunk: 'D' });
+      // Batched chunks: m1 gets 'AC', m2 gets 'BD'
+      expect(chunkHandler).toHaveBeenCalledTimes(2);
+      expect(chunkHandler.mock.calls).toContainEqual([{ id: 'm1', chunk: 'AC' }]);
+      expect(chunkHandler.mock.calls).toContainEqual([{ id: 'm2', chunk: 'BD' }]);
     });
 
     it('should start assistant message and return id', () => {
