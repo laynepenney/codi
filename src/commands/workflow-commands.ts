@@ -97,6 +97,13 @@ export const workflowListCommand: Command = {
 
         try {
           const workflow = getWorkflowByName(validateName);
+          
+          if (!workflow) {
+            const { createWorkflowError } = await import('../workflow/errors.js');
+            const error = createWorkflowError(`Workflow "${validateName}" not found`, undefined, validateName);
+            return error.getFullMessage();
+          }
+          
           const { valid, errors, warnings, hints } = await import('../workflow/errors.js').then(m => 
             m.validateWorkflowWithFeedback(workflow)
           );
@@ -149,6 +156,10 @@ export const workflowListCommand: Command = {
           }
 
           return output;
+        } catch (error) {
+          const { handleWorkflowError } = await import('../workflow/errors.js');
+          return handleWorkflowError(error, validateName);
+        }
 
       default:
         return `Unknown workflow command: "${subcommand}"
