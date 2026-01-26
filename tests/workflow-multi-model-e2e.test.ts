@@ -6,33 +6,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { WorkflowManager, WorkflowExecutor } from '../src/workflow/index.js';
+import { MockProvider, createMockAgent } from './workflow-mocks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workflowsDir = path.join(__dirname, '..', 'workflows');
-
-// Import shared mocks
-import { MockProvider, createMockAgent } from './workflow-mocks.js';
-const createMockAgent = (providers: MockProvider[] = []) => {
-  const providerMap = new Map();
-  providers.forEach(provider => {
-    providerMap.set(provider.name, provider);
-  });
-
-  return {
-    executeTool: vi.fn().mockImplementation(async (toolName: string, args: any) => {
-      if (toolName === 'bash') {
-        return { stdout: 'mock shell output', stderr: '', exitCode: 0 };
-      }
-      return { result: 'mock tool result' };
-    }),
-    setProvider: vi.fn().mockImplementation((providerName: string) => {
-      return providerMap.get(providerName);
-    }),
-    getProvider: vi.fn().mockImplementation(() => {
-      return providers[0]; // Return first provider by default
-    })
-  };
-};
 
 describe('Multi-Model Peer Review Workflow E2E Tests', () => {
   let mockProviders: MockProvider[];
