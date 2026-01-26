@@ -9,6 +9,7 @@
 
 import ora, { type Ora } from 'ora';
 import chalk from 'chalk';
+import { logger } from './logger.js';
 
 /**
  * Manages a single spinner instance with TTY detection and state management.
@@ -80,8 +81,8 @@ class SpinnerManager {
         spinner: 'dots',
         discardStdin: false, // Don't interfere with readline's stdin handling
       }).start();
-    } catch {
-      // Silently ignore spinner errors - they shouldn't break the app
+    } catch (error) {
+      logger.debug(`Spinner start failed: ${error instanceof Error ? error.message : error}`);
       this.spinner = null;
     }
   }
@@ -144,7 +145,8 @@ class SpinnerManager {
         this.spinner.stop();
         this.spinner = null;
       }
-    } catch {
+    } catch (error) {
+      logger.debug(`Spinner stop failed: ${error instanceof Error ? error.message : error}`);
       this.spinner = null;
     }
   }

@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { Message, ContentBlock } from './types.js';
+import { logger } from './logger.js';
 
 const SESSIONS_DIR = path.join(os.homedir(), '.codi', 'sessions');
 
@@ -157,7 +158,8 @@ export function loadSession(name: string): Session | null {
     }
 
     return session;
-  } catch {
+  } catch (error) {
+    logger.debug(`Failed to load session '${name}': ${error instanceof Error ? error.message : error}`);
     return null;
   }
 }
