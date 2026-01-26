@@ -867,7 +867,7 @@ export default {
 **Files to modify**:
 - Modify: `src/agent.ts` (parallel execution logic)
 
-#### 21. Web Search Tool - IMPLEMENTED
+#### 14. Web Search Tool - IMPLEMENTED
 
 **Status**: Complete
 
@@ -900,7 +900,7 @@ Search results for: "TypeScript 5.0 features"
 - `src/tools/web-search.ts` - Web search tool implementation
 - `tests/web-search.test.ts` - Unit tests
 
-#### 22. Multi-Model Orchestration - IMPLEMENTED
+#### 15. Multi-Model Orchestration - IMPLEMENTED
 
 **Status**: Complete
 
@@ -949,7 +949,7 @@ codi --summarize-provider anthropic --summarize-model claude-3-5-haiku-latest
 - `src/agent.ts` - `getSummaryProvider()` method
 - `tests/multi-model.test.ts` - Unit tests
 
-#### 23. Model Map (Multi-Model Orchestration) - COMPLETE
+#### 16. Model Map (Multi-Model Orchestration) - COMPLETE
 
 **Status**: Complete (Phases 1-3 + Model Roles)
 
@@ -1093,7 +1093,7 @@ pipelines:
 - [ ] Config hot-reload support (watch file changes)
 - [ ] Cost tracking per model/pipeline
 
-#### 24. Multi-Agent Orchestration - IMPLEMENTED
+#### 17. Multi-Agent Orchestration - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1179,7 +1179,7 @@ codi
 - ✅ Ollama (glm-4.7:cloud, qwen3-coder:480b-cloud)
 - ✅ OpenAI
 
-#### 25. Symbol Index - IMPLEMENTED
+#### 18. Symbol Index - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1209,7 +1209,7 @@ codi
 - [ ] Symbol rename/refactor support
 - [ ] Call graph tracking
 
-#### 26. Code Snippets Library
+#### 19. Code Snippets Library
 **What**: Save and reuse code snippets.
 
 **Implementation**:
@@ -1217,7 +1217,7 @@ codi
 - Add `/snippet save <name>` and `/snippet use <name>` commands
 - Support tags and search
 
-#### 27. Multi-file Refactoring
+#### 20. Multi-file Refactoring
 **What**: Coordinated changes across multiple files.
 
 **Implementation**:
@@ -1226,7 +1226,7 @@ codi
 - Generate coordinated edit plan
 - Apply changes atomically (all or nothing)
 
-#### 29. Test Runner Integration - IMPLEMENTED
+#### 21. Test Runner Integration - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1247,7 +1247,7 @@ codi
 - `src/tools/run-tests.ts` - Test runner tool implementation
 - `tests/run-tests.test.ts` - Comprehensive test coverage
 
-#### 30. Context Optimization - IMPLEMENTED
+#### 22. Context Optimization - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1277,7 +1277,7 @@ codi
 - `-c, --compress` - Enable context compression (entity normalization) at startup
 - Automatic compaction happens regardless of flag when needed
 
-#### 31. RAG System (Embeddings) - IMPLEMENTED
+#### 23. RAG System (Embeddings) - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1304,7 +1304,7 @@ codi
 - OpenAI API key (for embeddings)
 - Automatic fallback if unavailable
 
-#### 28. Debug UI - IMPLEMENTED
+#### 24. Debug UI - IMPLEMENTED
 
 **Status**: Complete
 
@@ -1357,15 +1357,22 @@ For maximum impact with reasonable effort:
 4. ~~**Diff Preview** - Safety improvement~~ DONE
 5. ~~**Undo System** - Safety net for file changes~~ DONE
 6. ~~**Cost Tracking** - API usage and cost monitoring~~ DONE
-7. ~~**Test Runner** - Automated test execution~~ DONE
-8. ~~**Context Optimization** - Smart compaction and deduplication~~ DONE
-9. ~~**RAG System** - Semantic code search~~ DONE
-10. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
+7. ~~**Plugin System** - Third-party extensions (DISABLED)~~ DONE
+8. ~~**Vision Support** - Image analysis capabilities~~ DONE
+9. ~~**Interactive File Selection** - Fuzzy file finder (LOWER PRIORITY)~~ PLANNED
+10. ~~**Parallel Tool Execution** - Concurrent operations (LOWER PRIORITY)~~ PLANNED
 11. ~~**Web Search** - Search web via DuckDuckGo~~ DONE
 12. ~~**Multi-Model Orchestration** - Use cheaper models for summarization~~ DONE
 13. ~~**Model Map** - Docker-compose style multi-model config~~ DONE (Phases 1-3 complete)
 14. ~~**Multi-Agent Orchestration** - Parallel agents with IPC permission bubbling~~ DONE
-15. ~~**Security Model Validation** - AI-powered security analysis for bash commands~~ DONE
+15. ~~**Symbol Index** - Code navigation enhancements~~ DONE
+16. ~~**Code Snippets Library** - Code reuse system (LOWER PRIORITY)~~ PLANNED
+17. ~~**Multi-file Refactoring** - Coordinated changes (LOWER PRIORITY)~~ PLANNED
+18. ~~**Test Runner** - Automated test execution~~ DONE
+19. ~~**Context Optimization** - Smart compaction and deduplication~~ DONE
+20. ~~**RAG System** - Semantic code search~~ DONE
+21. ~~**Debug UI** - Spinners and graduated verbosity~~ DONE
+22. ~~**Security Model Validation** - AI-powered security analysis for bash commands~~ DONE
 
 ## Security Guidelines
 
