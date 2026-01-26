@@ -303,9 +303,9 @@ evolution/
 
 | # | Feature | Status | Priority | Est. Effort | Assigned To |
 |---|---------|--------|----------|-------------|-------------|
-| 01 | Interactive Workflow System | 📋 DRAFT | HIGH | 5 weeks | - |
-| 02 | Vim Mode Support | N/A | - | - | - |
-| 03 | Multi-File Search UI | N/A | - | - | - |
+| 01 | Interactive Workflow System | ✅ IMPLEMENTED | HIGH | 5 weeks | - |
+| 02 | Enhanced Web Search | ✅ IMPLEMENTED | HIGH | 3 weeks | - |
+| 03 | LSP Integration | 🚀 PROPOSED | HIGH | 4 weeks | @laynepenney |
 
 ## Questions?
 
