@@ -149,29 +149,34 @@ export const createMockAgent = (providers: MockProvider[] = []) => {
       return { result: 'mock tool result' };
     }),
 
-    // AI chat function for workflow AI prompt steps
-    chat: vi.fn().mockImplementation(async (messagesOrPrompt, options = {}, callbacks = {}) => {
+    // AI chat function for workflow AI prompt steps (returns in expected format)
+    chat: vi.fn().mockImplementation(async (prompt: string, options?: any) => {
       const provider = agent.provider as MockProvider;
-      const model = options.model || provider.getModel();
+      const model = options?.model || agent.currentModel;
 
-      let promptText: string;
-      if (typeof messagesOrPrompt === 'string') {
-        promptText = messagesOrPrompt;
-      } else {
-        promptText = messagesOrPrompt.map((m: any) => m.content).join('\n');
-      }
+      const response = await provider.generateResponse(prompt, model);
 
-      const response = await provider.generateResponse(promptText, model);
+      // Return in the format expected by workflow executor
+      return {
+        text: response,
+        response: response
+      };
+    }),
 
-      if (callbacks.onText) {
-        const chunks = response.split(' ');
-        for (const chunk of chunks) {
-          callbacks.onText(chunk + ' ');
-          await new Promise(resolve => setTimeout(resolve, 30));
-        }
-      }
+    // Switch model for workflow model switching
+    switchModel: vi.fn().mockImplementation(async (model: string) => {
+      const [providerName, modelName] = model.includes(':')
+        ? model.split(':', 2)
+        : [agent.currentProviderName, model];
 
-      return response;
+      const provider = providerMap.get(`${providerName}:${modelName}`) || providers[0];
+
+      // Update agent state
+      agent.provider = provider;
+      agent.currentProviderName = providerName;
+      agent.currentModel = modelName;
+
+      return provider;
     }),
 
     // Execute workflow steps with full simulation
@@ -188,13 +193,12 @@ export const createMockAgent = (providers: MockProvider[] = []) => {
           case 'ai-prompt':
             const response = await agent.chat(
               step.prompt,
-              { model: step.model },
-              { onText: vi.fn() }
+              { model: step.model }
             );
             return { status: 'completed', result: response };
 
           case 'switch-model':
-            const newProvider = agent.switchModel(step.model);
+            const newProvider = await agent.switchModel(step.model);
             return { status: 'completed', result: `Switched to ${newProvider.getModel()}` };
 
           case 'interactive':
@@ -215,45 +219,12 @@ export const createMockAgent = (providers: MockProvider[] = []) => {
       }
     }),
 
-    // Set provider with proper state tracking
-    setProvider: vi.fn().mockImplementation((providerOrName) => {
-      if (typeof providerOrName === 'string') {
-        const provider = providerMap.get(providerOrName);
-        if (provider) {
-          agent.provider = provider;
-          agent.currentProviderName = provider.name;
-          agent.currentModel = provider.model;
-        }
-        return provider;
-      } else {
-        agent.provider = providerOrName;
-        agent.currentProviderName = providerOrName.name;
-        agent.currentModel = providerOrName.model;
-        return providerOrName;
-      }
-    }),
-
-    // Switch model (used by workflow engine)
-    switchModel: vi.fn().mockImplementation((model: string) => {
-      const [providerName, modelName] = model.includes(':')
-        ? model.split(':', 2)
-        : [agent.currentProviderName, model];
-
-      const provider = providerMap.get(`${providerName}:${modelName}`) || providers[0];
-
-      agent.provider = provider;
-      agent.currentProviderName = providerName;
-      agent.currentModel = modelName;
-
-      return provider;
-    }),
-
     // Get current provider
     getProvider: vi.fn().mockImplementation(() => {
       return agent.provider;
     }),
 
-    // Callbacks for workflow engine integration
+    // Callbacks
     callbacks: {
       onText: vi.fn(),
       onToolCall: vi.fn(),
