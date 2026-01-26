@@ -154,13 +154,33 @@ export class IPCClient extends EventEmitter {
 
   /**
    * Disconnect from the server.
+   * Waits for pending writes to complete before closing the socket.
    */
   async disconnect(): Promise<void> {
-    if (this.socket) {
-      this.socket.destroy();
-      this.socket = null;
+    if (!this.socket) {
+      this.connected = false;
+      return;
     }
+
+    const socket = this.socket;
+    this.socket = null;
     this.connected = false;
+
+    // Wait for pending writes to drain, then close gracefully
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        resolve();
+      }, 1000); // Timeout after 1 second
+
+      socket.once('close', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      // End gracefully - allows pending writes to complete
+      socket.end();
+    });
   }
 
   /**
