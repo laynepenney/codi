@@ -6,54 +6,74 @@ All notable changes to Codi are documented in this file.
 
 ### Breaking Changes
 
+- **Ollama Cloud Provider Removed**: The `ollama-cloud` provider has been removed. Use `--provider ollama` with `OLLAMA_HOST=https://ollama.com` instead. The regular `ollama` provider uses the OpenAI-compatible API which works correctly with Ollama Cloud.
+
 - **Web Search Tool Migration**: Replaced `WebSearchTool` with `EnhancedWebSearchTool`
-  - Old `src/tools/web-search.ts` has been removed
-  - New enhanced version provides multi-engine support, caching, and advanced features
   - Tool name remains `web_search` for backward compatibility
   - Supports Brave API (primary), Google Custom Search, Bing API, and DuckDuckGo fallback
-  - Note: Configuration options may have changed - see documentation for details
 
 ### Features
 
-- **Enhanced Web Search - Phase 2**:
-  - **Search Templates System**: Domain-specific optimization for docs, pricing, and errors
-    - `docs` template: Site filtering (StackOverflow, MDN, Python docs) + syntax/example keywords
-    - `pricing` template: Site filtering (OpenAI, Anthropic) + pricing/cost/rate keywords
-    - `errors` template: Site filtering (StackOverflow, GitHub) + error/fix/solution keywords
-    - Template-aware TTL: docs 24h, pricing 7d, errors 12h, general 1h
+- **Workflow System Phase 8 - Production Ready** (#173):
+  - AI-assisted workflow building with natural language
+  - Multi-step pipelines with variable substitution
+  - Git and PR action steps (commit, push, create-pr, review-pr)
+  - Comprehensive test coverage (E2E and unit tests)
+  - Template system for common workflow patterns
 
-  - **Domain-Specific Processing**:
-    - Relevance scoring algorithm (0-1 scale) based on domain, content match, quality
-    - URL-based scoring: StackOverflow (+0.3), GitHub (+0.2), official domains (+0.1)
-    - Content matching: Query presence in title/snippet detection with weighted bonuses
-    - Quality indicators: Educational/problem-solving content recognition
-    - Results sorted by calculated relevance score
+- **Context Debug Command** (#179):
+  - New `/compact debug` subcommand for inspecting context window state
+  - View message counts and token estimates
+  - Analyze working set and indexed files
+  - Debug context compaction behavior
 
-  - **Rate Limiting**:
-    - Per-engine rate limiting: 5 requests/minute per engine
-    - Graceful fallback to next engine when rate limited
-    - Automatic reset after 60 seconds
+- **Enhanced Web Search - Phase 2** (#165, #170):
+  - Multi-engine support with automatic fallback
+  - Search templates for docs, pricing, and error queries
+  - Relevance scoring algorithm (domain, content match, quality)
+  - Per-engine rate limiting with graceful degradation
+  - Template-aware caching TTLs
 
-  - **Enhanced Output**:
-    - Score-based sorting for better result relevance
-    - Score display for high-confidence results (score > 0.7)
+- **Memory Monitoring** (#167):
+  - Proactive context compaction based on memory pressure
+  - Automatic cleanup when approaching limits
 
-- **Code Quality Improvements**:
-  - Extracted magic numbers to named constants (RELEVANCE_SCORES, RATE_LIMITS)
-  - Removed unused `sort` property from template configuration
-  - Improved maintainability for configuration tuning
+- **Symbol Index Multi-Language Extension** (#172):
+  - Improved symbol extraction across languages
+  - Better TypeScript/JavaScript support
 
-### Tests
+### Improvements
 
-- Added rate limiting tests:
-  - `should enforce rate limiting for engines`
-  - `should reset rate limits after time period`
-- Total test coverage: 8/8 tests passing for enhanced web search
+- **Technical Debt Cleanup** (#181):
+  - Extracted ~400 lines from `index.ts` into `src/cli/` modules
+  - Added discriminated union types for workflow steps
+  - Added 9 type guards for type-safe step handling
+  - Reduced `as any` usage from 30+ to 10 instances
+
+- **Debug Logging for Error Handlers** (#185):
+  - Added `logger.debug()` calls to 20 previously silent catch blocks
+  - Enables troubleshooting with `--debug` flag
+  - Files: memory.ts, session.ts, history.ts, usage.ts, agent.ts, diff.ts, spinner.ts
+
+- **Plugin System Investigation** (#181):
+  - Created comprehensive `docs/PLUGIN-INVESTIGATION.md`
+  - Security analysis and recommendations
+  - Phased re-enablement roadmap
 
 ### Bug Fixes
 
-- Removed legacy `WebSearchTool` (was replaced by `EnhancedWebSearchTool`)
-- Removed legacy `web-search.test.ts` test file
+- **UI Freeze During Compaction** (#174): Fixed UI becoming unresponsive during context compaction
+- **Workflow E2E Tests** (#180): Resolved flaky PR review tests with improved mock agent
+- **Model Display Updates** (#175): Fixed model display not updating when provider changes during workflow
+- **IPC Disconnect Race** (#164): Graceful IPC disconnect prevents race condition in orchestration
+- **Ink UI Stability** (#163): Added tool call display and improved visual stability
+
+### Tests
+
+- 2151 tests passing
+- Added workflow E2E tests for PR review workflow
+- Added rate limiting tests for enhanced web search
+- Improved test stability with buffer flush helpers
 
 ## [0.13.0] - 2026-01-18
 
