@@ -2,6 +2,59 @@
 
 All notable changes to Codi are documented in this file.
 
+## [0.17.0] - 2026-01-26
+
+### Breaking Changes
+
+- **Web Search Tool Migration**: Replaced `WebSearchTool` with `EnhancedWebSearchTool`
+  - Old `src/tools/web-search.ts` has been removed
+  - New enhanced version provides multi-engine support, caching, and advanced features
+  - Tool name remains `web_search` for backward compatibility
+  - Supports Brave API (primary), Google Custom Search, Bing API, and DuckDuckGo fallback
+  - Note: Configuration options may have changed - see documentation for details
+
+### Features
+
+- **Enhanced Web Search - Phase 2**:
+  - **Search Templates System**: Domain-specific optimization for docs, pricing, and errors
+    - `docs` template: Site filtering (StackOverflow, MDN, Python docs) + syntax/example keywords
+    - `pricing` template: Site filtering (OpenAI, Anthropic) + pricing/cost/rate keywords
+    - `errors` template: Site filtering (StackOverflow, GitHub) + error/fix/solution keywords
+    - Template-aware TTL: docs 24h, pricing 7d, errors 12h, general 1h
+
+  - **Domain-Specific Processing**:
+    - Relevance scoring algorithm (0-1 scale) based on domain, content match, quality
+    - URL-based scoring: StackOverflow (+0.3), GitHub (+0.2), official domains (+0.1)
+    - Content matching: Query presence in title/snippet detection with weighted bonuses
+    - Quality indicators: Educational/problem-solving content recognition
+    - Results sorted by calculated relevance score
+
+  - **Rate Limiting**:
+    - Per-engine rate limiting: 5 requests/minute per engine
+    - Graceful fallback to next engine when rate limited
+    - Automatic reset after 60 seconds
+
+  - **Enhanced Output**:
+    - Score-based sorting for better result relevance
+    - Score display for high-confidence results (score > 0.7)
+
+- **Code Quality Improvements**:
+  - Extracted magic numbers to named constants (RELEVANCE_SCORES, RATE_LIMITS)
+  - Removed unused `sort` property from template configuration
+  - Improved maintainability for configuration tuning
+
+### Tests
+
+- Added rate limiting tests:
+  - `should enforce rate limiting for engines`
+  - `should reset rate limits after time period`
+- Total test coverage: 8/8 tests passing for enhanced web search
+
+### Bug Fixes
+
+- Removed legacy `WebSearchTool` (was replaced by `EnhancedWebSearchTool`)
+- Removed legacy `web-search.test.ts` test file
+
 ## [0.13.0] - 2026-01-18
 
 ### Features

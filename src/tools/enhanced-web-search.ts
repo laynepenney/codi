@@ -28,6 +28,27 @@ interface SearchEngine {
   isAvailable(config: WebSearchConfig): Promise<boolean>;
 }
 
+// Relevance scoring constants
+const RELEVANCE_SCORES = {
+  BASE_SCORE: 0.5,
+  STACKOVERFLOW_BOOST: 0.3,
+  GITHUB_BOOST: 0.2,
+  OFFICIAL_DOCS_BOOST: 0.1,
+  QUERY_IN_TITLE_BOOST: 0.4,
+  QUERY_IN_SNIPPET_BOOST: 0.2,
+  LONG_SNIPPET_BOOST: 0.1,
+  EDUCATIONAL_CONTENT_BOOST: 0.15,
+  PROBLEM_SOLVING_BOOST: 0.15,
+  MIN_SNIPPET_LENGTH: 100,
+  MAX_SCORE: 1.0,
+} as const;
+
+// Rate limiting constants
+const RATE_LIMITS = {
+  REQUESTS_PER_MINUTE: 5,
+  RESET_PERIOD_MS: 60000, // 1 minute
+} as const;
+
 interface WebSearchConfig {
   braveApiKey?: string;
   googleApiKey?: string;
@@ -43,22 +64,18 @@ interface WebSearchConfig {
   templates?: {
     docs?: {
       sites?: string[];
-      sort?: 'relevance' | 'date';
       ttl?: number;
     };
     pricing?: {
       sites?: string[];
-      sort?: 'relevance' | 'date';
       ttl?: number;
     };
     errors?: {
       sites?: string[];
-      sort?: 'relevance' | 'date';
       ttl?: number;
     };
     general?: {
       sites?: string[];
-      sort?: 'relevance' | 'date';
       ttl?: number;
     };
   };
@@ -339,22 +356,18 @@ export class EnhancedWebSearchTool extends BaseTool {
       templates: {
         docs: {
           sites: ['stackoverflow.com', 'docs.python.org', 'developer.mozilla.org'],
-          sort: 'relevance',
           ttl: 86400, // 24 hours
         },
         pricing: {
           sites: ['openai.com', 'anthropic.com'],
-          sort: 'date',
           ttl: 604800, // 7 days
         },
         errors: {
           sites: ['stackoverflow.com', 'github.com'],
-          sort: 'relevance',
           ttl: 43200, // 12 hours
         },
         general: {
           sites: [],
-          sort: 'relevance',
           ttl: 3600, // 1 hour
         },
       },
@@ -499,14 +512,14 @@ export class EnhancedWebSearchTool extends BaseTool {
     const limit = this.rateLimits.get(engineName);
     if (!limit) return true;
 
-    // Reset counter if more than 1 minute has passed
-    if (Date.now() - limit.lastRequest > 60000) {
+    // Reset counter if more than reset period has passed
+    if (Date.now() - limit.lastRequest > RATE_LIMITS.RESET_PERIOD_MS) {
       this.rateLimits.set(engineName, { count: 0, lastRequest: Date.now() });
       return true;
     }
 
-    // Allow up to 5 requests per minute per engine
-    return limit.count < 5;
+    // Allow up to requests per minute per engine
+    return limit.count < RATE_LIMITS.REQUESTS_PER_MINUTE;
   }
 
   private recordRequest(engineName: string): void {
@@ -588,17 +601,17 @@ export class EnhancedWebSearchTool extends BaseTool {
   }
 
   private calculateRelevanceScore(result: SearchResult, query: string): number {
-    let score = 0.5; // Base score
+    let score = RELEVANCE_SCORES.BASE_SCORE;
 
     // URL-based scoring
     if (result.url.includes('stackoverflow.com') || result.url.includes('stackexchange.com')) {
-      score += 0.3; // Tech documentation boost
+      score += RELEVANCE_SCORES.STACKOVERFLOW_BOOST; // Tech documentation boost
     }
     if (result.url.includes('github.com')) {
-      score += 0.2; // Code repository boost
+      score += RELEVANCE_SCORES.GITHUB_BOOST; // Code repository boost
     }
     if (result.url.includes('.org') || result.url.includes('developer.')) {
-      score += 0.1; // Official documentation boost
+      score += RELEVANCE_SCORES.OFFICIAL_DOCS_BOOST; // Official documentation boost
     }
 
     // Content-based scoring
@@ -607,25 +620,25 @@ export class EnhancedWebSearchTool extends BaseTool {
     const snippetLower = result.snippet.toLowerCase();
 
     if (titleLower.includes(queryLower)) {
-      score += 0.4; // Query in title
+      score += RELEVANCE_SCORES.QUERY_IN_TITLE_BOOST; // Query in title
     } else if (snippetLower.includes(queryLower)) {
-      score += 0.2; // Query in snippet
+      score += RELEVANCE_SCORES.QUERY_IN_SNIPPET_BOOST; // Query in snippet
     }
 
     // Length-based scoring
-    if (result.snippet.length > 100) {
-      score += 0.1; // Longer snippets are better
+    if (result.snippet.length > RELEVANCE_SCORES.MIN_SNIPPET_LENGTH) {
+      score += RELEVANCE_SCORES.LONG_SNIPPET_BOOST; // Longer snippets are better
     }
 
     // Quality indicators
     if (result.title.includes('example') || result.title.includes('tutorial')) {
-      score += 0.15; // Educational content
+      score += RELEVANCE_SCORES.EDUCATIONAL_CONTENT_BOOST; // Educational content
     }
     if (result.title.includes('error') || result.title.includes('solution')) {
-      score += 0.15; // Problem-solving content
+      score += RELEVANCE_SCORES.PROBLEM_SOLVING_BOOST; // Problem-solving content
     }
 
-    return Math.min(score, 1.0); // Cap at 1.0
+    return Math.min(score, RELEVANCE_SCORES.MAX_SCORE); // Cap at maximum
   }
 
   // Configuration methods (to be called from tool registry)
