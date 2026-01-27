@@ -70,23 +70,6 @@ Dangerous operations require user approval. Diff previews before file changes. F
 ### 🧩 Extensible Architecture
 Easy to add new tools, commands, providers, and plugins.
 
-### 🔄 Interactive Workflows
-Create multi-step workflows with AI model switching, conditional logic, loops, and built-in actions. Supports automated PR reviews, code refactoring pipelines, and CI/CD automation.
-
-```yaml
-- id: create-pr
-  action: create-pr
-  title: "Automated feature"
-- id: cheap-review
-  action: switch-model
-  model: "claude-haiku"
-- id: review
-  action: review-pr
-  check: "approved"
-- id: merge
-  action: merge-pr
-```
-
 </td>
 </tr>
 </table>
@@ -348,145 +331,6 @@ Sessions auto-save after each response; use `/save` to name or snapshot a sessio
 | `/memories [query]` | List or search stored memories |
 | `/profile` | View your user profile |
 | `/profile set <key> <value>` | Update profile preferences |
-
-</details>
-
-<details>
-<summary><strong>🔧 Interactive Workflows</strong></summary>
-
-### Workflow Execution Commands
-| Command | Aliases | Description |
-|---------|---------|-------------|
-| `/workflow list` | `/workflow ls` | List available workflows |
-| `/workflow show <name>` | `/workflow view` | Show workflow details and steps |
-| `/workflow validate <name>` | - | Validate workflow syntax |
-| `/workflow-run <name>` | `/wr` | Execute or resume a workflow |
-
-### AI-Assisted Workflow Builder
-| Command | Aliases | Description |
-|---------|---------|-------------|
-| `/workflow-build "<description>"` | `/wbuild` | Create workflow from natural language |
-| `/workflow-build template list` | - | List available templates |
-| `/workflow-build template <name>` | - | Generate workflow from template |
-
-### Available Templates
-**Built-in Templates** (5 professional workflows):
-- `deployment` - Git deployment with testing
-- `documentation` - AI-generated docs with human review  
-- `refactor` - Code refactoring workflow
-- `testing` - Smart testing with conditional logic
-- `pr-workflow` - Complete PR creation → review → merge cycle
-
-### Quick Start Examples
-
-**1. Create a workflow from natural language:**
-```
-/workflow-build "Create a workflow that deploys to staging, runs tests, and creates a PR if tests pass"
-```
-
-**2. Generate from a template:**
-```
-/workflow-build template pr-workflow
-```
-
-**3. List available workflows:**
-```
-/workflow list
-```
-
-**4. Execute a workflow:**
-```
-/workflow-run my-workflow
-```
-
-### Advanced Workflow Features
-
-**Model Switching:**
-```yaml
-- id: switch-to-haiku
-  action: switch-model
-  model: "claude-haiku"
-```
-
-**Conditional Logic:**
-```yaml
-- id: check-approval
-  action: conditional
-  check: "approved"
-  onTrue: "merge-pr"
-  onFalse: "fix-issues"
-```
-
-**Loop Support:**
-```yaml
-- id: review-loop
-  action: loop
-  condition: "!approved"
-  to: "review-step"
-  maxIterations: 5
-```
-
-**Built-in Actions:**
-- `shell` - Execute shell commands
-- `ai-prompt` - Send prompts to AI model
-- `git:commit`, `git:push`, `git:pull`, `git:sync` - Git operations
-- `create-pr`, `review-pr`, `merge-pr` - PR workflows
-- `switch-model` - Change AI model
-
-### Custom Templates
-
-Create custom templates in `workflows/templates/` directory:
-```yaml
-name: my-template
-description: My custom workflow template
-steps:
-  - id: step1
-    action: shell
-    command: echo "Hello"
-```
-
-Use custom templates:
-```
-/workflow-build template my-template
-```
-
-**Example workflow - PR Review Loop:**
-```yaml
-name: pr-review-loop
-description: Automated PR review with model switching
-steps:
-  - id: create-pr
-    action: create-pr
-    title: "Automated feature"
-  - id: cheap-review
-    action: switch-model
-    model: "claude-haiku"
-  - id: review
-    action: review-pr
-    check: "approved"
-  - id: merge
-    action: merge-pr
-```
-
-**Example workflow - Code Refactoring:**
-```yaml
-name: refactor-workflow
-description: AI-assisted code refactoring
-steps:
-  - id: analyze
-    action: ai-prompt
-    prompt: "Analyze {{file}} for refactoring opportunities"
-  - id: apply-changes
-    action: ai-prompt
-    model: "claude-sonnet-4"
-    prompt: "Refactor {{file}} based on analysis"
-  - id: test
-    action: shell
-    command: "npm test"
-  - id: commit
-    action: git:commit
-    message: "refactor: improve code quality"
-```
 
 </details>
 
@@ -907,8 +751,6 @@ See [CODI.md](./CODI.md) for detailed contribution guidelines.
 
 ## 🗺️ Roadmap
 
-**Current Status**: Workflow System Phase 2 Complete ✅
-
 ### ✅ Completed Features
 - **Multi-provider support** (Claude, OpenAI, Ollama)
 - **Comprehensive tool suite** (28+ file, git, code tools)
@@ -920,25 +762,11 @@ See [CODI.md](./CODI.md) for detailed contribution guidelines.
 - **RAG system** for semantic code search
 - **Web search** via DuckDuckGo
 - **Model map** for multi-model workflows
-- **Interactive workflow system** (Phase 1-2)
-
-### 🔄 Recent Major Updates (Jan 2025)
-
-**Interactive Workflow System** ✅ Phase 1-2 Complete
-- Execute multi-step workflows with model switching
-- YAML-based workflow definition
-- State persistence and progress tracking
-- `/workflow list/show/validate/run` commands
-- Cross-provider model switching
 
 ### 🔲 Planned Features
-- **Workflow Phase 3**: Conditional logic and branching
-- **Workflow Phase 4**: Loop support with safety limits
 - **Enhanced MCP support**: Better tool interoperability
 - **Visual debugging**: GUI for session debugging
-- **Team features**: Collaborative workflows
-
-See [workflow-status-roadmap.md](workflow-status-roadmap.md) for detailed development plan.
+- **Team features**: Collaborative sessions
 
 ---
 
