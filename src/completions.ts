@@ -74,20 +74,36 @@ const GIT_BRANCH_COMMANDS = ['git', 'branch', 'merge', 'rebase', 'checkout', 'di
 const SESSION_COMMANDS = ['load', 'sessions'];
 
 /**
+ * Performance cache for dynamic completions
+ */
+const dynamicCache = new Map<string, string[]>();
+let cacheTimestamp = 0;
+const CACHE_TTL = 5000; // 5 seconds
+
+/**
  * Get git branch names synchronously.
  * Returns empty array if not in a git repo or on error.
  */
 function getGitBranches(): string[] {
+  const now = Date.now();
+  if (now - cacheTimestamp < CACHE_TTL && dynamicCache.has('git-branches')) {
+    return dynamicCache.get('git-branches')!;
+  }
+  
   try {
     const output = execSync('git branch --format="%(refname:short)"', {
       encoding: 'utf-8',
       timeout: 1000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return output
+    const branches = output
       .split('\n')
       .map(b => b.trim())
       .filter(b => b.length > 0);
+    
+    dynamicCache.set('git-branches', branches);
+    cacheTimestamp = now;
+    return branches;
   } catch {
     return [];
   }
@@ -97,12 +113,21 @@ function getGitBranches(): string[] {
  * Get session names from ~/.codi/sessions/.
  */
 function getSessionNames(): string[] {
+  const now = Date.now();
+  if (now - cacheTimestamp < CACHE_TTL && dynamicCache.has('session-names')) {
+    return dynamicCache.get('session-names')!;
+  }
+  
   const sessionsDir = CodiPaths.sessions();
   if (!existsSync(sessionsDir)) return [];
   try {
-    return readdirSync(sessionsDir)
+    const sessions = readdirSync(sessionsDir)
       .filter(f => f.endsWith('.json'))
       .map(f => f.replace('.json', ''));
+    
+    dynamicCache.set('session-names', sessions);
+    cacheTimestamp = now;
+    return sessions;
   } catch {
     return [];
   }
