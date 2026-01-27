@@ -140,19 +140,29 @@ export function CompletableInput({
 
   const displayValue = value ?? placeholder ?? '';
 
+  // When NOT focused, just show the text (value or placeholder)
   if (!focus || !showCursor) {
     return <Text dimColor={(!value) as boolean}>{displayValue}</Text>;
   }
 
-  const beforeCursor = value.slice(0, cursorIndex);
-  const afterCursor = value.slice(cursorIndex);
-  const cursorChar = afterCursor.length > 0 ? afterCursor[0] : ' ';
+  // When focused - always show the block cursor
+  // If there's a value, display it with cursor at position
+  if (value) {
+    const beforeCursor = value.slice(0, cursorIndex);
+    const afterCursor = value.slice(cursorIndex);
+    return (
+      <Text>
+        {beforeCursor}
+        <Text inverse>█</Text>
+        {afterCursor}
+      </Text>
+    );
+  }
 
+  // Empty input - show placeholder with cursor at the end
   return (
-    <Text dimColor={(!value && placeholder) as boolean}>
-      {beforeCursor}
-      <Text inverse backgroundColor="cyan" color="black">{cursorChar}</Text>
-      {afterCursor.slice(1)}
+    <Text dimColor>
+      {placeholder}<Text inverse>█</Text>
     </Text>
   );
 }
