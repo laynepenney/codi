@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { appendFile, readFile, writeFile } from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import yaml from 'js-yaml';
 import { logger } from './logger.js';
 
 const CODI_DIR = path.join(os.homedir(), '.codi');
@@ -57,101 +58,55 @@ function ensureCodiDir(): void {
 }
 
 /**
- * Parse simple YAML (profile format).
- * Supports basic key-value pairs and lists.
+ * Parse YAML profile using js-yaml library.
+ * Provides robust parsing with full YAML specification support.
  */
-function parseSimpleYaml(content: string): UserProfile {
-  const profile: UserProfile = {};
-  const lines = content.split('\n');
-  let currentSection: string | null = null;
-  let currentList: string[] | null = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    // Check for section header (key:)
-    const sectionMatch = line.match(/^(\w+):$/);
-    if (sectionMatch) {
-      if (currentSection && currentList) {
-        (profile as Record<string, unknown>)[currentSection] = currentList;
-      }
-      currentSection = sectionMatch[1];
-      currentList = null;
-      if (['expertise', 'avoid'].includes(currentSection)) {
-        currentList = [];
-      } else if (['preferences', 'custom'].includes(currentSection)) {
-        (profile as Record<string, unknown>)[currentSection] = {};
-      }
-      continue;
-    }
-
-    // Check for list item
-    const listMatch = trimmed.match(/^-\s*(.+)$/);
-    if (listMatch && currentList) {
-      currentList.push(listMatch[1]);
-      continue;
-    }
-
-    // Check for key-value pair
-    const kvMatch = line.match(/^\s*(\w+):\s*(.+)$/);
-    if (kvMatch) {
-      const [, key, value] = kvMatch;
-      if (currentSection && typeof (profile as Record<string, unknown>)[currentSection] === 'object') {
-        ((profile as Record<string, Record<string, string>>)[currentSection])[key] = value;
-      } else if (!currentSection) {
-        (profile as Record<string, string>)[key] = value;
-      }
-    }
+function parseYamlProfile(content: string): UserProfile {
+  const parsed = yaml.load(content);
+  if (!parsed || typeof parsed !== 'object') {
+    return {};
   }
-
-  // Handle trailing list
-  if (currentSection && currentList) {
-    (profile as Record<string, unknown>)[currentSection] = currentList;
-  }
-
-  return profile;
+  return parsed as UserProfile;
 }
 
 /**
- * Serialize profile to YAML format.
+ * Serialize profile to YAML format using js-yaml library.
+ * Provides clean, readable YAML output.
  */
 function serializeProfile(profile: UserProfile): string {
-  const lines: string[] = [];
+  // Filter out empty objects and arrays for cleaner output
+  const cleanProfile: UserProfile = {};
 
   if (profile.name) {
-    lines.push(`name: ${profile.name}`);
+    cleanProfile.name = profile.name;
   }
 
   if (profile.preferences && Object.keys(profile.preferences).length > 0) {
-    lines.push('preferences:');
+    // Filter out undefined values from preferences
+    const cleanPrefs: Record<string, string> = {};
     for (const [key, value] of Object.entries(profile.preferences)) {
-      if (value) lines.push(`  ${key}: ${value}`);
+      if (value !== undefined) {
+        cleanPrefs[key] = value;
+      }
+    }
+    if (Object.keys(cleanPrefs).length > 0) {
+      cleanProfile.preferences = cleanPrefs;
     }
   }
 
   if (profile.expertise && profile.expertise.length > 0) {
-    lines.push('expertise:');
-    for (const item of profile.expertise) {
-      lines.push(`  - ${item}`);
-    }
+    cleanProfile.expertise = profile.expertise;
   }
 
   if (profile.avoid && profile.avoid.length > 0) {
-    lines.push('avoid:');
-    for (const item of profile.avoid) {
-      lines.push(`  - ${item}`);
-    }
+    cleanProfile.avoid = profile.avoid;
   }
 
   if (profile.custom && Object.keys(profile.custom).length > 0) {
-    lines.push('custom:');
-    for (const [key, value] of Object.entries(profile.custom)) {
-      lines.push(`  ${key}: ${value}`);
-    }
+    cleanProfile.custom = profile.custom;
   }
 
-  return lines.join('\n') + '\n';
+  return yaml.dump(cleanProfile, { indent: 2, lineWidth: -1 });
 }
 
 /**
@@ -164,7 +119,7 @@ export async function loadProfile(): Promise<UserProfile> {
 
   try {
     const content = await readFile(PROFILE_PATH, 'utf-8');
-    return parseSimpleYaml(content);
+    return parseYamlProfile(content);
   } catch (error) {
     logger.debug(`Failed to load profile: ${error instanceof Error ? error.message : error}`);
     return {};
