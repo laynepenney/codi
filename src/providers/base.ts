@@ -1,7 +1,7 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Message, ToolDefinition, ProviderResponse, ProviderConfig } from '../types.js';
+import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, IProvider } from '../types.js';
 import { getModelContextWindow } from '../models.js';
 
 /**
@@ -34,7 +34,7 @@ export interface ModelInfo {
  * Abstract base class for AI model providers.
  * Implement this interface to add support for new model backends.
  */
-export abstract class BaseProvider {
+export abstract class BaseProvider implements IProvider {
   protected config: ProviderConfig;
 
   constructor(config: ProviderConfig = {}) {

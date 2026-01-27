@@ -179,3 +179,66 @@ export interface ProviderConfig {
   maxTokens?: number;
   cleanHallucinatedTraces?: boolean;
 }
+
+/**
+ * Interface for AI model providers.
+ * This interface defines the contract that all providers must implement.
+ * Use this for typing mock providers in tests.
+ */
+export interface IProvider {
+  /**
+   * Send a chat completion request to the model.
+   * @param messages - Conversation history
+   * @param tools - Optional tool definitions for function calling
+   * @param systemPrompt - Optional system prompt
+   * @returns Provider response with content and any tool calls
+   */
+  chat(
+    messages: Message[],
+    tools?: ToolDefinition[],
+    systemPrompt?: string
+  ): Promise<ProviderResponse>;
+
+  /**
+   * Send a streaming chat completion request.
+   * @param messages - Conversation history
+   * @param tools - Optional tool definitions
+   * @param onChunk - Callback for each text chunk received
+   * @param systemPrompt - Optional system prompt
+   * @param onReasoningChunk - Callback for reasoning/thinking chunks
+   * @returns Final provider response
+   */
+  streamChat(
+    messages: Message[],
+    tools?: ToolDefinition[],
+    onChunk?: (chunk: string) => void,
+    systemPrompt?: string,
+    onReasoningChunk?: (chunk: string) => void
+  ): Promise<ProviderResponse>;
+
+  /**
+   * Check if this provider supports tool use / function calling.
+   */
+  supportsToolUse(): boolean;
+
+  /**
+   * Check if this provider supports vision / image analysis.
+   */
+  supportsVision(): boolean;
+
+  /**
+   * Get the name of this provider for display purposes.
+   */
+  getName(): string;
+
+  /**
+   * Get the current model being used.
+   */
+  getModel(): string;
+
+  /**
+   * Get the context window size for the current model.
+   * @returns Context window size in tokens
+   */
+  getContextWindow(): number;
+}
