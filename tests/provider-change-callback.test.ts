@@ -4,14 +4,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../src/agent.js';
 import { createProvider } from '../src/providers/index.js';
+import { createMinimalToolRegistry } from './helpers/mock-provider.js';
 
-// Mock tool registry to avoid initialization issues in tests
-const mockToolRegistry = {
-  getDefinitions: () => [],
-  getTool: () => null,
-  hasTool: () => false,
-  isAutoApproved: () => false
-};
+// Use typed tool registry mock
+const mockToolRegistry = createMinimalToolRegistry();
 
 describe('Agent Provider Change Callback', () => {
   // Test that verifies the callback is properly invoked when provider changes
@@ -32,7 +28,7 @@ describe('Agent Provider Change Callback', () => {
 
     const agent = new Agent({
       provider: provider1,
-      toolRegistry: mockToolRegistry as any,
+      toolRegistry: mockToolRegistry,
       onProviderChange,
       useTools: false  // Disable tool use for this test
     });
@@ -70,7 +66,7 @@ describe('Agent Provider Change Callback', () => {
     // Create agent without onProviderChange callback
     const agent = new Agent({
       provider: provider1,
-      toolRegistry: mockToolRegistry as any,
+      toolRegistry: mockToolRegistry,
       useTools: false
     });
 
@@ -105,7 +101,7 @@ describe('Agent Provider Change Callback', () => {
 
     const agent = new Agent({
       provider: provider1,
-      toolRegistry: mockToolRegistry as any,
+      toolRegistry: mockToolRegistry,
       useTools: false,
       onProviderChange: (newProvider) => {
         // Simulate ink UI update

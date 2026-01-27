@@ -28,6 +28,9 @@ import {
 import { OpenAICompatibleProvider } from '../src/providers/openai-compatible';
 import { AnthropicProvider } from '../src/providers/anthropic';
 
+// Test helpers
+import { createMinimalProvider, asProvider } from './helpers/mock-provider';
+
 // -----------------------------
 // Test helper: simple tool implementation
 // -----------------------------
@@ -276,17 +279,10 @@ describe('registerDefaultTools', () => {
 
 describe('Agent', () => {
   it('can be instantiated with minimal config', () => {
-    const mockProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'mock',
-      getModel: () => 'mock-model',
-      getContextWindow: () => 128000,
-    };
+    const provider = createMinimalProvider();
 
     const agent = new Agent({
-      provider: mockProvider as any,
+      provider,
       toolRegistry: new ToolRegistry(),
     });
 
@@ -294,17 +290,10 @@ describe('Agent', () => {
   });
 
   it('clearHistory resets message history', () => {
-    const mockProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'mock',
-      getModel: () => 'mock-model',
-      getContextWindow: () => 128000,
-    };
+    const provider = createMinimalProvider();
 
     const agent = new Agent({
-      provider: mockProvider as any,
+      provider,
       toolRegistry: new ToolRegistry(),
     });
 
@@ -317,17 +306,10 @@ describe('Agent', () => {
   });
 
   it('getContextInfo returns token and message counts', () => {
-    const mockProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'mock',
-      getModel: () => 'mock-model',
-      getContextWindow: () => 128000,
-    };
+    const provider = createMinimalProvider();
 
     const agent = new Agent({
-      provider: mockProvider as any,
+      provider,
       toolRegistry: new ToolRegistry(),
     });
 
@@ -366,7 +348,7 @@ describe('Agent', () => {
 
     toolRegistry.register(new CaptureTool());
 
-    const mockProvider = {
+    const provider = asProvider({
       streamChat: vi.fn()
         .mockImplementationOnce(async (_messages, _tools, _onChunk, _systemPrompt, onReasoningChunk) => {
           const reasoning = '[Calling capture]: {"value": 42}';
@@ -374,23 +356,23 @@ describe('Agent', () => {
           return {
             content: '',
             toolCalls: [],
-            stopReason: 'end_turn',
+            stopReason: 'end_turn' as const,
             reasoningContent: reasoning,
           };
         })
         .mockImplementationOnce(async () => ({
           content: 'done',
           toolCalls: [],
-          stopReason: 'end_turn',
+          stopReason: 'end_turn' as const,
         })),
       supportsToolUse: () => true,
       getName: () => 'mock',
       getModel: () => 'mock-model',
       getContextWindow: () => 128000,
-    };
+    });
 
     const agent = new Agent({
-      provider: mockProvider as any,
+      provider,
       toolRegistry,
     });
 
@@ -401,27 +383,21 @@ describe('Agent', () => {
 
   it('setProvider updates maxContextTokens when not explicitly set', () => {
     // Provider with large context window (like Claude)
-    const largeContextProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'Claude',
-      getModel: () => 'claude-sonnet-4',
-      getContextWindow: () => 200000,
-    };
+    const largeContextProvider = createMinimalProvider({
+      name: 'Claude',
+      model: 'claude-sonnet-4',
+      contextWindow: 200000,
+    });
 
     // Provider with small context window (like GPT-4 base)
-    const smallContextProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'OpenAI',
-      getModel: () => 'gpt-4',
-      getContextWindow: () => 8192,
-    };
+    const smallContextProvider = createMinimalProvider({
+      name: 'OpenAI',
+      model: 'gpt-4',
+      contextWindow: 8192,
+    });
 
     const agent = new Agent({
-      provider: largeContextProvider as any,
+      provider: largeContextProvider,
       toolRegistry: new ToolRegistry(),
     });
 
@@ -432,7 +408,7 @@ describe('Agent', () => {
     expect(initialTokens).toBeLessThan(200000); // But still leaves room for overhead
 
     // Switch to smaller provider
-    agent.setProvider(smallContextProvider as any);
+    agent.setProvider(smallContextProvider);
 
     // maxTokens should be recalculated for new provider
     // For 8k context (small tier), minimum viable is 15% = 1229 tokens
@@ -443,27 +419,21 @@ describe('Agent', () => {
   });
 
   it('setProvider preserves maxContextTokens when explicitly set', () => {
-    const largeContextProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'Claude',
-      getModel: () => 'claude-sonnet-4',
-      getContextWindow: () => 200000,
-    };
+    const largeContextProvider = createMinimalProvider({
+      name: 'Claude',
+      model: 'claude-sonnet-4',
+      contextWindow: 200000,
+    });
 
-    const smallContextProvider = {
-      chat: vi.fn(),
-      streamChat: vi.fn(),
-      supportsToolUse: () => true,
-      getName: () => 'OpenAI',
-      getModel: () => 'gpt-4',
-      getContextWindow: () => 8192,
-    };
+    const smallContextProvider = createMinimalProvider({
+      name: 'OpenAI',
+      model: 'gpt-4',
+      contextWindow: 8192,
+    });
 
     // Explicitly set maxContextTokens
     const agent = new Agent({
-      provider: largeContextProvider as any,
+      provider: largeContextProvider,
       toolRegistry: new ToolRegistry(),
       maxContextTokens: 50000,
     });
@@ -471,7 +441,7 @@ describe('Agent', () => {
     expect(agent.getContextInfo().maxTokens).toBe(50000);
 
     // Switch provider - should preserve explicit setting
-    agent.setProvider(smallContextProvider as any);
+    agent.setProvider(smallContextProvider);
 
     // Should still be 50000, not recalculated
     expect(agent.getContextInfo().maxTokens).toBe(50000);

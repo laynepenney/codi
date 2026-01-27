@@ -3,8 +3,12 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ShellInfoTool } from '../src/tools/shell-info.js';
-import { exec as originalExec } from 'child_process';
-import { promisify } from 'util';
+import {
+  createPatternExecMock,
+  createSimpleExecMock,
+  execSuccess,
+  execError,
+} from './helpers/exec-mock.js';
 
 // Mock child_process.exec
 vi.mock('child_process', async () => {
@@ -45,12 +49,9 @@ describe('ShellInfoTool', () => {
   describe('execute', () => {
     it('runs default commands when no input provided', async () => {
       // Mock exec to call callback with success
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'v20.0.0', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('v20.0.0'))
+      );
 
       const result = await tool.execute({});
 
@@ -60,17 +61,12 @@ describe('ShellInfoTool', () => {
     });
 
     it('runs custom commands when provided', async () => {
-      vi.mocked(mockedExec).mockImplementation((cmd, _opts, callback) => {
-        if (callback) {
-          const cmdStr = cmd as string;
-          if (cmdStr === 'echo hello') {
-            callback(null, { stdout: 'hello', stderr: '' } as any);
-          } else if (cmdStr === 'date') {
-            callback(null, { stdout: '2024-01-01', stderr: '' } as any);
-          }
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createPatternExecMock([
+          ['echo hello', execSuccess('hello')],
+          ['date', execSuccess('2024-01-01')],
+        ])
+      );
 
       const result = await tool.execute({
         commands: ['echo hello', 'date'],
@@ -83,12 +79,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('includes defaults when include_defaults is true', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'output', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('output'))
+      );
 
       const result = await tool.execute({
         commands: ['custom-cmd'],
@@ -102,12 +95,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('deduplicates commands', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'output', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('output'))
+      );
 
       await tool.execute({
         commands: ['node -v', 'node -v', 'npm -v'],
@@ -119,17 +109,12 @@ describe('ShellInfoTool', () => {
     });
 
     it('handles command failures gracefully', async () => {
-      vi.mocked(mockedExec).mockImplementation((cmd, _opts, callback) => {
-        if (callback) {
-          const cmdStr = cmd as string;
-          if (cmdStr === 'good-cmd') {
-            callback(null, { stdout: 'success', stderr: '' } as any);
-          } else {
-            callback(new Error('Command not found') as any, { stdout: '', stderr: '' } as any);
-          }
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createPatternExecMock([
+          ['good-cmd', execSuccess('success')],
+          ['bad-cmd', execError('Command not found')],
+        ])
+      );
 
       const result = await tool.execute({
         commands: ['good-cmd', 'bad-cmd'],
@@ -142,17 +127,12 @@ describe('ShellInfoTool', () => {
     });
 
     it('shows summary with counts', async () => {
-      vi.mocked(mockedExec).mockImplementation((cmd, _opts, callback) => {
-        if (callback) {
-          const cmdStr = cmd as string;
-          if (cmdStr.includes('success')) {
-            callback(null, { stdout: 'output', stderr: '' } as any);
-          } else {
-            callback(new Error('fail') as any, { stdout: '', stderr: '' } as any);
-          }
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createPatternExecMock([
+          [/success/, execSuccess('output')],
+          [/fail/, execError('fail')],
+        ])
+      );
 
       const result = await tool.execute({
         commands: ['success-1', 'success-2', 'fail-1'],
@@ -162,12 +142,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('shows working directory', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'output', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('output'))
+      );
 
       const result = await tool.execute({
         commands: ['test'],
@@ -178,13 +155,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('uses stderr when stdout is empty', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          // java -version outputs to stderr
-          callback(null, { stdout: '', stderr: 'java version "17.0.1"' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('', 'java version "17.0.1"'))
+      );
 
       const result = await tool.execute({
         commands: ['java -version'],
@@ -194,12 +167,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('takes only first line of multi-line output', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'line1\nline2\nline3', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('line1\nline2\nline3'))
+      );
 
       const result = await tool.execute({
         commands: ['multiline-cmd'],
@@ -210,12 +180,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('passes cwd option to exec', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'output', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('output'))
+      );
 
       await tool.execute({
         commands: ['test'],
@@ -228,12 +195,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('handles all commands failing', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(new Error('not found') as any, { stdout: '', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execError('not found'))
+      );
 
       const result = await tool.execute({
         commands: ['cmd1', 'cmd2'],
@@ -246,12 +210,9 @@ describe('ShellInfoTool', () => {
     });
 
     it('handles all commands succeeding', async () => {
-      vi.mocked(mockedExec).mockImplementation((_cmd, _opts, callback) => {
-        if (callback) {
-          callback(null, { stdout: 'success', stderr: '' } as any);
-        }
-        return {} as any;
-      });
+      vi.mocked(mockedExec).mockImplementation(
+        createSimpleExecMock(execSuccess('success'))
+      );
 
       const result = await tool.execute({
         commands: ['cmd1', 'cmd2'],
