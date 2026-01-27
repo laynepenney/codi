@@ -9,8 +9,9 @@
 
 import { vi } from 'vitest';
 import { MockProvider, MockProviderConfig, MockResponse, MockCall } from '../../src/providers/mock.js';
-import type { ToolCall, IProvider, ProviderResponse } from '../../src/types.js';
+import type { ToolCall, ToolDefinition, ToolResult, IProvider, ProviderResponse } from '../../src/types.js';
 import { BaseProvider } from '../../src/providers/base.js';
+import type { BaseTool } from '../../src/tools/base.js';
 
 /**
  * Configuration for creating a minimal provider mock.
@@ -111,10 +112,10 @@ export function asProvider(partial: Partial<IProvider>): BaseProvider {
  * This matches the subset of ToolRegistry methods used by Agent.
  */
 export interface IToolRegistry {
-  getDefinitions(): Array<{ name: string; description: string; input_schema: unknown }>;
-  get(name: string): unknown;
+  getDefinitions(): ToolDefinition[];
+  get(name: string): BaseTool | undefined;
   has(name: string): boolean;
-  execute?(call: { id: string; name: string; input: unknown }): Promise<{ tool_use_id: string; content: string; is_error?: boolean }>;
+  execute?(call: ToolCall): Promise<ToolResult>;
 }
 
 /**

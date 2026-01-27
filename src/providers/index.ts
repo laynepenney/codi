@@ -13,6 +13,7 @@ export { AnthropicProvider } from './anthropic.js';
 export { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } from './openai-compatible.js';
 export { MockProvider } from './mock.js';
 export type { MockProviderConfig, MockResponse, MockCall, MockResponsesFile } from './mock.js';
+export type { IProvider } from '../types.js';
 
 export interface CreateProviderOptions extends ProviderConfig {
   type: string;
