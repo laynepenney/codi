@@ -140,7 +140,7 @@ export function CompletableInput({
 
   const displayValue = value ?? placeholder ?? '';
 
-  if (!showCursor) {
+  if (!focus || !showCursor) {
     return <Text dimColor={(!value) as boolean}>{displayValue}</Text>;
   }
 
