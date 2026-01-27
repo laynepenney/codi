@@ -802,34 +802,7 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
     }
 
     if (focus === 'input') {
-      // Handle Tab completion
-      if (key.tab) {
-        const completed = handleCompletion();
-        if (completed !== null) {
-          setInputValue(completed);
-          setHistoryIndex(-1);
-        } else if (inputValue.startsWith('/')) {
-          // Show matches hint
-          const matches = getCompletionMatches(inputValue);
-          if (matches.length > 0) {
-            setCompletionHint(`Matches: ${matches.join(', ')}`);
-          }
-        }
-        return;
-      }
-      
-      // Handle Shift+Tab - cycle backward through completions
-      if (key.shift && key.tab && inputValue.startsWith('/')) {
-        const prev = handlePrevCompletion();
-        if (prev !== null) {
-          setInputValue(prev);
-          setHistoryIndex(-1);
-          setCompletionHint(null);
-        }
-        return;
-      }
-      
-      // Handle arrow keys for history (let CompletableInput handle cursor movement)
+      // Arrow keys for history (let CompletableInput handle cursor movement)
       if (key.upArrow) {
         handleHistoryUp();
         return;
