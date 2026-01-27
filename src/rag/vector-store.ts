@@ -18,6 +18,77 @@ import type { CodeChunk, RetrievalResult } from './types.js';
 const INDEX_BASE_DIR = path.join(os.homedir(), '.codi', 'index');
 
 /**
+ * Query result cache entry.
+ */
+interface QueryCacheEntry {
+  results: RetrievalResult[];
+  timestamp: number;
+}
+
+/**
+ * Cache for vector query results with TTL.
+ */
+class QueryResultCache {
+  private cache = new Map<string, QueryCacheEntry>();
+  private maxSize: number;
+  private ttlMs: number;
+
+  constructor(maxSize = 100, ttlMinutes = 5) {
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMinutes * 60 * 1000;
+  }
+
+  /**
+   * Generate cache key from embedding and query params.
+   */
+  private generateKey(embedding: number[], topK: number, minScore: number): string {
+    // Hash first 10 elements of embedding for key (fast approximation)
+    const embeddingKey = embedding.slice(0, 10).map(n => n.toFixed(4)).join(',');
+    return `${embeddingKey}:${topK}:${minScore}`;
+  }
+
+  get(embedding: number[], topK: number, minScore: number): RetrievalResult[] | undefined {
+    const key = this.generateKey(embedding, topK, minScore);
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+
+    // Check TTL
+    if (Date.now() - entry.timestamp > this.ttlMs) {
+      this.cache.delete(key);
+      return undefined;
+    }
+
+    // Move to end for LRU
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.results;
+  }
+
+  set(embedding: number[], topK: number, minScore: number, results: RetrievalResult[]): void {
+    const key = this.generateKey(embedding, topK, minScore);
+
+    // Evict oldest entries if at capacity
+    while (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) this.cache.delete(firstKey);
+    }
+
+    this.cache.set(key, {
+      results,
+      timestamp: Date.now(),
+    });
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+}
+
+/**
  * Metadata stored with each vector in the index.
  */
 interface ChunkMetadata {
@@ -39,6 +110,7 @@ export class VectorStore {
   private index: LocalIndex<ChunkMetadata> | null = null;
   private projectPath: string;
   private indexPath: string;
+  private queryCache: QueryResultCache = new QueryResultCache();
 
   constructor(projectPath: string) {
     this.projectPath = projectPath;
@@ -229,7 +301,7 @@ export class VectorStore {
   }
 
   /**
-   * Query for similar chunks.
+   * Query for similar chunks with caching.
    */
   async query(
     embedding: number[],
@@ -240,12 +312,18 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
+    // Check cache first
+    const cached = this.queryCache.get(embedding, topK, minScore);
+    if (cached) {
+      return cached;
+    }
+
     try {
       // vectra's queryItems signature: (vector, query, topK, filter?, isBm25?)
       // The query string is for BM25 search - we pass empty string for pure vector search
       const results = await this.index.queryItems(embedding, '', topK);
 
-      return results
+      const filteredResults = results
         .filter((r) => r.score >= minScore)
         .map((r) => ({
           chunk: {
@@ -261,6 +339,11 @@ export class VectorStore {
           },
           score: r.score,
         }));
+
+      // Cache the results
+      this.queryCache.set(embedding, topK, minScore, filteredResults);
+
+      return filteredResults;
     } catch (error) {
       // Index might be corrupted - try to recover
       if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
@@ -373,6 +456,9 @@ export class VectorStore {
       throw new Error('Index not initialized');
     }
 
+    // Clear query cache when index is cleared
+    this.queryCache.clear();
+
     await this.index.deleteIndex();
     await this.index.createIndex({
       version: 1,
@@ -380,6 +466,20 @@ export class VectorStore {
         indexed: ['filePath', 'language', 'chunkType'],
       },
     });
+  }
+
+  /**
+   * Clear the query result cache.
+   */
+  clearQueryCache(): void {
+    this.queryCache.clear();
+  }
+
+  /**
+   * Get query cache statistics.
+   */
+  getQueryCacheStats(): { size: number } {
+    return { size: this.queryCache.size };
   }
 
   /**

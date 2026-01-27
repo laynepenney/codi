@@ -1,12 +1,13 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readFile, writeFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
 import { validateAndResolvePath } from '../utils/path-validation.js';
+import { fileContentCache } from '../utils/file-content-cache.js';
 
 export class InsertLineTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -57,7 +58,8 @@ export class InsertLineTool extends BaseTool {
       throw new Error(`File not found: ${resolvedPath}`);
     }
 
-    const fileContent = await readFile(resolvedPath, 'utf-8');
+    // Use cached file content for performance
+    const fileContent = await fileContentCache.get(resolvedPath);
     const lines = fileContent.split('\n');
 
     // Validate line number
@@ -80,8 +82,9 @@ export class InsertLineTool extends BaseTool {
       description: `Inserted ${contentLines.length} line(s) at line ${lineNum} in ${path}`,
     });
 
-    // Write back
+    // Write back and invalidate cache
     await writeFile(resolvedPath, newContent, 'utf-8');
+    fileContentCache.invalidate(resolvedPath);
 
     return `Inserted ${contentLines.length} line(s) at line ${lineNum} in ${path}`;
   }

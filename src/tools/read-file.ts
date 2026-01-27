@@ -1,11 +1,11 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { validateAndResolvePath } from '../utils/path-validation.js';
+import { fileContentCache } from '../utils/file-content-cache.js';
 
 export class ReadFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -48,7 +48,8 @@ export class ReadFileTool extends BaseTool {
       throw new Error(`File not found: ${resolvedPath}`);
     }
 
-    const content = await readFile(resolvedPath, 'utf-8');
+    // Use cached file content for performance
+    const content = await fileContentCache.get(resolvedPath);
     const allLines = content.split('\n');
     const totalLines = allLines.length;
 

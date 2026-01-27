@@ -1,12 +1,13 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readFile, writeFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
 import { validateAndResolvePath } from '../utils/path-validation.js';
+import { fileContentCache } from '../utils/file-content-cache.js';
 
 interface Hunk {
   oldStart: number;
@@ -87,7 +88,8 @@ export class PatchFileTool extends BaseTool {
       ? [{ diff: singlePatch }]
       : patchesArray!;
 
-    const content = await readFile(resolvedPath, 'utf-8');
+    // Use cached file content for performance
+    const content = await fileContentCache.get(resolvedPath);
     let lines = content.split('\n');
 
     let totalAdded = 0;
@@ -141,8 +143,9 @@ export class PatchFileTool extends BaseTool {
       description: `Patched ${filePath}: ${patches.length} patch(es), ${totalHunks} hunk(s), +${totalAdded}/-${totalRemoved} lines`,
     });
 
-    // Write the patched file
+    // Write the patched file and invalidate cache
     await writeFile(resolvedPath, newContent, 'utf-8');
+    fileContentCache.invalidate(resolvedPath);
 
     // Format output
     if (patches.length === 1) {

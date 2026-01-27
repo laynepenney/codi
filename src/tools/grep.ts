@@ -1,7 +1,7 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readFile } from 'fs/promises';
+import { readFile, open } from 'fs/promises';
 import { glob } from 'node:fs/promises';
 import { resolve, join } from 'path';
 import { BaseTool } from './base.js';
@@ -11,6 +11,49 @@ interface Match {
   file: string;
   line: number;
   content: string;
+}
+
+// Binary file detection: check first 512 bytes for null bytes or high concentration of non-printable chars
+const BINARY_CHECK_SIZE = 512;
+
+async function isBinaryFile(filePath: string): Promise<boolean> {
+  try {
+    const fd = await open(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(BINARY_CHECK_SIZE);
+      const { bytesRead } = await fd.read(buffer, 0, BINARY_CHECK_SIZE, 0);
+
+      if (bytesRead === 0) return false; // Empty file is not binary
+
+      // Check for null bytes (strong indicator of binary)
+      let nullCount = 0;
+      let nonPrintableCount = 0;
+
+      for (let i = 0; i < bytesRead; i++) {
+        const byte = buffer[i];
+        if (byte === 0) {
+          nullCount++;
+        }
+        // Non-printable bytes (excluding common whitespace: tab, newline, carriage return)
+        if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
+          nonPrintableCount++;
+        }
+      }
+
+      // If there are any null bytes, it's likely binary
+      if (nullCount > 0) return true;
+
+      // If more than 30% non-printable characters, likely binary
+      if (nonPrintableCount / bytesRead > 0.3) return true;
+
+      return false;
+    } finally {
+      await fd.close();
+    }
+  } catch {
+    // If we can't read the file, treat it as not binary (will fail on full read)
+    return false;
+  }
 }
 
 export class GrepTool extends BaseTool {
@@ -65,6 +108,7 @@ export class GrepTool extends BaseTool {
     const regex = new RegExp(pattern, ignoreCase ? 'gi' : 'g');
     const matches: Match[] = [];
     const MAX_MATCHES = headLimit;
+    let binarySkipped = 0;
 
     // Get list of files to search
     const files: string[] = [];
@@ -77,6 +121,12 @@ export class GrepTool extends BaseTool {
       if (matches.length >= MAX_MATCHES) break;
 
       const fullPath = join(resolvedPath, file);
+
+      // Skip binary files early (much faster than reading full file)
+      if (await isBinaryFile(fullPath)) {
+        binarySkipped++;
+        continue;
+      }
 
       try {
         const content = await readFile(fullPath, 'utf-8');
@@ -102,15 +152,17 @@ export class GrepTool extends BaseTool {
     }
 
     if (matches.length === 0) {
-      return `No matches found for pattern: ${pattern}`;
+      const binaryNote = binarySkipped > 0 ? ` (${binarySkipped} binary files skipped)` : '';
+      return `No matches found for pattern: ${pattern}${binaryNote}`;
     }
 
     const output = matches.map((m) => `${m.file}:${m.line}: ${m.content}`).join('\n');
+    const binaryNote = binarySkipped > 0 ? ` (${binarySkipped} binary files skipped)` : '';
 
     if (matches.length >= MAX_MATCHES) {
-      return `Found ${MAX_MATCHES}+ matches (showing first ${MAX_MATCHES}):\n\n${output}`;
+      return `Found ${MAX_MATCHES}+ matches (showing first ${MAX_MATCHES})${binaryNote}:\n\n${output}`;
     }
 
-    return `Found ${matches.length} matches:\n\n${output}`;
+    return `Found ${matches.length} matches${binaryNote}:\n\n${output}`;
   }
 }
