@@ -1091,25 +1091,17 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
               const matches = getCompletionMatches(value);
               if (matches.length === 0) return null;
               
-              // Cycle through all matches
-              const currentMatch = matches.find(m => m.trim() === value.trim());
-              let nextMatch: string;
-              
-              if (!currentMatch) {
-                // Start from first match
-                nextMatch = matches[0]?.trim() ?? null;
-              } else {
-                // Find next match
-                const currentIndex = matches.indexOf(currentMatch);
-                const nextIndex = (currentIndex + 1) % matches.length;
-                nextMatch = matches[nextIndex]?.trim() ?? null;
+              // Don't auto-complete - just show hints
+              if (matches.length === 1) {
+                // Only auto-complete when there's exactly one match
+                return matches[0];
               }
               
-              if (nextMatch !== null && nextMatch !== value) {
-                setCompletionHint(matches.length > 1 ? `(${matches.length} matches) ${nextMatch.trim()}` : null);
-              }
+              // Show all available completions
+              setCompletionHint(`Completions: ${matches.map(m => m.trim()).join(', ')}`);
               
-              return nextMatch;
+              // Don't change the input - just return null
+              return null;
             }}
             focus={focus === 'input' && !confirmation && !sessionSelection}
             placeholder={focus === 'input' && !sessionSelection ? 'Type a command' : ''}
