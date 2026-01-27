@@ -13,7 +13,6 @@ import {
 // Register commands before tests
 import { registerGitCommands } from '../src/commands/git-commands';
 import { registerCodeCommands } from '../src/commands/code-commands';
-import { registerWorkflowCommands } from '../src/commands/workflow-commands';
 import { registerSessionCommands } from '../src/commands/session-commands';
 import { registerConfigCommands } from '../src/commands/config-commands';
 import { registerModelCommands } from '../src/commands/model-commands';
@@ -32,7 +31,6 @@ describe('Command Completions', () => {
     // Register all commands
     registerGitCommands();
     registerCodeCommands();
-    registerWorkflowCommands();
     registerSessionCommands();
     registerConfigCommands();
     registerModelCommands();
