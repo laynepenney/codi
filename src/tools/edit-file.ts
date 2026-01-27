@@ -1,12 +1,13 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readFile, writeFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
 import { validateAndResolvePath } from '../utils/path-validation.js';
+import { fileContentCache } from '../utils/file-content-cache.js';
 
 export class EditFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -62,7 +63,8 @@ export class EditFileTool extends BaseTool {
       throw new Error(`File not found: ${resolvedPath}`);
     }
 
-    const content = await readFile(resolvedPath, 'utf-8');
+    // Use cached file content for performance
+    const content = await fileContentCache.get(resolvedPath);
 
     // Check if old_string exists in the file
     if (!content.includes(oldString)) {
@@ -92,8 +94,9 @@ export class EditFileTool extends BaseTool {
       description: `Replaced ${replacedCount} occurrence(s) in ${path}`,
     });
 
-    // Write the file
+    // Write the file and invalidate cache
     await writeFile(resolvedPath, newContent, 'utf-8');
+    fileContentCache.invalidate(resolvedPath);
 
     // Generate a simple diff preview
     const oldLines = oldString.split('\n').length;

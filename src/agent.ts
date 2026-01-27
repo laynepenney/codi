@@ -186,6 +186,10 @@ export class Agent {
   private indexedFiles: Set<string> | null = null; // RAG indexed files for code relevance scoring
   private embeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null; // For semantic deduplication
   private memoryMonitor: MemoryMonitor = getMemoryMonitor(); // Memory usage monitoring
+  // Performance optimization caches
+  private cachedToolDefinitions: import('./types.js').ToolDefinition[] | null = null;
+  private cachedTokenCount: number | null = null;
+  private tokenCacheValid: boolean = false;
   // Debug control (Phase 2)
   private debugPaused: boolean = false;
   private debugStepMode: boolean = false;
@@ -408,6 +412,41 @@ ${contextToSummarize}`,
   }
 
   /**
+   * Get cached tool definitions. Only recomputes when cache is invalidated.
+   */
+  private getCachedToolDefinitions(): import('./types.js').ToolDefinition[] {
+    if (!this.cachedToolDefinitions) {
+      this.cachedToolDefinitions = this.toolRegistry.getDefinitions();
+    }
+    return this.cachedToolDefinitions;
+  }
+
+  /**
+   * Invalidate tool definition cache (call when tools are added/removed).
+   */
+  invalidateToolCache(): void {
+    this.cachedToolDefinitions = null;
+  }
+
+  /**
+   * Get cached token count for messages. Only recomputes when cache is invalidated.
+   */
+  private getCachedTokenCount(): number {
+    if (!this.tokenCacheValid) {
+      this.cachedTokenCount = countMessageTokens(this.messages);
+      this.tokenCacheValid = true;
+    }
+    return this.cachedTokenCount!;
+  }
+
+  /**
+   * Invalidate token count cache (call when messages change).
+   */
+  private invalidateTokenCache(): void {
+    this.tokenCacheValid = false;
+  }
+
+  /**
    * Calculate adaptive context limit based on actual overhead.
    * Uses: contextWindow - systemPrompt - tools - maxOutput - buffer
    * Falls back to minimum viable context as floor.
@@ -420,7 +459,7 @@ ${contextToSummarize}`,
 
     // Calculate overhead components
     const systemPromptTokens = estimateSystemPromptTokens(this.systemPrompt);
-    const toolDefinitions = this.useTools ? this.toolRegistry.getDefinitions() : [];
+    const toolDefinitions = this.useTools ? this.getCachedToolDefinitions() : [];
     const toolDefinitionTokens = estimateToolDefinitionTokens(toolDefinitions);
     const outputReserve = cfg.maxOutputTokens;
     const safetyBuffer = cfg.safetyBuffer;
@@ -838,6 +877,7 @@ ${contextToSummarize}`,
       role: 'user',
       content: userMessage,
     });
+    this.invalidateTokenCache();
 
     // Enforce message limit
     this.enforceMessageLimit();
@@ -893,9 +933,9 @@ ${contextToSummarize}`,
         break;
       }
 
-      // Get tool definitions if provider supports them and tools are enabled
+      // Get tool definitions if provider supports them and tools are enabled (cached)
       const tools = (this.useTools && chatProvider.supportsToolUse())
-        ? this.toolRegistry.getDefinitions()
+        ? this.getCachedToolDefinitions()
         : undefined;
 
       // Build system context including any conversation summary
@@ -1068,7 +1108,7 @@ ${contextToSummarize}`,
       // If no tool calls were detected via API but tools are enabled,
       // try to extract tool calls from the text (for models that output JSON as text)
       if (response.toolCalls.length === 0 && this.useTools && this.extractToolsFromText) {
-        const toolDefinitions = this.toolRegistry.getDefinitions();
+        const toolDefinitions = this.getCachedToolDefinitions();
         const fallbackConfig = this.toolRegistry.getFallbackConfig();
         const contentText = response.content?.trim() || '';
         const reasoningText = response.reasoningContent?.trim() || '';
@@ -1948,7 +1988,7 @@ Label:`,
     compressionEnabled: boolean;
     workingSetFiles: number;
   } {
-    const toolDefinitions = this.useTools ? this.toolRegistry.getDefinitions() : [];
+    const toolDefinitions = this.useTools ? this.getCachedToolDefinitions() : [];
     const systemPromptWithSummary = this.conversationSummary
       ? `${this.systemPrompt}\n\n## Previous Conversation Summary\n${this.conversationSummary}`
       : this.systemPrompt;
@@ -2120,9 +2160,10 @@ Label:`,
     }
 
     if (what === 'tools' || what === 'all') {
+      const toolDefs = this.getCachedToolDefinitions();
       snapshot.tools = {
-        enabled: this.toolRegistry.getDefinitions().map(d => d.name),
-        count: this.toolRegistry.getDefinitions().length,
+        enabled: toolDefs.map(d => d.name),
+        count: toolDefs.length,
       };
     }
 

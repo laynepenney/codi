@@ -72,3 +72,9 @@ export {
   cosineSimilarity,
   groupBySimilarity,
 } from './vector.js';
+
+// File content caching for performance
+export {
+  fileContentCache,
+  FileContentCache,
+} from './file-content-cache.js';

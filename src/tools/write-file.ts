@@ -8,6 +8,7 @@ import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import { recordChange } from '../history.js';
 import { validateAndResolvePath } from '../utils/path-validation.js';
+import { fileContentCache } from '../utils/file-content-cache.js';
 
 export class WriteFileTool extends BaseTool {
   getDefinition(): ToolDefinition {
@@ -61,6 +62,9 @@ export class WriteFileTool extends BaseTool {
     await mkdir(dirname(resolvedPath), { recursive: true });
 
     await writeFile(resolvedPath, content, 'utf-8');
+
+    // Invalidate cache after write
+    fileContentCache.invalidate(resolvedPath);
 
     return `Successfully wrote ${content.length} characters to ${resolvedPath}`;
   }
