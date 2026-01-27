@@ -3,6 +3,7 @@
 
 import { registerCommand, type Command, type CommandContext } from './index.js';
 import type { Workflow, WorkflowStep } from '../workflow/types.js';
+import { spinner } from '../spinner.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -41,7 +42,7 @@ export const workflowBuildCommand: Command = {
     }
     
     // AI-assisted building with actual agent integration
-    return await buildWorkflowFromDescription(args, context);
+    return await buildWorkflowFromDescription(args, context, { taskType: 'code' });
   },
 };
 
@@ -104,7 +105,8 @@ async function generateFromTemplate(
  */
 async function buildWorkflowFromDescription(
   description: string, 
-  context: CommandContext
+  context: CommandContext,
+  options?: { taskType?: string }
 ): Promise<string> {
   // Enhanced prompt engineering with examples and context
   const aiPrompt = `You are an expert workflow builder AI for the Codi CLI tool.
@@ -214,12 +216,22 @@ Generate a practical, safe, and effective workflow that matches the user's descr
   
   if (context?.agent) {
     try {
-      const response = await context.agent.chat(aiPrompt);
-      const responseText = (response as any)?.text || (response as any)?.response || '';
+      spinner.start('Generating workflow with AI...');
+      const response = await context.agent.chat(aiPrompt, options);
+      spinner.stop();
       
-      // Parse the AI-generated YAML
-      workflow = parseYAMLWorkflow(responseText);
+      // chat() returns a plain string directly
+      const responseText = typeof response === 'string' ? response : '';
+      
+      if (!responseText.trim()) {
+        // Fallback to scaffold if AI returned empty response
+        workflow = createScaffoldWorkflow(description);
+      } else {
+        // Parse the AI-generated YAML
+        workflow = parseYAMLWorkflow(responseText);
+      }
     } catch (error) {
+      spinner.fail('AI generation failed, using template');
       // Fallback to scaffold if AI fails
       workflow = createScaffoldWorkflow(description);
     }

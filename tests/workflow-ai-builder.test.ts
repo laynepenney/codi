@@ -46,25 +46,46 @@ describe('Workflow AI Builder Command', () => {
 
   it('should handle templates with AI context', async () => {
     const mockAgent = {
-      chat: vi.fn().mockResolvedValue({ text: 'name: test-workflow\ndescription: Test\nsteps:\n  - id: step1\n    action: shell\n    description: "Step description"\n    command: "echo hello"' })
+      chat: vi.fn().mockResolvedValue('name: test-workflow\ndescription: Test\nsteps:\n  - id: step1\n    action: shell\n    description: "Step description"\n    command: "echo hello"')
     };
     const mockContext = { agent: mockAgent };
-    
+
     const result = await workflowBuildCommand.execute('template deployment', mockContext);
-    
+
     expect(result).toContain('Generated workflow from template "deployment"');
   });
 
   it('should handle AI workflow generation', async () => {
     const mockAgent = {
-      chat: vi.fn().mockResolvedValue({ 
-        text: 'name: testing-workflow\ndescription: "Generated workflow for testing"\nsteps:\n  - id: test-step\n    action: shell\n    description: "Test step"\n    command: "echo test"' 
-      })
+      chat: vi.fn().mockResolvedValue('name: testing-workflow\ndescription: "Generated workflow for testing"\nsteps:\n  - id: test-step\n    action: shell\n    description: "Test step"\n    command: "echo test"')
     };
     const mockContext = { agent: mockAgent };
-    
+
     const result = await workflowBuildCommand.execute('create a testing workflow', mockContext);
-    
+
+    expect(result).toContain('Generated workflow from your description');
+  });
+
+  it('should handle empty AI response with fallback', async () => {
+    const mockAgent = {
+      chat: vi.fn().mockResolvedValue('   ') // Empty/whitespace response
+    };
+    const mockContext = { agent: mockAgent };
+
+    const result = await workflowBuildCommand.execute('create a testing workflow', mockContext);
+
+    expect(result).toContain('Generated workflow from your description');
+    expect(mockAgent.chat).toHaveBeenCalled();
+  });
+
+  it('should handle AI errors with fallback', async () => {
+    const mockAgent = {
+      chat: vi.fn().mockRejectedValue(new Error('AI service unavailable'))
+    };
+    const mockContext = { agent: mockAgent };
+
+    const result = await workflowBuildCommand.execute('create a testing workflow', mockContext);
+
     expect(result).toContain('Generated workflow from your description');
   });
 
