@@ -164,7 +164,6 @@ describe('Command Help System', () => {
       // Import all command registration functions
       const { registerGitCommands } = await import('../src/commands/git-commands');
       const { registerCodeCommands } = await import('../src/commands/code-commands');
-      const { registerWorkflowCommands } = await import('../src/commands/workflow-commands');
       const { registerSessionCommands } = await import('../src/commands/session-commands');
       const { registerConfigCommands } = await import('../src/commands/config-commands');
       const { registerModelCommands } = await import('../src/commands/model-commands');
@@ -181,7 +180,6 @@ describe('Command Help System', () => {
       // Register all commands
       registerGitCommands();
       registerCodeCommands();
-      registerWorkflowCommands();
       registerSessionCommands();
       registerConfigCommands();
       registerModelCommands();

@@ -51,7 +51,6 @@ import {
 } from './commands/index.js';
 import { registerCodeCommands } from './commands/code-commands.js';
 import { registerPromptCommands } from './commands/prompt-commands.js';
-import { registerWorkflowCommands } from './commands/workflow-commands.js';
 import { registerGitCommands } from './commands/git-commands.js';
 import {
   registerSessionCommands,
@@ -370,12 +369,6 @@ function showHelp(projectInfo: ProjectInfo | null): void {
   console.log(chalk.dim('  /review-pr <num>   - Review a GitHub pull request'));
   console.log(chalk.dim('  /doc <file>        - Generate documentation'));
   console.log(chalk.dim('  /optimize <file>   - Optimize for performance'));
-
-  console.log(chalk.bold('\nWorkflows:'));
-  console.log(chalk.dim('  /workflow list      - List available workflows'));
-  console.log(chalk.dim('  /workflow show <name> - Show workflow details'));
-  console.log(chalk.dim('  /workflow validate <name> - Validate workflow syntax'));
-  console.log(chalk.dim('  /workflow-run <name>  - Execute a workflow'));
   console.log(chalk.dim('  /new <type> <name>     - Create new component/file'));
   console.log(chalk.dim('  /scaffold <feature>- Scaffold a complete feature'));
 
@@ -2474,7 +2467,6 @@ async function main() {
   registerDefaultTools();
   registerCodeCommands();
   registerPromptCommands();
-  registerWorkflowCommands();
   registerGitCommands();
   registerSessionCommands();
   registerConfigCommands();

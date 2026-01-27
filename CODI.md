@@ -241,7 +241,6 @@ src/
 │   ├── index.ts      # Command registry
 │   ├── prompt-commands.ts   # Information prompts (explain, review, analyze)
 │   ├── code-commands.ts     # Code modification (refactor, fix, test)
-│   ├── workflow-commands.ts
 │   ├── git-commands.ts
 │   ├── session-commands.ts
 │   ├── compact-commands.ts  # Context management
@@ -1397,84 +1396,6 @@ The bash tool includes built-in dangerous command detection with customizable pa
 
 
 ---
-
-## Interactive Workflow System
-
-### **Current Status: Phase 2 Complete - Core Engine Working ✅**
-
-**Branch**: `main` (Merged!)  
-**Last Verified**: $(date)  
-**Test Results**: 13 tests passing
-**GitHub**: [PR #142](https://github.com/laynepenney/codi/pull/142)
-
-### ✅ What's Implemented
-
-**Phase 1-2 Features (Working)**:
-- Workflow discovery in `./workflows/`, `~/.codi/workflows/`
-- YAML parsing with schema validation
-- State persistence to `~/.codi/workflows/state/`
-- Step execution engine with shell command support
-- Model switching between providers (`switch-model` action)
-- For full status: See `workflow-status-roadmap.md`
-
-**Commands Available**:
-- `/workflow list` - List available workflows
-- `/workflow show <name>` - Show workflow details and steps
-- `/workflow validate <name>` - Validate workflow syntax
-- `/workflow-run <name>` - Execute or resume workflow
-
-**Example Workflow**:
-```yaml
-name: test-model-switch
-description: Test switching between models
-steps:
-  - id: step1
-    action: shell
-    command: echo "Step 1: Starting workflow"
-  
-  - id: step2
-    action: switch-model
-    model: "llama3.2"
-    description: "Switch model"
-```
-
-### 🔲 Future Implementation Phases
-
-See `workflow-status-roadmap.md` for detailed roadmap:
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 3. Conditional Logic | 🔲 | Branching logic, `if/else` steps |
-| 4. Loop Support | 🔲 | Iteration with safety limits |
-| 5. Interactive Features | 🔲 | Human interaction points |
-| 6. Built-in Actions | 🔲 | PR/Git/AI action implementations |
-| 7. AI-Assisted Building | 🔲 | Natural language workflow creation |
-| 8. Testing & Polish | 🔲 | Production readiness |
-
-### 🎯 Quick Start
-
-1. Create workflows in `./workflows/` directory
-2. Use `/workflow validate <name>` to check syntax
-3. Execute with `/workflow-run <name>`
-
-### 🔍 Verification
-
-**Command Testing**:
-```bash
-# List available workflows
-/workflow list
-
-# Show workflow details
-/workflow show test-model-switch
-
-# Validate workflow syntax
-/workflow validate test-model-switch
-
-# Execute workflow
-/workflow-run test-model-switch
-```
-
-**Status**: ✅ **Production Ready** - Workflow execution fully functional
 
 ### AI-Powered Security Model Validation
 
