@@ -1,5 +1,5 @@
 {
-  "name": "codi",
+  "name": "codi-ai",
   "version": "0.17.0",
   "description": "Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models",
   "author": "Layne Penney",
@@ -38,7 +38,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "docs": "typedoc",
-    "docs:watch": "typedoc --watch"
+    "docs:watch": "typedoc --watch",
+    "prepublishOnly": "pnpm build && pnpm test"
   },
   "keywords": [
     "ai",
