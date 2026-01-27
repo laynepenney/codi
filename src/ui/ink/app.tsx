@@ -1088,17 +1088,28 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
             }}
             onSubmit={handleSubmit}
             onTab={(value) => {
-              const completed = handleCompletion();
-              if (completed !== null) {
-                setCompletionHint(null);
-              } else if (value.startsWith('/')) {
-                // Show matches hint when no single completion
-                const matches = getCompletionMatches(value);
-                if (matches.length > 0) {
-                  setCompletionHint(`Matches: ${matches.join(', ')}`);
-                }
+              const matches = getCompletionMatches(value);
+              if (matches.length === 0) return null;
+              
+              // Cycle through all matches
+              const currentMatch = matches.find(m => m.trim() === value.trim());
+              let nextMatch: string;
+              
+              if (!currentMatch) {
+                // Start from first match
+                nextMatch = matches[0]?.trim() ?? null;
+              } else {
+                // Find next match
+                const currentIndex = matches.indexOf(currentMatch);
+                const nextIndex = (currentIndex + 1) % matches.length;
+                nextMatch = matches[nextIndex]?.trim() ?? null;
               }
-              return completed;
+              
+              if (nextMatch !== null && nextMatch !== value) {
+                setCompletionHint(matches.length > 1 ? `(${matches.length} matches) ${nextMatch.trim()}` : null);
+              }
+              
+              return nextMatch;
             }}
             focus={focus === 'input' && !confirmation && !sessionSelection}
             placeholder={focus === 'input' && !sessionSelection ? 'Type a command' : ''}
