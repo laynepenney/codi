@@ -13,6 +13,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import type { CodeChunk, RetrievalResult } from './types.js';
+import { logger } from '../logger.js';
 
 /** Directory where all indexes are stored */
 const INDEX_BASE_DIR = path.join(os.homedir(), '.codi', 'index');
@@ -166,7 +167,7 @@ export class VectorStore {
       await this.index.getIndexStats();
     } catch (error) {
       if (error instanceof SyntaxError || (error instanceof Error && error.message.includes('JSON'))) {
-        console.error('RAG index corrupted, repairing...');
+        logger.warn('RAG index corrupted, repairing...');
         await this.repairIndex();
       }
     }
@@ -423,7 +424,7 @@ export class VectorStore {
    * Repair a corrupted index by clearing and recreating it.
    */
   private async repairIndex(): Promise<void> {
-    console.error('RAG index corrupted, recreating...');
+    logger.warn('RAG index corrupted, recreating...');
 
     // Delete corrupted files
     if (fs.existsSync(this.indexPath)) {

@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import { homedir } from 'node:os';
+import { CodiPaths } from '../paths.js';
 
 /**
  * Cached result structure
@@ -58,7 +58,7 @@ export class PipelineCache {
   private readonly version: number;
 
   constructor(options: CacheOptions = {}) {
-    this.directory = options.directory || join(homedir(), '.codi', 'cache', 'pipeline');
+    this.directory = options.directory || CodiPaths.pipelineCache();
     this.maxAge = (options.maxAge ?? 7 * 24 * 60 * 60) * 1000; // Convert to ms
     this.maxEntries = options.maxEntries ?? 1000;
     this.version = options.version ?? CACHE_VERSION;

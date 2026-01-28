@@ -11,8 +11,8 @@
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { gzipSync, gunzipSync } from 'zlib';
+import { CodiPaths, ensureDir } from '../paths.js';
 
 /**
  * Cached tool result entry.
@@ -49,7 +49,6 @@ interface CacheMetadata {
   contentLength: number;
 }
 
-const CACHE_DIR = join(homedir(), '.codi', 'tool-cache');
 const MAX_CACHE_SIZE_MB = 100; // Maximum cache size in MB
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 let lastCacheTimestamp = 0;
@@ -58,9 +57,7 @@ let lastCacheTimestamp = 0;
  * Ensure cache directory exists.
  */
 function ensureCacheDir(): void {
-  if (!existsSync(CACHE_DIR)) {
-    mkdirSync(CACHE_DIR, { recursive: true });
-  }
+  ensureDir(CodiPaths.toolCache());
 }
 
 /**
@@ -103,8 +100,8 @@ export function cacheToolResult(
 
   // Use gzip for larger content
   const useGzip = contentBuffer.length >= GZIP_THRESHOLD_BYTES;
-  const contentPath = join(CACHE_DIR, `${id}.content${useGzip ? '.gz' : ''}`);
-  const metaPath = join(CACHE_DIR, `${id}.meta.json`);
+  const contentPath = join(CodiPaths.toolCache(), `${id}.content${useGzip ? '.gz' : ''}`);
+  const metaPath = join(CodiPaths.toolCache(), `${id}.meta.json`);
 
   // Write content (optionally compressed)
   if (useGzip) {
@@ -134,9 +131,9 @@ export function cacheToolResult(
  * Handles both gzipped and non-gzipped content.
  */
 export function getCachedResult(id: string): CachedToolResult | null {
-  const contentPathPlain = join(CACHE_DIR, `${id}.content`);
-  const contentPathGz = join(CACHE_DIR, `${id}.content.gz`);
-  const metaPath = join(CACHE_DIR, `${id}.meta.json`);
+  const contentPathPlain = join(CodiPaths.toolCache(), `${id}.content`);
+  const contentPathGz = join(CodiPaths.toolCache(), `${id}.content.gz`);
+  const metaPath = join(CodiPaths.toolCache(), `${id}.meta.json`);
 
   // Check for gzipped first (more common for large results)
   const isGzipped = existsSync(contentPathGz);
@@ -177,8 +174,8 @@ export function getCachedResult(id: string): CachedToolResult | null {
  * Checks for both gzipped and non-gzipped content.
  */
 export function hasCachedResult(id: string): boolean {
-  const contentPathPlain = join(CACHE_DIR, `${id}.content`);
-  const contentPathGz = join(CACHE_DIR, `${id}.content.gz`);
+  const contentPathPlain = join(CodiPaths.toolCache(), `${id}.content`);
+  const contentPathGz = join(CodiPaths.toolCache(), `${id}.content.gz`);
   return existsSync(contentPathPlain) || existsSync(contentPathGz);
 }
 
@@ -189,13 +186,13 @@ export function listCachedResults(): Array<{ id: string; metadata: CacheMetadata
   ensureCacheDir();
 
   const results: Array<{ id: string; metadata: CacheMetadata }> = [];
-  const files = readdirSync(CACHE_DIR);
+  const files = readdirSync(CodiPaths.toolCache());
 
   for (const file of files) {
     if (file.endsWith('.meta.json')) {
       const id = file.replace('.meta.json', '');
       try {
-        const metaPath = join(CACHE_DIR, file);
+        const metaPath = join(CodiPaths.toolCache(), file);
         const metadata: CacheMetadata = JSON.parse(readFileSync(metaPath, 'utf-8'));
         results.push({ id, metadata });
       } catch {
@@ -220,14 +217,14 @@ export function cleanupCache(): { removed: number; freedBytes: number } {
   let removed = 0;
   let freedBytes = 0;
 
-  const files = readdirSync(CACHE_DIR);
+  const files = readdirSync(CodiPaths.toolCache());
 
   for (const file of files) {
     if (file.endsWith('.meta.json')) {
       const id = file.replace('.meta.json', '');
-      const metaPath = join(CACHE_DIR, file);
-      const contentPathPlain = join(CACHE_DIR, `${id}.content`);
-      const contentPathGz = join(CACHE_DIR, `${id}.content.gz`);
+      const metaPath = join(CodiPaths.toolCache(), file);
+      const contentPathPlain = join(CodiPaths.toolCache(), `${id}.content`);
+      const contentPathGz = join(CodiPaths.toolCache(), `${id}.content.gz`);
 
       try {
         const metadata: CacheMetadata = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -272,11 +269,11 @@ export function clearCache(): number {
   ensureCacheDir();
 
   let removed = 0;
-  const files = readdirSync(CACHE_DIR);
+  const files = readdirSync(CodiPaths.toolCache());
 
   for (const file of files) {
     try {
-      unlinkSync(join(CACHE_DIR, file));
+      unlinkSync(join(CodiPaths.toolCache(), file));
       removed++;
     } catch {
       // Ignore errors

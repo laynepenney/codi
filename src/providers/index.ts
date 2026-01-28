@@ -7,6 +7,7 @@ import { OpenAICompatibleProvider, createOllamaProvider, createRunPodProvider } 
 
 import { MockProvider } from './mock.js';
 import type { ProviderConfig } from '../types.js';
+import { logger } from '../logger.js';
 
 export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
@@ -119,7 +120,7 @@ export function createSecondaryProvider(config: SecondaryProviderConfig | undefi
       baseUrl: config.baseUrl,
     });
   } catch (error) {
-    console.warn(`Failed to create secondary provider (${providerType}): ${error instanceof Error ? error.message : error}`);
+    logger.warn(`Failed to create secondary provider (${providerType}): ${error instanceof Error ? error.message : error}`);
     return null; // Fallback to primary
   }
 }

@@ -1,13 +1,11 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { Message, ContentBlock } from './types.js';
 import { logger } from './logger.js';
-
-const SESSIONS_DIR = path.join(os.homedir(), '.codi', 'sessions');
+import { CodiPaths, ensureDir } from './paths.js';
 
 /**
  * Represents a saved conversation session.
@@ -56,18 +54,14 @@ export interface SessionInfo {
  * Ensure the sessions directory exists.
  */
 function ensureSessionsDir(): void {
-  if (!fs.existsSync(SESSIONS_DIR)) {
-    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
-  }
+  ensureDir(CodiPaths.sessions());
 }
 
 /**
  * Get the file path for a session.
  */
 function getSessionPath(name: string): string {
-  // Sanitize name for filesystem
-  const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(SESSIONS_DIR, `${safeName}.json`);
+  return CodiPaths.sessionFile(name);
 }
 
 /**
@@ -318,14 +312,15 @@ export function listSessions(): SessionInfo[] {
   ensureSessionsDir();
 
   const sessions: SessionInfo[] = [];
+  const sessionsDir = CodiPaths.sessions();
 
   try {
-    const files = fs.readdirSync(SESSIONS_DIR);
+    const files = fs.readdirSync(sessionsDir);
 
     for (const file of files) {
       if (!file.endsWith('.json')) continue;
 
-      const filePath = path.join(SESSIONS_DIR, file);
+      const filePath = path.join(sessionsDir, file);
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
         const session = JSON.parse(content) as Session;
@@ -374,7 +369,7 @@ export function findSessions(pattern: string): SessionInfo[] {
  * Get the sessions directory path.
  */
 export function getSessionsDir(): string {
-  return SESSIONS_DIR;
+  return CodiPaths.sessions();
 }
 
 /**

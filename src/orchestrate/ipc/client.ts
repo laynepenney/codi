@@ -9,6 +9,7 @@
  */
 
 import { createConnection, type Socket } from 'net';
+import { logger } from '../../logger.js';
 import { EventEmitter } from 'events';
 import {
   type IPCMessage,
@@ -406,7 +407,7 @@ export class IPCClient extends EventEmitter {
         const message = deserialize(line);
         this.handleMessage(message);
       } catch (err) {
-        console.error('Failed to parse IPC message:', err);
+        logger.error(`Failed to parse IPC message: ${err}`);
       }
     }
   }

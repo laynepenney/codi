@@ -15,9 +15,8 @@
 
 import { execSync } from 'child_process';
 import { readdirSync, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
 import { getAllCommands } from './commands/index.js';
+import { CodiPaths } from './paths.js';
 
 /**
  * Pre-defined subcommands for commands that support them.
@@ -98,7 +97,7 @@ function getGitBranches(): string[] {
  * Get session names from ~/.codi/sessions/.
  */
 function getSessionNames(): string[] {
-  const sessionsDir = join(homedir(), '.codi', 'sessions');
+  const sessionsDir = CodiPaths.sessions();
   if (!existsSync(sessionsDir)) return [];
   try {
     return readdirSync(sessionsDir)

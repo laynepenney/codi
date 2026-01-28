@@ -9,7 +9,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { homedir } from 'os';
 import yaml from 'js-yaml';
 import type {
   ModelMapConfig,
@@ -20,15 +19,13 @@ import type {
   PipelineStep,
   ModelRoles,
 } from './types.js';
+import { CodiPaths, ensureDir } from '../paths.js';
 
 /** Config file name */
 const MODEL_MAP_FILE = 'codi-models.yaml';
 
 /** Alternative config file name */
 const MODEL_MAP_FILE_ALT = 'codi-models.yml';
-
-/** Global config directory */
-const GLOBAL_CONFIG_DIR = path.join(homedir(), '.codi');
 
 /** Global config file name */
 const GLOBAL_MODEL_MAP_FILE = 'models.yaml';
@@ -177,7 +174,7 @@ function mergeModelMapConfigs(
 export function loadModelMap(cwd: string = process.cwd()): ModelMapLoadResult {
   // Load global config (if exists)
   const globalResult = loadSingleModelMap(
-    GLOBAL_CONFIG_DIR,
+    CodiPaths.home(),
     GLOBAL_MODEL_MAP_FILE,
     GLOBAL_MODEL_MAP_FILE_ALT
   );
@@ -662,7 +659,7 @@ export function initModelMap(
   isGlobal: boolean;
   error?: string;
 } {
-  const targetDir = global ? GLOBAL_CONFIG_DIR : cwd;
+  const targetDir = global ? CodiPaths.home() : cwd;
   const fileName = global ? GLOBAL_MODEL_MAP_FILE : MODEL_MAP_FILE;
   const altFileName = global ? GLOBAL_MODEL_MAP_FILE_ALT : MODEL_MAP_FILE_ALT;
   const configPath = path.join(targetDir, fileName);
@@ -670,7 +667,7 @@ export function initModelMap(
   // Ensure directory exists for global config
   if (global && !fs.existsSync(targetDir)) {
     try {
-      fs.mkdirSync(targetDir, { recursive: true });
+      ensureDir(targetDir);
     } catch (error) {
       return {
         success: false,
@@ -718,7 +715,7 @@ export function initModelMap(
  * Get the global config directory path.
  */
 export function getGlobalConfigDir(): string {
-  return GLOBAL_CONFIG_DIR;
+  return CodiPaths.home();
 }
 
 /**
@@ -740,14 +737,14 @@ export function addModelToMap(
   global: boolean = false,
   cwd: string = process.cwd()
 ): { success: boolean; path: string; error?: string } {
-  const targetDir = global ? GLOBAL_CONFIG_DIR : cwd;
+  const targetDir = global ? CodiPaths.home() : cwd;
   const fileName = global ? GLOBAL_MODEL_MAP_FILE : MODEL_MAP_FILE;
   const configPath = path.join(targetDir, fileName);
 
   // Ensure directory exists for global config
   if (global && !fs.existsSync(targetDir)) {
     try {
-      fs.mkdirSync(targetDir, { recursive: true });
+      ensureDir(targetDir);
     } catch (error) {
       return {
         success: false,

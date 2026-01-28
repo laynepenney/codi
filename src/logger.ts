@@ -330,6 +330,26 @@ class Logger {
   info(message: string): void {
     console.log(chalk.blue(`Info: ${message}`));
   }
+
+  /**
+   * Log a message without prefix or formatting.
+   * Use for normal user-facing output that should always appear.
+   */
+  log(message: string): void {
+    if (!this.paused) {
+      console.log(message);
+    }
+  }
+
+  /**
+   * Log a message to stderr without prefix or formatting.
+   * Use for error output that should always appear.
+   */
+  logError(message: string): void {
+    if (!this.paused) {
+      console.error(message);
+    }
+  }
 }
 
 /**

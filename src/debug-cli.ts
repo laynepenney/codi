@@ -25,19 +25,20 @@ import {
   lstatSync,
 } from 'fs';
 import { join, resolve } from 'path';
-import { homedir } from 'os';
 import chalk from 'chalk';
 import { watch } from 'chokidar';
+import { logger } from './logger.js';
+import { CodiPaths } from './paths.js';
 import type { DebugEvent, DebugCommand, DebugEventType } from './debug-bridge.js';
 
 // ============================================
 // Constants
 // ============================================
 
-const DEBUG_DIR = join(homedir(), '.codi', 'debug');
-const SESSIONS_DIR = join(DEBUG_DIR, 'sessions');
-const CURRENT_LINK = join(DEBUG_DIR, 'current');
-const INDEX_FILE = join(DEBUG_DIR, 'index.json');
+const DEBUG_DIR = CodiPaths.debug();
+const SESSIONS_DIR = CodiPaths.debugSessions();
+const CURRENT_LINK = CodiPaths.debugCurrentSession();
+const INDEX_FILE = CodiPaths.debugIndex();
 
 // ============================================
 // Types
@@ -302,13 +303,13 @@ program
   .action(async (opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found. Start codi with --debug-bridge flag.'));
+      logger.error('No active session found. Start codi with --debug-bridge flag.');
       process.exit(1);
     }
 
     const eventsFile = getEventsFile(sessionDir);
     if (!existsSync(eventsFile)) {
-      console.error(chalk.red(`Events file not found: ${eventsFile}`));
+      logger.error(`Events file not found: ${eventsFile}`);
       process.exit(1);
     }
 
@@ -425,7 +426,7 @@ program
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'pause');
@@ -439,7 +440,7 @@ program
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'resume');
@@ -453,7 +454,7 @@ program
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'step');
@@ -467,7 +468,7 @@ program
   .action((what, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
 
@@ -486,12 +487,12 @@ program
   .action((role, content, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
 
     if (!['user', 'assistant'].includes(role)) {
-      console.error(chalk.red('Role must be "user" or "assistant"'));
+      logger.error('Role must be "user" or "assistant"');
       process.exit(1);
     }
 
@@ -540,7 +541,7 @@ program
         console.log(`  Event count: ${eventCount}`);
       }
     } catch (err) {
-      console.error(chalk.red('Failed to read session info:'), err);
+      logger.error(`Failed to read session info: ${err}`);
     }
   });
 
@@ -560,13 +561,13 @@ breakpointCmd
   .action((type, condition, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
 
     const validTypes = ['tool', 'iteration', 'pattern', 'error'];
     if (!validTypes.includes(type)) {
-      console.error(chalk.red(`Invalid breakpoint type. Valid types: ${validTypes.join(', ')}`));
+      logger.error(`Invalid breakpoint type. Valid types: ${validTypes.join(', ')}`);
       process.exit(1);
     }
 
@@ -575,7 +576,7 @@ breakpointCmd
     if (type === 'iteration' && condition) {
       parsedCondition = parseInt(condition, 10);
       if (isNaN(parsedCondition)) {
-        console.error(chalk.red('Iteration condition must be a number'));
+        logger.error('Iteration condition must be a number');
         process.exit(1);
       }
     }
@@ -591,7 +592,7 @@ breakpointCmd
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'breakpoint_list', {});
@@ -606,7 +607,7 @@ breakpointCmd
   .action((id, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'breakpoint_remove', { id });
@@ -619,7 +620,7 @@ breakpointCmd
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'breakpoint_clear', {});
@@ -643,7 +644,7 @@ checkpointCmd
   .action((label, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'checkpoint_create', { label });
@@ -657,7 +658,7 @@ checkpointCmd
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'checkpoint_list', {});
@@ -681,13 +682,13 @@ program
   .action(async (session, opts) => {
     const sessionDir = getSessionDir(session);
     if (!sessionDir) {
-      console.error(chalk.red('No session found. Specify a session ID or run from a directory with a current session.'));
+      logger.error('No session found. Specify a session ID or run from a directory with a current session.');
       process.exit(1);
     }
 
     const eventsFile = getEventsFile(sessionDir);
     if (!existsSync(eventsFile)) {
-      console.error(chalk.red(`Events file not found: ${eventsFile}`));
+      logger.error(`Events file not found: ${eventsFile}`);
       process.exit(1);
     }
 
@@ -773,7 +774,7 @@ program
   .action((checkpoint, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     console.log(chalk.yellow('Warning: This will discard all state after the checkpoint.'));
@@ -793,7 +794,7 @@ branchCmd
   .action((name, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'branch_create', {
@@ -809,7 +810,7 @@ branchCmd
   .action((name, opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'branch_switch', { name });
@@ -823,7 +824,7 @@ branchCmd
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
     sendCommand(sessionDir, 'branch_list', {});
@@ -840,7 +841,7 @@ program
   .action((opts) => {
     const sessionDir = getSessionDir(opts.session);
     if (!sessionDir) {
-      console.error(chalk.red('No active session found.'));
+      logger.error('No active session found.');
       process.exit(1);
     }
 
@@ -855,7 +856,7 @@ program
       const timeline = JSON.parse(readFileSync(timelineFile, 'utf8'));
       printTimeline(timeline);
     } catch (err) {
-      console.error(chalk.red('Failed to read timeline:'), err);
+      logger.error(`Failed to read timeline: ${err}`);
     }
   });
 

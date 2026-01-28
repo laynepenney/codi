@@ -12,6 +12,7 @@ export * from './types.js';
 
 // Rate limiter cleanup
 import { shutdownAllRateLimiters } from '../providers/rate-limiter.js';
+import { logger } from '../logger.js';
 
 // Loader
 export {
@@ -178,7 +179,7 @@ export function initModelMap(cwd: string = process.cwd()): ModelMap | null {
 
   if (!config) {
     if (error) {
-      console.warn(`Model map error: ${error}`);
+      logger.warn(`Model map error: ${error}`);
     }
     return null;
   }
@@ -186,15 +187,15 @@ export function initModelMap(cwd: string = process.cwd()): ModelMap | null {
   // Validate
   const validation = validateModelMap(config);
   if (!validation.valid) {
-    console.error('Model map validation errors:');
+    logger.error('Model map validation errors:');
     for (const err of validation.errors) {
-      console.error(`  - ${err.message}`);
+      logger.logError(`  - ${err.message}`);
     }
     return null;
   }
   if (validation.warnings.length > 0) {
     for (const warn of validation.warnings) {
-      console.warn(`Model map warning: ${warn}`);
+      logger.warn(`Model map warning: ${warn}`);
     }
   }
 
