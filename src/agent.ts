@@ -56,6 +56,11 @@ import {
   type Timeline,
 } from './debug-bridge.js';
 import {
+  AgentDebugger,
+  type DebuggerAgentState,
+  type RewindResult,
+} from './agent/debugger.js';
+import {
   checkCommandApproval,
   getApprovalSuggestions,
   addApprovedPattern,
@@ -190,26 +195,8 @@ export class Agent {
   private cachedToolDefinitions: import('./types.js').ToolDefinition[] | null = null;
   private cachedTokenCount: number | null = null;
   private tokenCacheValid: boolean = false;
-  // Debug control (Phase 2)
-  private debugPaused: boolean = false;
-  private debugStepMode: boolean = false;
-  private currentIteration: number = 0;
-  // Phase 4: Breakpoints
-  private breakpoints: Map<string, Breakpoint> = new Map();
-  // Phase 4: Checkpoints
-  private lastCheckpointIteration: number = 0;
-  private checkpointInterval: number = 5; // Auto-checkpoint every 5 iterations
-  // Phase 5: Time travel
-  private currentBranch: string = 'main';
-  private timeline: Timeline = {
-    branches: [{
-      name: 'main',
-      created: new Date().toISOString(),
-      checkpoints: [],
-      current: true,
-    }],
-    activeBranch: 'main',
-  };
+  // Debugger module (breakpoints, checkpoints, time travel)
+  private debugger: AgentDebugger = new AgentDebugger();
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -271,6 +258,20 @@ export class Agent {
       onConfirm: options.onConfirm,
       onCompaction: options.onCompaction,
       onProviderChange: options.onProviderChange,
+    };
+  }
+
+  /**
+   * Get the agent state needed by the debugger for snapshots and checkpoints.
+   */
+  private getDebuggerAgentState(): DebuggerAgentState {
+    return {
+      messages: this.messages,
+      conversationSummary: this.conversationSummary,
+      workingSet: this.workingSet,
+      provider: this.provider,
+      toolDefinitions: this.getCachedToolDefinitions(),
+      maxContextTokens: this.maxContextTokens,
     };
   }
 
@@ -899,28 +900,28 @@ ${contextToSummarize}`,
 
     while (iterations < FIXED_CONFIG.MAX_ITERATIONS) {
       iterations++;
-      this.currentIteration = iterations;
+      this.debugger.setCurrentIteration(iterations);
 
       // Phase 4: Maybe create automatic checkpoint
-      this.maybeCreateCheckpoint();
+      this.debugger.maybeCreateCheckpoint(this.getDebuggerAgentState());
 
       // Check iteration breakpoints (Phase 4)
-      const iterBp = this.checkBreakpoints({
+      const iterBp = this.debugger.checkBreakpoints({
         type: 'iteration',
-        iteration: this.currentIteration,
+        iteration: this.debugger.getCurrentIteration(),
       });
       if (iterBp) {
-        this.debugPaused = true;
+        this.debugger.setPaused(true);
         if (isDebugBridgeEnabled()) {
           getDebugBridge().breakpointHit(iterBp, {
             type: 'iteration',
-            iteration: this.currentIteration,
+            iteration: this.debugger.getCurrentIteration(),
           });
         }
       }
 
       // Wait for debug resume if paused (Phase 2)
-      await this.waitForDebugResume();
+      await this.debugger.waitForDebugResume(this.messages.length);
 
       // Check wall-clock timeout
       const elapsed = Date.now() - startTime;
@@ -1504,24 +1505,24 @@ ${contextToSummarize}`,
         for (const batch of batches) {
           // Phase 4: Check breakpoints before each batch
           for (const toolCall of batch.calls) {
-            const bp = this.checkBreakpoints({
+            const bp = this.debugger.checkBreakpoints({
               type: 'tool_call',
               toolName: toolCall.name,
               toolInput: toolCall.input,
-              iteration: this.currentIteration,
+              iteration: this.debugger.getCurrentIteration(),
             });
 
             if (bp) {
-              this.debugPaused = true;
+              this.debugger.setPaused(true);
               if (isDebugBridgeEnabled()) {
                 getDebugBridge().breakpointHit(bp, {
                   type: 'tool_call',
                   toolName: toolCall.name,
                   toolInput: toolCall.input,
-                  iteration: this.currentIteration,
+                  iteration: this.debugger.getCurrentIteration(),
                 });
               }
-              await this.waitForDebugResume();
+              await this.debugger.waitForDebugResume(this.messages.length);
             }
           }
 
@@ -1555,19 +1556,19 @@ ${contextToSummarize}`,
               if (result.is_error) {
                 hasError = true;
                 // Phase 4: Check error breakpoints
-                const errBp = this.checkBreakpoints({
+                const errBp = this.debugger.checkBreakpoints({
                   type: 'error',
                   toolName: toolCall.name,
-                  iteration: this.currentIteration,
+                  iteration: this.debugger.getCurrentIteration(),
                   error: result.content,
                 });
                 if (errBp) {
-                  this.debugPaused = true;
+                  this.debugger.setPaused(true);
                   if (isDebugBridgeEnabled()) {
                     getDebugBridge().breakpointHit(errBp, {
                       type: 'error',
                       toolName: toolCall.name,
-                      iteration: this.currentIteration,
+                      iteration: this.debugger.getCurrentIteration(),
                       error: result.content,
                     });
                   }
@@ -1599,23 +1600,23 @@ ${contextToSummarize}`,
               if (result.is_error) {
                 hasError = true;
                 // Phase 4: Check error breakpoints
-                const errBp = this.checkBreakpoints({
+                const errBp = this.debugger.checkBreakpoints({
                   type: 'error',
                   toolName: toolCall.name,
-                  iteration: this.currentIteration,
+                  iteration: this.debugger.getCurrentIteration(),
                   error: result.content,
                 });
                 if (errBp) {
-                  this.debugPaused = true;
+                  this.debugger.setPaused(true);
                   if (isDebugBridgeEnabled()) {
                     getDebugBridge().breakpointHit(errBp, {
                       type: 'error',
                       toolName: toolCall.name,
-                      iteration: this.currentIteration,
+                      iteration: this.debugger.getCurrentIteration(),
                       error: result.content,
                     });
                   }
-                  await this.waitForDebugResume();
+                  await this.debugger.waitForDebugResume(this.messages.length);
                 }
               }
 
@@ -1748,10 +1749,10 @@ ${contextToSummarize}`,
       });
 
       // Check step mode after iteration completes (Phase 2)
-      if (this.debugStepMode && isDebugBridgeEnabled()) {
-        this.debugPaused = true;
-        this.debugStepMode = false;
-        getDebugBridge().emit('step_complete', { iteration: this.currentIteration });
+      if (this.debugger.isStepMode() && isDebugBridgeEnabled()) {
+        this.debugger.setPaused(true);
+        this.debugger.setStepMode(false);
+        getDebugBridge().emit('step_complete', { iteration: this.debugger.getCurrentIteration() });
       }
     }
 
@@ -2072,10 +2073,10 @@ Label:`,
    * Set the debug paused state.
    */
   setDebugPaused(paused: boolean): void {
-    this.debugPaused = paused;
+    this.debugger.setPaused(paused);
     if (isDebugBridgeEnabled()) {
       getDebugBridge().emit(paused ? 'paused' : 'resumed', {
-        iteration: this.currentIteration,
+        iteration: this.debugger.getCurrentIteration(),
       });
     }
   }
@@ -2084,97 +2085,26 @@ Label:`,
    * Check if the agent is paused.
    */
   isDebugPaused(): boolean {
-    return this.debugPaused;
+    return this.debugger.isPaused();
   }
 
   /**
    * Enable step mode - execute one iteration then pause.
    */
   setDebugStep(): void {
-    this.debugStepMode = true;
-    this.debugPaused = false; // Resume to execute one step
+    this.debugger.setStepMode(true);
+    this.debugger.setPaused(false); // Resume to execute one step
   }
 
-  /**
-   * Wait for debug resume if paused.
-   * Called before each API request in the chat loop.
-   */
-  private async waitForDebugResume(): Promise<void> {
-    if (!isDebugBridgeEnabled() || !this.debugPaused) return;
-
-    // Emit paused state periodically while waiting
-    while (this.debugPaused) {
-      getDebugBridge().emit('state_snapshot', {
-        paused: true,
-        waiting: 'resume',
-        iteration: this.currentIteration,
-        messageCount: this.messages.length,
-      });
-      await new Promise(r => setTimeout(r, 500)); // Check every 500ms
-    }
-  }
+  // ====================
+  // Debug Methods (delegated to AgentDebugger)
+  // ====================
 
   /**
    * Get a snapshot of the agent state for debugging.
    */
   getStateSnapshot(what: 'messages' | 'context' | 'tools' | 'all' = 'all'): Record<string, unknown> {
-    const snapshot: Record<string, unknown> = {
-      timestamp: new Date().toISOString(),
-      sessionId: isDebugBridgeEnabled() ? getDebugBridge().getSessionId() : null,
-      iteration: this.currentIteration,
-      paused: this.debugPaused,
-    };
-
-    if (what === 'messages' || what === 'all') {
-      const roleCount = { user: 0, assistant: 0, tool: 0 };
-      for (const msg of this.messages) {
-        if (msg.role === 'user') {
-          if (typeof msg.content !== 'string' &&
-              msg.content.some(b => b.type === 'tool_result')) {
-            roleCount.tool++;
-          } else {
-            roleCount.user++;
-          }
-        } else if (msg.role === 'assistant') {
-          roleCount.assistant++;
-        }
-      }
-
-      snapshot.messages = {
-        count: this.messages.length,
-        roles: roleCount,
-        recent: this.messages.slice(-3).map(m => ({
-          role: m.role,
-          preview: getMessageText(m).slice(0, 200),
-        })),
-      };
-    }
-
-    if (what === 'context' || what === 'all') {
-      snapshot.context = {
-        tokenEstimate: countMessageTokens(this.messages),
-        maxTokens: this.maxContextTokens,
-        hasSummary: !!this.conversationSummary,
-        summaryPreview: this.conversationSummary?.slice(0, 200),
-      };
-    }
-
-    if (what === 'tools' || what === 'all') {
-      const toolDefs = this.getCachedToolDefinitions();
-      snapshot.tools = {
-        enabled: toolDefs.map(d => d.name),
-        count: toolDefs.length,
-      };
-    }
-
-    snapshot.provider = {
-      name: this.provider.getName(),
-      model: this.provider.getModel(),
-    };
-
-    snapshot.workingSet = [...this.workingSet.recentFiles];
-
-    return snapshot;
+    return this.debugger.getStateSnapshot(this.getDebuggerAgentState(), what);
   }
 
   /**
@@ -2194,386 +2124,134 @@ Label:`,
   }
 
   // ==
-  // Breakpoints (Phase 4)
+  // Breakpoints (Phase 4) - delegated to AgentDebugger
   // ==
 
   /**
    * Add a breakpoint.
    */
   addBreakpoint(type: BreakpointType, condition?: string | number): string {
-    const id = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    this.breakpoints.set(id, {
-      id,
-      type,
-      condition,
-      enabled: true,
-      hitCount: 0,
-    });
-    return id;
+    return this.debugger.addBreakpoint(type, condition);
   }
 
   /**
    * Remove a breakpoint by ID.
    */
   removeBreakpoint(id: string): boolean {
-    return this.breakpoints.delete(id);
+    return this.debugger.removeBreakpoint(id);
   }
 
   /**
    * Clear all breakpoints.
    */
   clearBreakpoints(): void {
-    this.breakpoints.clear();
+    this.debugger.clearBreakpoints();
   }
 
   /**
    * List all breakpoints.
    */
   listBreakpoints(): Breakpoint[] {
-    return [...this.breakpoints.values()];
-  }
-
-  /**
-   * Check if any breakpoint should trigger.
-   * Returns the first matching breakpoint or null.
-   */
-  private checkBreakpoints(context: BreakpointContext): Breakpoint | null {
-    for (const bp of this.breakpoints.values()) {
-      if (!bp.enabled) continue;
-
-      switch (bp.type) {
-        case 'tool':
-          if (context.type === 'tool_call' && context.toolName === bp.condition) {
-            bp.hitCount++;
-            return bp;
-          }
-          break;
-
-        case 'iteration':
-          if (context.iteration === bp.condition) {
-            bp.hitCount++;
-            return bp;
-          }
-          break;
-
-        case 'pattern':
-          if (context.toolInput && typeof bp.condition === 'string') {
-            const inputStr = JSON.stringify(context.toolInput);
-            const regex = new RegExp(bp.condition, 'i');
-            if (regex.test(inputStr)) {
-              bp.hitCount++;
-              return bp;
-            }
-          }
-          break;
-
-        case 'error':
-          if (context.type === 'error') {
-            bp.hitCount++;
-            return bp;
-          }
-          break;
-      }
-    }
-    return null;
+    return this.debugger.listBreakpoints();
   }
 
   // ==
-  // Checkpoints (Phase 4)
+  // Checkpoints (Phase 4) - delegated to AgentDebugger
   // ==
 
   /**
    * Create a checkpoint with current state.
-   * In Phase 5, this also saves full state to disk.
    */
   createCheckpoint(label?: string): Checkpoint {
-    const checkpoint: Checkpoint = {
-      id: `cp_${this.currentIteration}_${Date.now()}`,
-      label,
-      iteration: this.currentIteration,
-      timestamp: new Date().toISOString(),
-      messageCount: this.messages.length,
-      tokenCount: countMessageTokens(this.messages),
-    };
-
-    this.lastCheckpointIteration = this.currentIteration;
-
-    // Phase 5: Save full checkpoint to disk if debug bridge enabled
-    if (isDebugBridgeEnabled()) {
-      const fullCheckpoint: FullCheckpoint = {
-        ...checkpoint,
-        branch: this.currentBranch,
-        state: {
-          messages: structuredClone(this.messages),
-          summary: this.conversationSummary,
-          workingSet: {
-            recentFiles: [...this.workingSet.recentFiles],
-            activeEntities: [...this.workingSet.activeEntities],
-          },
-        },
-      };
-      this.saveCheckpoint(fullCheckpoint);
-      getDebugBridge().checkpoint(checkpoint);
-    }
-
-    return checkpoint;
-  }
-
-  /**
-   * Automatically create checkpoint if interval has passed.
-   */
-  private maybeCreateCheckpoint(): void {
-    if (!isDebugBridgeEnabled()) return;
-
-    if (this.currentIteration - this.lastCheckpointIteration >= this.checkpointInterval) {
-      this.createCheckpoint();
-    }
+    return this.debugger.createCheckpoint(this.getDebuggerAgentState(), label);
   }
 
   /**
    * Set the auto-checkpoint interval.
    */
   setCheckpointInterval(interval: number): void {
-    this.checkpointInterval = interval;
-  }
-
-  // ==
-  // Time Travel (Phase 5)
-  // ==
-
-  /**
-   * Save a full checkpoint to disk.
-   */
-  private saveCheckpoint(checkpoint: FullCheckpoint): void {
-    if (!isDebugBridgeEnabled()) return;
-
-    const { mkdirSync, writeFileSync } = require('fs');
-    const { join } = require('path');
-
-    const checkpointsDir = join(getDebugBridge().getSessionDir(), 'checkpoints');
-    mkdirSync(checkpointsDir, { recursive: true });
-
-    const filePath = join(checkpointsDir, `${checkpoint.id}.json`);
-    writeFileSync(filePath, JSON.stringify(checkpoint, null, 2));
-
-    // Add to branch's checkpoint list
-    const branch = this.timeline.branches.find(b => b.name === this.currentBranch);
-    if (branch && !branch.checkpoints.includes(checkpoint.id)) {
-      branch.checkpoints.push(checkpoint.id);
-      this.saveTimeline();
-    }
+    this.debugger.setCheckpointInterval(interval);
   }
 
   /**
    * Load a checkpoint from disk.
    */
   loadCheckpoint(checkpointId: string): FullCheckpoint | null {
-    if (!isDebugBridgeEnabled()) return null;
-
-    const { existsSync, readFileSync } = require('fs');
-    const { join } = require('path');
-
-    const filePath = join(getDebugBridge().getSessionDir(), 'checkpoints', `${checkpointId}.json`);
-    if (!existsSync(filePath)) return null;
-
-    try {
-      return JSON.parse(readFileSync(filePath, 'utf8'));
-    } catch (error) {
-      logger.debug(`Failed to load checkpoint ${checkpointId}: ${error instanceof Error ? error.message : error}`);
-      return null;
-    }
+    return this.debugger.loadCheckpoint(checkpointId);
   }
 
   /**
    * List all checkpoints in the current session.
    */
   listCheckpoints(): Checkpoint[] {
-    if (!isDebugBridgeEnabled()) return [];
-
-    const { existsSync, readdirSync, readFileSync } = require('fs');
-    const { join } = require('path');
-
-    const checkpointsDir = join(getDebugBridge().getSessionDir(), 'checkpoints');
-    if (!existsSync(checkpointsDir)) return [];
-
-    const checkpoints: Checkpoint[] = [];
-    const files = readdirSync(checkpointsDir).filter((f: string) => f.endsWith('.json'));
-
-    for (const file of files) {
-      try {
-        const content = readFileSync(join(checkpointsDir, file), 'utf8');
-        const cp = JSON.parse(content) as FullCheckpoint;
-        checkpoints.push({
-          id: cp.id,
-          label: cp.label,
-          iteration: cp.iteration,
-          timestamp: cp.timestamp,
-          messageCount: cp.messageCount,
-          tokenCount: cp.tokenCount,
-        });
-      } catch (error) {
-        logger.debug(`Skipping invalid checkpoint file ${file}: ${error instanceof Error ? error.message : error}`);
-      }
-    }
-
-    return checkpoints.sort((a, b) => a.iteration - b.iteration);
+    return this.debugger.listCheckpoints();
   }
+
+  // ==
+  // Time Travel (Phase 5) - delegated to AgentDebugger
+  // ==
 
   /**
    * Rewind to a checkpoint (destructive - loses subsequent state).
    */
   rewind(checkpointId: string): boolean {
-    const checkpoint = this.loadCheckpoint(checkpointId);
-    if (!checkpoint) {
-      return false;
+    const result = this.debugger.rewind(checkpointId);
+    if (result.success && result.state) {
+      // Apply state changes
+      this.messages = result.state.messages;
+      this.conversationSummary = result.state.summary;
+      this.workingSet = this.debugger.applyRewindState(result.state.workingSet);
     }
-
-    // Restore state
-    this.messages = structuredClone(checkpoint.state.messages) as Message[];
-    this.conversationSummary = checkpoint.state.summary;
-    // Restore working set
-    this.workingSet = createWorkingSet();
-    if (checkpoint.state.workingSet) {
-      for (const file of checkpoint.state.workingSet.recentFiles || []) {
-        this.workingSet.recentFiles.add(file);
-      }
-      for (const entity of checkpoint.state.workingSet.activeEntities || []) {
-        this.workingSet.activeEntities.add(entity);
-      }
-    }
-    this.currentIteration = checkpoint.iteration;
-    this.lastCheckpointIteration = checkpoint.iteration;
-
-    if (isDebugBridgeEnabled()) {
-      getDebugBridge().rewind(checkpointId, checkpoint.iteration, this.messages.length);
-    }
-
-    return true;
+    return result.success;
   }
 
   /**
    * Create a branch from a checkpoint.
    */
   createBranch(checkpointId: string, branchName: string): boolean {
-    const checkpoint = this.loadCheckpoint(checkpointId);
-    if (!checkpoint) {
-      return false;
-    }
-
-    // Check if branch already exists
-    if (this.timeline.branches.some(b => b.name === branchName)) {
-      return false;
-    }
-
-    const branch: Branch = {
-      name: branchName,
-      parentBranch: checkpoint.branch,
-      forkPoint: checkpointId,
-      created: new Date().toISOString(),
-      checkpoints: [],
-      current: false,
-    };
-
-    this.timeline.branches.push(branch);
-    this.saveTimeline();
-
-    if (isDebugBridgeEnabled()) {
-      getDebugBridge().branchCreated(branchName, checkpointId, checkpoint.branch);
-    }
-
-    return true;
+    return this.debugger.createBranch(checkpointId, branchName);
   }
 
   /**
    * Switch to a different branch.
    */
   switchBranch(branchName: string): boolean {
-    const branch = this.timeline.branches.find(b => b.name === branchName);
-    if (!branch) {
-      return false;
+    const result = this.debugger.switchBranch(branchName);
+    if (result.success && result.state) {
+      // Apply state changes
+      this.messages = result.state.messages;
+      this.conversationSummary = result.state.summary;
+      this.workingSet = this.debugger.applyRewindState(result.state.workingSet);
     }
-
-    // Find the latest checkpoint in the branch to restore from
-    let checkpointId: string | undefined;
-    if (branch.checkpoints.length > 0) {
-      checkpointId = branch.checkpoints[branch.checkpoints.length - 1];
-    } else if (branch.forkPoint) {
-      checkpointId = branch.forkPoint;
-    }
-
-    if (checkpointId) {
-      const rewound = this.rewind(checkpointId);
-      if (!rewound) {
-        return false;
-      }
-    }
-
-    // Update current branch
-    this.timeline.branches.forEach(b => b.current = false);
-    branch.current = true;
-    this.currentBranch = branchName;
-    this.timeline.activeBranch = branchName;
-    this.saveTimeline();
-
-    if (isDebugBridgeEnabled()) {
-      getDebugBridge().branchSwitched(branchName, this.currentIteration);
-    }
-
-    return true;
+    return result.success;
   }
 
   /**
    * List all branches.
    */
   listBranches(): Branch[] {
-    return this.timeline.branches;
+    return this.debugger.listBranches();
   }
 
   /**
    * Get the current branch name.
    */
   getCurrentBranch(): string {
-    return this.currentBranch;
+    return this.debugger.getCurrentBranch();
   }
 
   /**
    * Get the timeline.
    */
   getTimeline(): Timeline {
-    return this.timeline;
-  }
-
-  /**
-   * Save the timeline to disk.
-   */
-  private saveTimeline(): void {
-    if (!isDebugBridgeEnabled()) return;
-
-    const { writeFileSync } = require('fs');
-    const { join } = require('path');
-
-    const filePath = join(getDebugBridge().getSessionDir(), 'timeline.json');
-    writeFileSync(filePath, JSON.stringify(this.timeline, null, 2));
+    return this.debugger.getTimeline();
   }
 
   /**
    * Load the timeline from disk.
    */
   loadTimeline(): void {
-    if (!isDebugBridgeEnabled()) return;
-
-    const { existsSync, readFileSync } = require('fs');
-    const { join } = require('path');
-
-    const filePath = join(getDebugBridge().getSessionDir(), 'timeline.json');
-    if (!existsSync(filePath)) return;
-
-    try {
-      this.timeline = JSON.parse(readFileSync(filePath, 'utf8'));
-      this.currentBranch = this.timeline.activeBranch;
-    } catch (error) {
-      logger.debug(`Failed to load timeline: ${error instanceof Error ? error.message : error}`);
-    }
+    this.debugger.loadTimeline();
   }
 
   /**
