@@ -36,10 +36,12 @@ import {
 
 import { Agent, type ToolConfirmation, type ConfirmationResult, type SecurityWarning } from './agent.js';
 import { SecurityValidator, createSecurityValidator } from './security-validator.js';
-import { detectProvider, createProvider, createSecondaryProvider } from './providers/index.js';
+// Provider creation helpers now in cli/initialization.ts
 import { shutdownAllRateLimiters } from './providers/rate-limiter.js';
 import { globalRegistry, registerDefaultTools, ToolRegistry } from './tools/index.js';
 import { detectProject, formatProjectContext, loadContextFile } from './context.js';
+import { generateSystemPrompt } from './cli/system-prompt.js';
+import { showHelp } from './cli/help.js';
 import { OpenFilesManager } from './open-files.js';
 import {
   isCommand,
@@ -49,41 +51,16 @@ import {
   type CommandContext,
   type ProjectInfo,
 } from './commands/index.js';
-import { registerCodeCommands } from './commands/code-commands.js';
-import { registerPromptCommands } from './commands/prompt-commands.js';
-import { registerGitCommands } from './commands/git-commands.js';
 import {
-  registerSessionCommands,
-  setSessionAgent,
   getCurrentSessionName,
   setCurrentSessionName,
 } from './commands/session-commands.js';
-import { registerConfigCommands } from './commands/config-commands.js';
-import { registerCodiCommands } from './commands/codi-commands.js';
-import { registerHistoryCommands } from './commands/history-commands.js';
-import { registerPlanCommands } from './commands/plan-commands.js';
-import { registerUsageCommands } from './commands/usage-commands.js';
-import { registerPluginCommands } from './commands/plugin-commands.js';
-import { registerModelCommands } from './commands/model-commands.js';
-import { registerMemoryCommands } from './commands/memory-commands.js';
-import { registerCompactCommands } from './commands/compact-commands.js';
-import { registerRAGCommands, setRAGIndexer, setRAGConfig } from './commands/rag-commands.js';
-import { registerApprovalCommands } from './commands/approval-commands.js';
-import { registerSymbolCommands, setSymbolIndexService, getSymbolIndexService } from './commands/symbol-commands.js';
-import { registerMCPCommands } from './commands/mcp-commands.js';
+import { getSymbolIndexService } from './commands/symbol-commands.js';
 import { setOrchestrator, getOrchestratorInstance } from './commands/orchestrate-commands.js';
-import { registerImageCommands } from './commands/image-commands.js';
 import { generateMemoryContext, consolidateSessionNotes } from './memory.js';
-import {
-  BackgroundIndexer,
-  Retriever,
-  createEmbeddingProvider,
-  DEFAULT_RAG_CONFIG,
-  type RAGConfig,
-} from './rag/index.js';
-import { registerRAGSearchTool, registerSymbolIndexTools, registerOrchestrationTools, registerContextStatusTool } from './tools/index.js';
+import { registerOrchestrationTools, registerContextStatusTool } from './tools/index.js';
 import { createCompleter } from './completions.js';
-import { SymbolIndexService } from './symbol-index/index.js';
+// SymbolIndexService init now in cli/initialization.ts
 import { formatCost, formatTokens } from './usage.js';
 import { dispatch as dispatchOutput } from './cli/output-handlers.js';
 import { loadPluginsFromDirectory, getPluginsDir } from './plugins.js';
@@ -114,8 +91,23 @@ import {
   type ResolvedConfig,
 } from './config.js';
 import { initModelMap as loadModelMapFromDir, type ModelMap } from './model-map/index.js';
-import { formatDiffForTerminal, truncateDiff } from './diff.js';
 import { VERSION } from './version.js';
+import {
+  formatConfirmation,
+  formatConfirmationDetail,
+  stripAnsi,
+  promptConfirmation,
+  promptConfirmationWithSuggestions,
+} from './cli/confirmation.js';
+import {
+  registerToolsAndCommands,
+  createPrimaryProvider,
+  createSummarizeProvider,
+  initializeMCP,
+  initializeRAG,
+  initializeSymbolIndex,
+  logToolSummary,
+} from './cli/initialization.js';
 import { spinner } from './spinner.js';
 import { logger, parseLogLevel, LogLevel } from './logger.js';
 import { MCPClientManager, startMCPServer } from './mcp/index.js';
@@ -174,411 +166,6 @@ if (!supportedUiModes.has(requestedUiMode)) {
   process.exit(1);
 }
 
-/**
- * Builds the system prompt given to the agent.
- *
- * The prompt varies depending on whether tool-use is enabled, and optionally
- * includes detected project context to help the model tailor responses.
- *
- * @param projectInfo - Detected information about the current project, if any.
- * @param useTools - Whether the agent should be instructed to use tools.
- * @returns The complete system prompt.
- */
-function generateSystemPrompt(projectInfo: ProjectInfo | null, useTools: boolean): string {
-  let prompt: string;
-
-  if (useTools) {
-    prompt = `You are an expert AI coding assistant with deep knowledge of software development. You have access to tools that allow you to read, write, and edit files, search codebases, and execute commands.
-
-## Your Capabilities
-- Read and understand code in any language
-- Write clean, well-documented code
-- Debug issues and suggest fixes
-- Refactor and optimize code
-- Generate tests
-- Explain complex code clearly
-
-## Guidelines
-1. **Read before writing**: Always read relevant files before making changes
-2. **Minimal changes**: Make targeted edits rather than rewriting entire files
-3. **Explain your work**: Briefly explain what you're doing and why
-4. **Follow conventions**: Match the existing code style and patterns
-5. **Handle errors**: Include appropriate error handling
-6. **Test awareness**: Consider how changes affect tests
-
-## Context Management
-
-You operate within a token budget. Use tools efficiently to maximize useful work.
-
-### Search Strategy (Most to Least Efficient)
-1. **search_codebase** - Semantic search. Best when you don't know where code lives.
-2. **grep** - Pattern search for known terms, function names, strings.
-3. **glob** - Find files by name patterns before reading.
-4. **find_symbol** - Jump directly to function/class definitions.
-5. **read_file** with offset/limit - Read specific portions of files.
-6. **read_file** (full) - Use sparingly, only when complete context needed.
-
-### Cached Tool Results
-Large tool results are truncated and cached. You'll see messages like:
-\`[read_file: 500 lines] (cached: read_file_abc123, ~2000 tokens)\`
-
-Use **recall_result** to retrieve full content:
-- \`recall_result\` with \`cache_id\` retrieves the full content
-- \`recall_result\` with \`action: "list"\` shows all cached results
-
-### Efficient Patterns
-- Explore with grep/glob before reading files
-- Use offset/limit parameters for large files
-- Use search_codebase when file location is unknown
-- Don't re-read files already in context
-
-### Anti-Patterns to Avoid
-- Reading entire files when you only need one function
-- Using read_file to scan for content (use grep instead)
-- Ignoring cached results when you need truncated content
-
-## Tool Use Rules
-- The tool list below is authoritative for this run. Use only these tool names and their parameters.
-- When you need a tool, emit a tool call (do not describe tool usage in plain text).
-- Do not put tool-call syntax or commands in your normal response.
-- Do not present shell commands in fenced code blocks like \`\`\`bash\`\`\`; use the bash tool instead.
-- Wait for tool results before continuing; if a tool fails, explain and try a different tool.
-
-## Available Tools
-
-### File Operations
-- **read_file**: Read file contents (params: path, offset, max_lines)
-- **write_file**: Write/create file (params: path, content)
-- **edit_file**: Replace text in file (params: path, old_string, new_string, replace_all)
-- **insert_line**: Insert at line number (params: path, line, content)
-- **patch_file**: Apply unified diff (params: path, patch)
-
-### Code Search
-- **glob**: Find files by pattern (params: pattern, cwd)
-- **grep**: Search file contents (params: pattern, path, file_pattern, ignore_case)
-- **list_directory**: List directory contents (params: path, show_hidden)
-- **search_codebase**: Semantic code search via RAG (params: query)
-
-### Symbol Navigation (for understanding code structure)
-- **find_symbol**: Find function/class/interface definitions (params: name, kind, exact, exported_only)
-- **find_references**: Find all usages of a symbol (params: name, file, include_imports)
-- **goto_definition**: Jump to where a symbol is defined (params: name, from_file)
-- **get_dependency_graph**: Show file imports/dependents (params: file, direction, depth)
-- **get_inheritance**: Show class hierarchy (params: name, direction)
-- **get_call_graph**: Show function callers (params: name, file)
-
-### Context Management
-- **get_context_status**: Check token budget usage and status (params: include_cached)
-- **recall_result**: Retrieve truncated/cached tool results (params: cache_id, action)
-
-### Other
-- **bash**: Execute shell commands (params: command, cwd)
-- **run_tests**: Run project tests (params: command, filter, timeout)
-- **web_search**: Search the web (params: query, num_results)
-- **analyze_image**: Analyze images with vision (params: path, question)
-
-## Guidelines
-- Use symbol navigation tools to understand code structure before making changes
-- Use read_file with offset to read specific sections of large files
-- WAIT for tool results before continuing - never make up file contents
-- Use edit_file for targeted changes, write_file only for new files or complete rewrites
-
-## Git Commit Guidelines
-When creating git commits, ALWAYS include this trailer at the end of the commit message:
-
-Wingman: Codi <codi@layne.pro>
-
-Example commit message format:
-feat(auth): add OAuth2 login flow
-
-Implement OAuth2 authentication with Google and GitHub providers.
-
-Wingman: Codi <codi@layne.pro>
-
-## Tool Call Format (for models without native tool support)
-If you cannot make native tool calls, output tool requests in this JSON format:
-\`\`\`json
-{"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
-\`\`\`
-
-Examples:
-- Read a file: \`{"name": "read_file", "arguments": {"path": "src/index.ts"}}\`
-- Run a command: \`{"name": "bash", "arguments": {"command": "ls -la"}}\`
-- Search code: \`{"name": "grep", "arguments": {"pattern": "function.*export", "path": "src"}}\`
-
-Output ONE tool call at a time, wait for the result, then continue.`;
-  } else {
-    // Fallback mode for models without tool support
-    prompt = `You are an expert AI coding assistant with deep knowledge of software development.
-
-## Your Capabilities
-- Read and understand code in any language
-- Write clean, well-documented code
-- Debug issues and suggest fixes
-- Refactor and optimize code
-- Generate tests
-- Explain complex code clearly
-
-## Guidelines
-Since you cannot directly access the filesystem, please:
-1. **Ask for file contents**: If you need to see code, ask the user to paste it
-2. **Provide complete code**: When writing code, provide the complete file contents
-3. **Give clear instructions**: Tell the user exactly what commands to run
-4. **Be specific**: Reference exact file paths and line numbers when possible
-
-When suggesting changes, format them clearly so the user can apply them manually.`;
-  }
-
-  if (projectInfo) {
-    prompt += `\n\n## Current Project Context\n${formatProjectContext(projectInfo)}`;
-    prompt += `\nAdapt your responses to this project's language, framework, and conventions.`;
-  }
-
-  return prompt;
-}
-
-/**
- * Prints the interactive CLI help text, including built-in commands, code
- * assistance commands, workflow commands, and (if available) detected project
- * info.
- *
- * @param projectInfo - Detected information about the current project, if any.
- */
-function showHelp(projectInfo: ProjectInfo | null): void {
-  console.log(chalk.bold.cyan('\n⚡ Quick Shortcuts:'));
-  console.log(chalk.dim('  !<command>             - Run shell commands directly (e.g., !ls, !git status, !npm test)'));
-  console.log(chalk.dim('  ?[topic]               - Get help on commands or topics'));
-  console.log(chalk.dim('  Ctrl+C                 - Send current line (don\'t start new line)'));
-  console.log(chalk.dim('  ESC                    - Interrupt current AI processing and return to prompt'));
-  console.log();
-
-  console.log(chalk.bold('\nBuilt-in Commands:'));
-  console.log(chalk.dim('  /help              - Show this help message'));
-  console.log(chalk.dim('  /clear [what]      - Clear conversation (all|context|workingset)'));
-  console.log(chalk.dim('  /compact [memory]   - Summarize old messages (add "memory" to check heap)'));
-  console.log(chalk.dim('  /status            - Show current context usage'));
-  console.log(chalk.dim('  /context           - Show detected project context'));
-  console.log(chalk.dim('  /label [text|update|clear] - Set/show/regenerate conversation label'));
-  console.log(chalk.dim('  /exit              - Exit the assistant'));
-
-  console.log(chalk.bold('\nCode Assistance:'));
-  console.log(chalk.dim('  /explain <file>    - Explain code in a file'));
-  console.log(chalk.dim('  /refactor <file>   - Suggest refactoring improvements'));
-  console.log(chalk.dim('  /fix <file> <issue>- Fix a bug or issue'));
-  console.log(chalk.dim('  /test <file>       - Generate tests'));
-  console.log(chalk.dim('  /review <file>     - Code review for a local file'));
-  console.log(chalk.dim('  /review-pr <num>   - Review a GitHub pull request'));
-  console.log(chalk.dim('  /doc <file>        - Generate documentation'));
-  console.log(chalk.dim('  /optimize <file>   - Optimize for performance'));
-  console.log(chalk.dim('  /new <type> <name>     - Create new component/file'));
-  console.log(chalk.dim('  /scaffold <feature>- Scaffold a complete feature'));
-
-  console.log(chalk.bold('\nGit:'));
-  console.log(chalk.dim('  /commit [type]     - Generate commit message and commit'));
-  console.log(chalk.dim('  /branch [action]   - Create, switch, list, delete branches'));
-  console.log(chalk.dim('  /diff [target]     - Show and explain git differences'));
-  console.log(chalk.dim('  /pr [base]         - Generate pull request description'));
-  console.log(chalk.dim('  /stash [action]    - Manage git stash'));
-  console.log(chalk.dim('  /log [target]      - Show and explain git history'));
-  console.log(chalk.dim('  /gitstatus         - Detailed git status'));
-  console.log(chalk.dim('  /undo [what]       - Safely undo git changes'));
-  console.log(chalk.dim('  /merge <branch>    - Merge branches'));
-  console.log(chalk.dim('  /rebase <branch>   - Rebase onto branch'));
-
-  console.log(chalk.bold('\nSessions:'));
-  console.log(chalk.dim('  /save [name]       - Save conversation to session'));
-  console.log(chalk.dim('  /load <name>       - Load a saved session'));
-  console.log(chalk.dim('  /sessions          - List saved sessions'));
-  console.log(chalk.dim('  /sessions info     - Show current session info'));
-  console.log(chalk.dim('  /sessions delete   - Delete a session'));
-
-  console.log(chalk.bold('\nConfiguration:'));
-  console.log(chalk.dim('  /config            - Show current workspace config'));
-  console.log(chalk.dim('  /config init       - Create a .codi.json file'));
-  console.log(chalk.dim('  /config example    - Show example configuration'));
-
-  console.log(chalk.bold('\nPlugins:'));
-  console.log(chalk.dim('  /plugins           - List loaded plugins'));
-  console.log(chalk.dim('  /plugins info <n>  - Show details about a plugin'));
-  console.log(chalk.dim('  /plugins dir       - Show plugins directory'));
-
-  console.log(chalk.bold('\nUndo/History:'));
-  console.log(chalk.dim('  /fileundo          - Undo the last file change'));
-  console.log(chalk.dim('  /redo              - Redo an undone change'));
-  console.log(chalk.dim('  /filehistory       - Show file change history'));
-  console.log(chalk.dim('  /filehistory clear - Clear all history'));
-
-  console.log(chalk.bold('\nMemory:'));
-  console.log(chalk.dim('  /remember [cat:] <fact> - Remember a fact for future sessions'));
-  console.log(chalk.dim('  /forget <pattern>  - Remove memories matching pattern'));
-  console.log(chalk.dim('  /memories [query]  - List or search stored memories'));
-  console.log(chalk.dim('  /profile [set k v] - View or update user profile'));
-
-  console.log(chalk.bold('\nModels:'));
-  console.log(chalk.dim('  /models [provider] - List available models'));
-  console.log(chalk.dim('  /switch <model>    - Switch to a different model'));
-  console.log(chalk.dim('  /modelmap          - Show model map configuration'));
-  console.log(chalk.dim('  /pipeline [name]   - Execute multi-model pipeline'));
-
-  console.log(chalk.bold('\nUsage & Cost:'));
-  console.log(chalk.dim('  /usage [period]    - Show token usage and costs'));
-
-  console.log(chalk.bold('\nMulti-Agent:'));
-  console.log(chalk.dim('  /delegate <branch> <task> - Spawn worker in new worktree'));
-  console.log(chalk.dim('  /workers           - List active workers'));
-  console.log(chalk.dim('  /workers cancel    - Cancel a running worker'));
-  console.log(chalk.dim('  /worktrees         - List managed worktrees'));
-
-  console.log(chalk.bold('\nCode Navigation:'));
-  console.log(chalk.dim('  /symbols [action]  - Manage symbol index (rebuild, stats, search)'));
-  console.log(chalk.dim('  /rag [action]      - Manage RAG semantic search index'));
-
-  console.log(chalk.bold('\nImport:'));
-  console.log(chalk.dim('  /import <file>     - Import ChatGPT conversation exports'));
-
-  if (projectInfo) {
-    console.log(chalk.bold('\nProject:'));
-    console.log(
-      chalk.dim(
-        `  ${projectInfo.name} (${projectInfo.language}${projectInfo.framework ? ` / ${projectInfo.framework}` : ''})`,
-      ),
-    );
-  }
-}
-
-/**
- * Format a tool confirmation for display.
- */
-function formatConfirmation(confirmation: ToolConfirmation): string {
-  const { toolName, input, isDangerous, dangerReason, diffPreview, approvalSuggestions, securityWarning } = confirmation;
-
-  let display = '';
-
-  if (isDangerous) {
-    display += chalk.red.bold('⚠️  DANGEROUS OPERATION\n');
-    display += chalk.red(`   Reason: ${dangerReason}\n\n`);
-  }
-
-  // Display security model warning if present
-  if (securityWarning) {
-    const riskColor = securityWarning.riskScore >= 7 ? chalk.red :
-                      securityWarning.riskScore >= 4 ? chalk.yellow : chalk.green;
-    display += chalk.magenta.bold('🔒 Security Analysis\n');
-    display += riskColor(`   Risk: ${securityWarning.riskScore}/10`);
-    display += chalk.dim(` (${securityWarning.latencyMs}ms)\n`);
-    if (securityWarning.threats.length > 0) {
-      display += chalk.yellow(`   Threats: ${securityWarning.threats.slice(0, 3).join(', ')}\n`);
-    }
-    if (securityWarning.reasoning) {
-      display += chalk.dim(`   ${securityWarning.reasoning.slice(0, 100)}${securityWarning.reasoning.length > 100 ? '...' : ''}\n`);
-    }
-    display += '\n';
-  }
-
-  display += chalk.yellow(`Tool: ${toolName}\n`);
-
-  // Format input based on tool type
-  if (toolName === 'bash') {
-    display += chalk.dim(`Command: ${input.command}\n`);
-
-    // Show approval suggestions for non-dangerous bash commands
-    if (!isDangerous && approvalSuggestions) {
-      display += '\n' + chalk.cyan('Also approve similar commands?\n');
-      display += chalk.dim(`  [p] Pattern: ${approvalSuggestions.suggestedPattern}\n`);
-
-      approvalSuggestions.matchedCategories.forEach((cat, i) => {
-        display += chalk.dim(`  [${i + 1}] Category: ${cat.name} - ${cat.description}\n`);
-      });
-    }
-  } else if (toolName === 'write_file' || toolName === 'edit_file') {
-    display += chalk.dim(`Path: ${input.path}\n`);
-
-    // Show diff preview if available
-    if (diffPreview) {
-      display += chalk.dim(`Changes: ${diffPreview.summary}\n`);
-      if (diffPreview.isNewFile) {
-        display += chalk.green('(New file)\n');
-      }
-      display += '\n';
-
-      // Format and display the diff
-      const truncatedDiff = truncateDiff(diffPreview.unifiedDiff, 40);
-      const formattedDiff = formatDiffForTerminal(truncatedDiff);
-      display += formattedDiff + '\n';
-    } else {
-      // Fallback to old behavior if no diff preview
-      if (toolName === 'write_file') {
-        const content = input.content as string | undefined;
-        if (content !== undefined) {
-          const lines = content.split('\n').length;
-          display += chalk.dim(`Content: ${lines} lines, ${content.length} chars\n`);
-        } else {
-          display += chalk.red(`Content: (missing - model did not provide content)\n`);
-        }
-      } else {
-        const oldStr = input.old_string as string | undefined;
-        const newStr = input.new_string as string | undefined;
-        if (oldStr !== undefined) {
-          display += chalk.dim(`Replace: "${oldStr.slice(0, 50)}${oldStr.length > 50 ? '...' : ''}"\n`);
-        } else {
-          display += chalk.red(`Replace: (missing)\n`);
-        }
-        if (newStr !== undefined) {
-          display += chalk.dim(`With: "${newStr.slice(0, 50)}${newStr.length > 50 ? '...' : ''}"\n`);
-        } else {
-          display += chalk.red(`With: (missing)\n`);
-        }
-      }
-    }
-
-    // Show approval suggestions for file tools
-    if (approvalSuggestions) {
-      display += '\n' + chalk.cyan('Also approve similar file operations?\n');
-      display += chalk.dim(`  [p] Pattern: ${approvalSuggestions.suggestedPattern}\n`);
-
-      approvalSuggestions.matchedCategories.forEach((cat, i) => {
-        display += chalk.dim(`  [${i + 1}] Category: ${cat.name} - ${cat.description}\n`);
-      });
-    }
-  } else if (toolName === 'insert_line' || toolName === 'patch_file') {
-    display += chalk.dim(`Path: ${input.path}\n`);
-
-    // Show approval suggestions for other file tools
-    if (approvalSuggestions) {
-      display += '\n' + chalk.cyan('Also approve similar file operations?\n');
-      display += chalk.dim(`  [p] Pattern: ${approvalSuggestions.suggestedPattern}\n`);
-
-      approvalSuggestions.matchedCategories.forEach((cat, i) => {
-        display += chalk.dim(`  [${i + 1}] Category: ${cat.name} - ${cat.description}\n`);
-      });
-    }
-  } else {
-    display += chalk.dim(JSON.stringify(input, null, 2).slice(0, 200) + '\n');
-  }
-
-  return display;
-}
-
-function formatConfirmationDetail(confirmation: ToolConfirmation): string | null {
-  const input = confirmation.input as Record<string, unknown>;
-  const command = typeof input.command === 'string' ? input.command : null;
-  if (command) {
-    return `command: ${command}`;
-  }
-  const filePath = typeof input.file_path === 'string' ? input.file_path : null;
-  if (filePath) {
-    return `file: ${filePath}`;
-  }
-  const path = typeof input.path === 'string' ? input.path : null;
-  if (path) {
-    return `path: ${path}`;
-  }
-  return null;
-}
-
-function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*m/g, '');
-}
 
 function startConsoleCapture(): {
   stdout: string[];
@@ -715,84 +302,6 @@ async function renderCommandOutput(
     emitCapturedOutput(inkController, captured);
     emitCapturedWrites(inkController, capturedWrites);
   }
-}
-
-/**
- * Prompt user for confirmation using readline.
- */
-function promptConfirmation(rl: ReturnType<typeof createInterface>, message: string): Promise<ConfirmationResult> {
-  return new Promise((resolve) => {
-    rl.question(message, (answer) => {
-      const lower = (answer || '').toLowerCase().trim();
-      if (lower === 'y' || lower === 'yes') {
-        resolve('approve');
-      } else if (lower === 'a' || lower === 'abort') {
-        resolve('abort');
-      } else {
-        resolve('deny');
-      }
-    });
-  });
-}
-
-/**
- * Prompt user for confirmation with approval suggestions.
- */
-function promptConfirmationWithSuggestions(
-  rl: ReturnType<typeof createInterface>,
-  confirmation: ToolConfirmation
-): Promise<ConfirmationResult> {
-  const { isDangerous, approvalSuggestions } = confirmation;
-
-  // Dangerous commands or no suggestions - simple prompt
-  if (isDangerous || !approvalSuggestions) {
-    const promptText = isDangerous
-      ? chalk.red.bold('Approve? [y/N/abort] ')
-      : chalk.yellow('Approve? [y/N/abort] ');
-    return promptConfirmation(rl, promptText);
-  }
-
-  // Build dynamic prompt with options
-  const categoryCount = approvalSuggestions.matchedCategories.length;
-  let options = 'y/n';
-  if (approvalSuggestions.suggestedPattern) {
-    options += '/p';
-  }
-  if (categoryCount > 0) {
-    options += categoryCount > 1 ? `/1-${categoryCount}` : '/1';
-  }
-  options += '/abort';
-
-  const promptText = chalk.yellow(`Approve? [${options}] `);
-
-  return new Promise((resolve) => {
-    rl.question(promptText, (answer) => {
-      const lower = (answer || '').toLowerCase().trim();
-
-      if (lower === 'y' || lower === 'yes') {
-        resolve('approve');
-      } else if (lower === 'a' || lower === 'abort') {
-        resolve('abort');
-      } else if (lower === 'p' || lower === 'pattern') {
-        resolve({
-          type: 'approve_pattern',
-          pattern: approvalSuggestions.suggestedPattern,
-        });
-      } else if (/^\d+$/.test(lower)) {
-        const index = parseInt(lower, 10) - 1;
-        if (index >= 0 && index < approvalSuggestions.matchedCategories.length) {
-          resolve({
-            type: 'approve_category',
-            categoryId: approvalSuggestions.matchedCategories[index].id,
-          });
-        } else {
-          resolve('deny');
-        }
-      } else {
-        resolve('deny');
-      }
-    });
-  });
 }
 
 function normalizeSessionProjectPath(value: string | undefined): string | null {
@@ -1012,25 +521,7 @@ async function main() {
   );
 
   // Register tools and commands
-  registerDefaultTools();
-  registerCodeCommands();
-  registerPromptCommands();
-  registerGitCommands();
-  registerSessionCommands();
-  registerConfigCommands();
-  registerCodiCommands();
-  registerHistoryCommands();
-  registerPlanCommands();
-  registerUsageCommands();
-  registerPluginCommands();
-  registerModelCommands();
-  registerMemoryCommands();
-  registerImageCommands();
-  registerCompactCommands();
-  registerRAGCommands();
-  registerApprovalCommands();
-  registerSymbolCommands();
-  registerMCPCommands();
+  registerToolsAndCommands();
 
   // Plugin system disabled pending further investigation
   // See: https://github.com/laynepenney/codi/issues/17
@@ -1040,153 +531,31 @@ async function main() {
   // }
 
   // Initialize MCP clients if configured and not disabled
-  let mcpManager: MCPClientManager | null = null;
-  if (options.mcp !== false && workspaceConfig?.mcpServers) {
-    const serverConfigs = Object.entries(workspaceConfig.mcpServers)
-      .filter(([_, config]) => config.enabled !== false);
-
-    if (serverConfigs.length > 0) {
-      mcpManager = new MCPClientManager();
-      let connectedCount = 0;
-
-      for (const [name, config] of serverConfigs) {
-        try {
-          await mcpManager.connect({
-            name,
-            command: config.command,
-            args: config.args,
-            env: config.env,
-            cwd: config.cwd,
-          });
-          connectedCount++;
-        } catch (err) {
-          logger.warn(`MCP '${name}': ${err instanceof Error ? err.message : err}`);
-        }
-      }
-
-      if (connectedCount > 0) {
-        // Get tools from MCP servers and register them
-        const mcpTools = await mcpManager.getAllTools();
-        for (const tool of mcpTools) {
-          globalRegistry.register(tool);
-        }
-        console.log(chalk.dim(`MCP: ${connectedCount} server(s), ${mcpTools.length} tool(s)`));
-      }
-    }
-  }
+  const mcpResult = await initializeMCP(workspaceConfig, options.mcp !== false);
+  const mcpManager = mcpResult.manager;
 
   // Initialize RAG system (enabled by default unless explicitly disabled)
-  let ragIndexer: BackgroundIndexer | null = null;
-  let ragRetriever: Retriever | null = null;
-  let ragEmbeddingProvider: import('./rag/embeddings/base.js').BaseEmbeddingProvider | null = null;
-
-  // RAG is enabled by default - only skip if explicitly disabled
-  const ragEnabled = workspaceConfig?.rag?.enabled !== false;
-
-  if (ragEnabled) {
-    try {
-      // Build RAG config from workspace config (or use defaults)
-      const ragConfig: RAGConfig = {
-        ...DEFAULT_RAG_CONFIG,
-        enabled: true,
-        embeddingProvider: workspaceConfig?.rag?.embeddingProvider ?? DEFAULT_RAG_CONFIG.embeddingProvider,
-        embeddingTask: workspaceConfig?.rag?.embeddingTask ?? DEFAULT_RAG_CONFIG.embeddingTask,
-        openaiModel: workspaceConfig?.rag?.openaiModel ?? DEFAULT_RAG_CONFIG.openaiModel,
-        ollamaModel: workspaceConfig?.rag?.ollamaModel ?? DEFAULT_RAG_CONFIG.ollamaModel,
-        ollamaBaseUrl: workspaceConfig?.rag?.ollamaBaseUrl ?? DEFAULT_RAG_CONFIG.ollamaBaseUrl,
-        topK: workspaceConfig?.rag?.topK ?? DEFAULT_RAG_CONFIG.topK,
-        minScore: workspaceConfig?.rag?.minScore ?? DEFAULT_RAG_CONFIG.minScore,
-        includePatterns: workspaceConfig?.rag?.includePatterns ?? DEFAULT_RAG_CONFIG.includePatterns,
-        excludePatterns: workspaceConfig?.rag?.excludePatterns ?? DEFAULT_RAG_CONFIG.excludePatterns,
-        autoIndex: workspaceConfig?.rag?.autoIndex ?? DEFAULT_RAG_CONFIG.autoIndex,
-        watchFiles: workspaceConfig?.rag?.watchFiles ?? DEFAULT_RAG_CONFIG.watchFiles,
-        parallelJobs: workspaceConfig?.rag?.parallelJobs,
-      };
-
-      ragEmbeddingProvider = createEmbeddingProvider(ragConfig, modelMap?.config ?? null);
-      console.log(chalk.dim(`RAG: ${ragEmbeddingProvider.getName()} (${ragEmbeddingProvider.getModel()})`));
-
-      ragIndexer = new BackgroundIndexer(process.cwd(), ragEmbeddingProvider, ragConfig);
-      ragRetriever = new Retriever(process.cwd(), ragEmbeddingProvider, ragConfig);
-
-      // Share vector store between indexer and retriever
-      ragRetriever.setVectorStore(ragIndexer.getVectorStore());
-
-      // Initialize asynchronously
-      ragIndexer.initialize().catch((err) => {
-        logger.error(`RAG indexer error: ${err.message}`);
-      });
-
-      // Set up progress callback using spinner for clean single-line output
-      ragIndexer.onProgress = (current, total, file) => {
-        if (current === 1 || current === total || current % 10 === 0) {
-          spinner.indexing(current, total, file.slice(0, 40));
-        }
-      };
-      ragIndexer.onComplete = (stats) => {
-        spinner.indexingDone(stats.totalFiles, stats.totalChunks);
-      };
-      ragIndexer.onError = (error) => {
-        spinner.fail(chalk.red(`RAG indexer: ${error.message}`));
-      };
-
-      // Register with commands and tool
-      setRAGIndexer(ragIndexer);
-      setRAGConfig(ragConfig);
-      registerRAGSearchTool(ragRetriever);
-    } catch (err) {
-      // Gracefully handle missing embedding provider
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes('No embedding provider') || errMsg.includes('OPENAI_API_KEY') || errMsg.includes('Ollama')) {
-        console.log(chalk.dim(`RAG: disabled (no embedding provider available)`));
-      } else {
-        logger.error(`Failed to initialize RAG: ${errMsg}`);
-      }
-    }
-  }
+  const ragResult = await initializeRAG(process.cwd(), workspaceConfig, modelMap);
+  const ragIndexer = ragResult.indexer;
+  const ragRetriever = ragResult.retriever;
+  const ragEmbeddingProvider = ragResult.embeddingProvider;
 
   // Initialize Symbol Index for AST-based navigation tools
-  try {
-    const symbolIndexService = new SymbolIndexService(process.cwd());
-    await symbolIndexService.initialize();
-    setSymbolIndexService(symbolIndexService);
-    registerSymbolIndexTools(symbolIndexService);
+  const symbolResult = await initializeSymbolIndex(process.cwd());
 
-    // Show status if index exists
-    if (symbolIndexService.hasIndex()) {
-      const stats = symbolIndexService.getStats();
-      console.log(chalk.dim(`Symbol index: ${stats.totalSymbols} symbols in ${stats.totalFiles} files`));
-    }
-  } catch (err) {
-    // Non-fatal - symbol tools just won't be available
-    logger.warn(`Symbol index: ${err instanceof Error ? err.message : err}`);
-  }
-
+  // Log tool summary
+  logToolSummary(resolvedConfig);
   const useTools = !resolvedConfig.noTools; // Disabled via config or --no-tools
-
-  if (useTools) {
-    console.log(chalk.dim(`Tools: ${globalRegistry.listTools().length} registered`));
-    if (resolvedConfig.autoApprove.length > 0) {
-      console.log(chalk.dim(`Auto-approve: ${resolvedConfig.autoApprove.join(', ')}`));
-    }
-  } else {
-    console.log(chalk.yellow('Tools: disabled (--no-tools mode)'));
-  }
   console.log(chalk.dim(`Commands: ${getAllCommands().length} available`));
 
   // Create provider using resolved config
-  let provider;
-  if (resolvedConfig.provider === 'auto') {
-    provider = detectProvider();
-  } else {
-    provider = createProvider({
-      type: resolvedConfig.provider,
-      model: resolvedConfig.model,
-      baseUrl: resolvedConfig.baseUrl,
-      endpointId: resolvedConfig.endpointId,
-      cleanHallucinatedTraces: resolvedConfig.cleanHallucinatedTraces,
-    });
-  }
+  const provider = createPrimaryProvider({
+    provider: resolvedConfig.provider,
+    model: resolvedConfig.model,
+    baseUrl: resolvedConfig.baseUrl,
+    endpointId: resolvedConfig.endpointId,
+    cleanHallucinatedTraces: resolvedConfig.cleanHallucinatedTraces,
+  });
 
   console.log(chalk.dim(`Model: ${provider.getName()} (${provider.getModel()})`));
 
@@ -1202,15 +571,12 @@ async function main() {
   }
 
   // Create secondary provider for summarization if configured
-  let secondaryProvider = null;
-  if (resolvedConfig.summarizeProvider || resolvedConfig.summarizeModel) {
-    secondaryProvider = createSecondaryProvider({
-      provider: resolvedConfig.summarizeProvider,
-      model: resolvedConfig.summarizeModel,
-    });
-    if (secondaryProvider) {
-      console.log(chalk.dim(`Summarize model: ${secondaryProvider.getName()} (${secondaryProvider.getModel()})`));
-    }
+  const secondaryProvider = createSummarizeProvider({
+    summarizeProvider: resolvedConfig.summarizeProvider,
+    summarizeModel: resolvedConfig.summarizeModel,
+  });
+  if (secondaryProvider) {
+    console.log(chalk.dim(`Summarize model: ${secondaryProvider.getName()} (${secondaryProvider.getModel()})`));
   }
   console.log();
 

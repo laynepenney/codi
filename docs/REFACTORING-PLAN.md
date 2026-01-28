@@ -80,31 +80,40 @@ export const CodiPaths = {
 
 ## Phase 2: Major Refactors
 
-### 2.1 Split index.ts (4,936 lines → 3,380 lines)
+### 2.1 Split index.ts (4,936 lines → 3,380 lines → 2,746 lines) ✅ PARTIAL
 **File**: `src/index.ts`
 
 **Current concerns mixed**:
 - CLI setup and argument parsing
 - REPL loop logic
 - ~~16 output handlers~~ (moved to output-handlers.ts)
-- Confirmation formatting
-- System prompt generation
-- Provider/tool registration
+- ~~Confirmation formatting~~ (moved to confirmation.ts)
+- ~~System prompt generation~~ (moved to system-prompt.ts)
+- ~~Provider/tool registration~~ (moved to initialization.ts)
 - UI initialization
 
-**Proposed structure**:
+**Completed structure**:
 ```
 src/
-├── index.ts                 (~200 lines: main() entry only)
+├── index.ts                 (2,746 lines - down from 3,380)
 ├── cli/
-│   ├── repl.ts              (REPL loop logic)
-│   ├── initialization.ts    (setup: providers, tools, commands)
+│   ├── repl.ts              (PENDING: REPL loop logic)
+│   ├── initialization.ts    ✅ DONE (332 lines - providers, tools, MCP, RAG, symbol index)
 │   ├── output-handlers.ts   ✅ DONE (consolidated handlers)
-│   ├── confirmation.ts      (formatting utilities)
-│   └── system-prompt.ts     (prompt generation)
+│   ├── confirmation.ts      ✅ DONE (234 lines - formatting utilities)
+│   ├── system-prompt.ts     ✅ DONE (172 lines - prompt generation)
+│   └── help.ts              ✅ DONE (120 lines - help display)
 ```
 
-**Impact**: Each file < 400 lines, clear separation
+**Extracted modules in Phase 2.1**:
+- `cli/system-prompt.ts`: `generateSystemPrompt()` function
+- `cli/help.ts`: `showHelp()` function
+- `cli/confirmation.ts`: `formatConfirmation()`, `formatConfirmationDetail()`, `stripAnsi()`, `promptConfirmation()`, `promptConfirmationWithSuggestions()`
+- `cli/initialization.ts`: `registerToolsAndCommands()`, `createPrimaryProvider()`, `createSummarizeProvider()`, `initializeMCP()`, `initializeRAG()`, `initializeSymbolIndex()`, `logToolSummary()`
+
+**Remaining for 2.1**: Extract REPL loop to `cli/repl.ts`
+
+**Impact**: index.ts reduced by ~634 lines (19% reduction from 3,380)
 
 ---
 
@@ -218,7 +227,11 @@ export async function loadAllCommands(): Promise<void> {
 |------|--------|--------|
 | `src/paths.ts` | Create new (centralized paths) | ✅ Done |
 | `src/cli/output-handlers.ts` | Create new (consolidated handlers) | ✅ Done |
-| `src/index.ts` | Split into `src/cli/` modules | Partial |
+| `src/cli/system-prompt.ts` | Extract system prompt generation | ✅ Done |
+| `src/cli/help.ts` | Extract help display | ✅ Done |
+| `src/cli/confirmation.ts` | Extract confirmation utilities | ✅ Done |
+| `src/cli/initialization.ts` | Extract initialization logic | ✅ Done |
+| `src/index.ts` | Split into `src/cli/` modules | Partial (REPL pending) |
 | `src/agent.ts` | Split into `src/agent/` modules | Pending |
 | `src/config.ts` | Split into `src/config/` modules | Pending |
 | `src/utils/cache.ts` | Create new (generic cache) | Pending |
@@ -249,7 +262,8 @@ pnpm test           # Unit tests
 | Output handlers consolidation | -1,454 lines from index.ts | ✅ Complete |
 | Paths module | +centralized paths | ✅ Complete |
 | Console → logger | console.error/warn converted | ✅ Complete |
-| Index.ts split | Remaining ~3,380 lines | Pending |
+| Index.ts Phase 2.1 extraction | -634 lines (3,380 → 2,746) | ✅ Complete |
+| Index.ts REPL extraction | ~1,500 lines pending | Partial |
 | Agent.ts modularization | ~2,671 lines | Pending |
 | Config extraction | ~855 lines | Pending |
 
@@ -260,7 +274,8 @@ pnpm test           # Unit tests
 1. ~~**Phase 1.2**: Create `src/paths.ts`~~ ✅ Done
 2. ~~**Phase 1.3**: Replace console.* calls~~ ✅ Done
 3. ~~**Phase 1.1**: Consolidate output handlers~~ ✅ Done
-4. **Phase 2.1**: Split remaining index.ts
+4. ~~**Phase 2.1**: Split index.ts~~ ✅ Partial (extracted system-prompt, help, confirmation, initialization)
+   - Remaining: Extract REPL loop to `cli/repl.ts`
 5. **Phase 2.2**: Modularize agent.ts
 6. **Phase 2.3**: Extract config module
 7. **Phase 3**: Code quality improvements
