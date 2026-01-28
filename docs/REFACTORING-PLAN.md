@@ -117,7 +117,7 @@ src/
 
 ---
 
-### 2.2 Modularize agent.ts (2,671 lines)
+### 2.2 Modularize agent.ts (2,671 lines → 2,349 lines) ✅ PARTIAL
 **File**: `src/agent.ts`
 
 **Current issues**:
@@ -125,15 +125,29 @@ src/
 - Mixed: tool execution, context management, security, debugging
 - Hard to test individual components
 
-**Proposed structure**:
+**Completed structure**:
 ```
 src/agent/
-├── agent.ts           (~600 lines: chat loop, message management)
-├── context.ts         (~400 lines: windowing, compression)
-├── execution.ts       (~400 lines: tool execution, batching)
-├── security.ts        (~300 lines: approvals, validation)
-└── debugger.ts        (~200 lines: breakpoints, checkpoints)
+├── index.ts           ✅ DONE (30 lines - module exports)
+├── debugger.ts        ✅ DONE (672 lines - breakpoints, checkpoints, time travel)
+├── context.ts         (PENDING: windowing, compression)
+├── execution.ts       (PENDING: tool execution, batching)
+└── security.ts        (PENDING: approvals, validation)
 ```
+
+**Extracted modules in Phase 2.2**:
+- `agent/debugger.ts`: `AgentDebugger` class with breakpoints, checkpoints, time-travel debugging
+  - Breakpoint management (add, remove, clear, list, check)
+  - Checkpoint management (create, save, load, list)
+  - Time travel (rewind, branches, timeline)
+  - State snapshots for debugging
+
+**Result**:
+- agent.ts reduced from 2,671 to 2,349 lines (-322 lines, 12% reduction)
+- Created modular AgentDebugger class with clean interface
+- Agent delegates to debugger via composition pattern
+
+**Remaining for 2.2**: Extract context, execution, security modules
 
 **Impact**: Better testability, clearer responsibilities
 
@@ -232,7 +246,8 @@ export async function loadAllCommands(): Promise<void> {
 | `src/cli/confirmation.ts` | Extract confirmation utilities | ✅ Done |
 | `src/cli/initialization.ts` | Extract initialization logic | ✅ Done |
 | `src/index.ts` | Split into `src/cli/` modules | Partial (REPL pending) |
-| `src/agent.ts` | Split into `src/agent/` modules | Pending |
+| `src/agent.ts` | Split into `src/agent/` modules | Partial (debugger done) |
+| `src/agent/debugger.ts` | Extract debug/checkpoint functionality | ✅ Done |
 | `src/config.ts` | Split into `src/config/` modules | Pending |
 | `src/utils/cache.ts` | Create new (generic cache) | Pending |
 | Multiple files | Replace `console.*` with `logger.*` | ✅ Done |
@@ -264,7 +279,8 @@ pnpm test           # Unit tests
 | Console → logger | console.error/warn converted | ✅ Complete |
 | Index.ts Phase 2.1 extraction | -634 lines (3,380 → 2,746) | ✅ Complete |
 | Index.ts REPL extraction | ~1,500 lines pending | Partial |
-| Agent.ts modularization | ~2,671 lines | Pending |
+| Agent.ts debugger extraction | -322 lines (2,671 → 2,349) | ✅ Complete |
+| Agent.ts remaining modules | context, execution, security | Pending |
 | Config extraction | ~855 lines | Pending |
 
 ---
@@ -276,6 +292,7 @@ pnpm test           # Unit tests
 3. ~~**Phase 1.1**: Consolidate output handlers~~ ✅ Done
 4. ~~**Phase 2.1**: Split index.ts~~ ✅ Partial (extracted system-prompt, help, confirmation, initialization)
    - Remaining: Extract REPL loop to `cli/repl.ts`
-5. **Phase 2.2**: Modularize agent.ts
+5. ~~**Phase 2.2**: Modularize agent.ts~~ ✅ Partial (extracted debugger)
+   - Remaining: Extract context, execution, security modules
 6. **Phase 2.3**: Extract config module
 7. **Phase 3**: Code quality improvements
