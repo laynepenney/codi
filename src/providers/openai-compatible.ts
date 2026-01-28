@@ -4,6 +4,7 @@
 import OpenAI from 'openai';
 import { BaseProvider, type ModelInfo } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+import type { ExtendedChatCompletionDelta, ExtendedOpenAIUsage } from '../types/extended.js';
 import { createProviderResponse, safeParseJson, StreamingToolCallAccumulator } from './response-parser.js';
 import { mapContentBlock, type BlockConverters } from './message-converter.js';
 import { getStaticModels, getModelPricing } from '../models.js';
@@ -148,7 +149,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
       const delta = chunk.choices[0]?.delta;
 
       // Handle reasoning content from reasoning models (e.g., DeepSeek-R1)
-      const reasoningDelta = (delta as any)?.reasoning_content;
+      const reasoningDelta = (delta as ExtendedChatCompletionDelta | undefined)?.reasoning_content;
       if (reasoningDelta) {
         reasoningContent += reasoningDelta;
         onReasoningChunk?.(reasoningDelta);
@@ -172,11 +173,12 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
       // Capture usage from final chunk (when stream_options.include_usage is true)
       if (chunk.usage) {
+        const usage = chunk.usage as ExtendedOpenAIUsage;
         streamUsage = {
-          prompt_tokens: chunk.usage.prompt_tokens,
-          completion_tokens: chunk.usage.completion_tokens,
+          prompt_tokens: usage.prompt_tokens,
+          completion_tokens: usage.completion_tokens,
           // OpenAI returns cached tokens in prompt_tokens_details
-          cached_tokens: (chunk.usage as any).prompt_tokens_details?.cached_tokens,
+          cached_tokens: usage.prompt_tokens_details?.cached_tokens,
         };
       }
     }
@@ -559,10 +561,11 @@ export class OpenAICompatibleProvider extends BaseProvider {
     }
 
     // Use actual usage if available, otherwise estimate
-    const inputTokens = response.usage?.prompt_tokens ?? estimatedInputTokens;
-    const outputTokens = response.usage?.completion_tokens ?? estimateTokens(content);
+    const usage = response.usage as ExtendedOpenAIUsage | undefined;
+    const inputTokens = usage?.prompt_tokens ?? estimatedInputTokens;
+    const outputTokens = usage?.completion_tokens ?? estimateTokens(content);
     // OpenAI returns cached tokens in prompt_tokens_details
-    const cachedTokens = (response.usage as any)?.prompt_tokens_details?.cached_tokens;
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens;
 
     return createProviderResponse({
       content,

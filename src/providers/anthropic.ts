@@ -4,6 +4,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { BaseProvider, type ModelInfo } from './base.js';
 import type { Message, ToolDefinition, ProviderResponse, ProviderConfig, ToolCall } from '../types.js';
+import type { AnthropicToolWithCache } from '../types/extended.js';
 import { createProviderResponse } from './response-parser.js';
 import { mapContentBlocks } from './message-converter.js';
 import { getStaticModels } from '../models.js';
@@ -43,16 +44,16 @@ export class AnthropicProvider extends BaseProvider {
     if (tools.length === 0) return [];
 
     return tools.map((tool, index) => {
-      const anthropicTool: Anthropic.Tool = {
+      const anthropicTool: AnthropicToolWithCache = {
         name: tool.name,
         description: tool.description,
-        input_schema: tool.input_schema as Anthropic.Tool['input_schema'],
+        input_schema: tool.input_schema as AnthropicToolWithCache['input_schema'],
       };
       // Cache the last tool (caches all preceding tools too)
       if (index === tools.length - 1) {
-        (anthropicTool as any).cache_control = { type: 'ephemeral' };
+        anthropicTool.cache_control = { type: 'ephemeral' };
       }
-      return anthropicTool;
+      return anthropicTool as Anthropic.Tool;
     });
   }
 
