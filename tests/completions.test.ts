@@ -327,9 +327,16 @@ describe('Command Completions', () => {
       expect(result).toBeNull();
     });
 
-    it('returns completed command for single match', () => {
+    it('returns common prefix when multiple matches exist', () => {
+      // /br matches both /br (alias) and /branch (command)
       const result = completeLine('/br');
-      expect(result).toBe('/branch ');
+      expect(result).toBe('/br');
+    });
+
+    it('returns completed command for truly single match', () => {
+      // /bran only matches /branch (not /br alias)
+      const result = completeLine('/bran');
+      expect(result).toBe('/branch');
     });
 
     it('returns common prefix for multiple matches', () => {
@@ -373,8 +380,9 @@ describe('Command Completions', () => {
     });
 
     it('returns common prefix for multiple strings', () => {
+      // All three start with '/co' (commit, compact, config)
       const result = getCommonPrefix(['/commit', '/compact', '/config']);
-      expect(result).toBe('/c');
+      expect(result).toBe('/co');
     });
 
     it('returns empty when no common prefix', () => {
