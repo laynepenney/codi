@@ -44,7 +44,7 @@ grep("saveSession", "src/") // Finds all references to saveSession
 get_context_status() // Checks current context usage
 ```
 
-**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, Ollama Cloud, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools, and this project's architecture anticipates intelligent tool use and context management.
+**Codi** is your AI coding wingman for the terminal - a CLI tool that supports multiple AI providers (Claude, OpenAI, Ollama, RunPod). It enables developers to work with AI models through a conversational interface while giving the AI access to filesystem tools, and this project's architecture anticipates intelligent tool use and context management.
 
 ## Quick Reference
 
