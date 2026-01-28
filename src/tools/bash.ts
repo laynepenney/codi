@@ -4,6 +4,7 @@
 import { exec } from 'child_process';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
+import type { ExecErrorWithOutput } from '../types/extended.js';
 import { getBlockingPatterns } from '../utils/index.js';
 
 const TIMEOUT_MS = 30000; // 30 second timeout
@@ -102,9 +103,10 @@ export class BashTool extends BaseTool {
         (error, stdout, stderr) => {
           if (error) {
             // Attach stdout/stderr to error for access in catch block
-            (error as any).stdout = stdout;
-            (error as any).stderr = stderr;
-            reject(error);
+            const errorWithOutput = error as ExecErrorWithOutput;
+            errorWithOutput.stdout = stdout;
+            errorWithOutput.stderr = stderr;
+            reject(errorWithOutput);
           } else {
             resolve({ stdout, stderr });
           }

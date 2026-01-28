@@ -6,6 +6,7 @@ import {
   moveCursor,
 } from 'readline';
 import { SessionInfo, formatSessionInfo } from './session.js';
+import type { ReadlineKey } from './types/extended.js';
 import chalk from 'chalk';
 
 /**
@@ -36,7 +37,7 @@ export class SessionSelector {
   private sessions: SessionInfo[];
   private options: Required<SessionSelectionOptions>;
   private selectedIndex: number = 0;
-  private keypressHandler: ((chunk: Buffer, key: any) => void) | null = null;
+  private keypressHandler: ((chunk: Buffer, key: ReadlineKey | undefined) => void) | null = null;
   private renderedRows = 0;
 
   constructor(rl: ReadlineInterface, sessions: SessionInfo[], options?: SessionSelectionOptions) {
@@ -183,7 +184,7 @@ export class SessionSelector {
       };
 
       // Handle keypress events
-      const handleKeypress = (chunk: Buffer | string | undefined, key: any) => {
+      const handleKeypress = (chunk: Buffer | string | undefined, key: ReadlineKey | undefined) => {
         let rawInput = '';
         if (typeof chunk === 'string') {
           rawInput = chunk;
