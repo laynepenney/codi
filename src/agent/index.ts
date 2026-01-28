@@ -8,11 +8,12 @@
  * Components are split for better separation of concerns:
  *
  * - debugger.ts: Breakpoints, checkpoints, and time-travel debugging
- * - (future) context.ts: Context windowing and compression
+ * - context.ts: Context windowing, compaction, and summarization
  * - (future) execution.ts: Tool execution and batching
  * - (future) security.ts: Approvals and validation
  */
 
+// Debugger exports
 export {
   AgentDebugger,
   type DebuggerAgentState,
@@ -28,3 +29,13 @@ export {
   type Branch,
   type Timeline,
 } from './debugger.js';
+
+// Context manager exports
+export {
+  AgentContextManager,
+  createSummarizationProvider,
+  createAggressiveSummarizationProvider,
+  type ContextManagerConfig,
+  type CompactionResult,
+  type SummarizationProvider,
+} from './context.js';

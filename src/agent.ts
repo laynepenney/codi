@@ -19,14 +19,10 @@ import {
   type CompressionStats,
   type Entity,
 } from './compression.js';
-import { scoreMessages, extractFilePaths, type MessageScore } from './importance-scorer.js';
 import {
-  selectMessagesToKeep,
   updateWorkingSet,
   createWorkingSet,
-  applySelection,
   type WorkingSet,
-  type WindowingConfig,
 } from './context-windowing.js';
 import {
   extractToolCallsFromText,
@@ -35,11 +31,9 @@ import {
   estimateSystemPromptTokens,
   estimateToolDefinitionTokens,
   getMessageText,
-  findSafeStartIndex,
   truncateOldToolResults,
   parseImageResult,
   checkDangerousBash,
-  groupBySimilarity,
   updateCalibration,
 } from './utils/index.js';
 import { logger, LogLevel } from './logger.js';
@@ -60,6 +54,12 @@ import {
   type DebuggerAgentState,
   type RewindResult,
 } from './agent/debugger.js';
+import {
+  AgentContextManager,
+  createSummarizationProvider,
+  createAggressiveSummarizationProvider,
+  type SummarizationProvider,
+} from './agent/context.js';
 import {
   checkCommandApproval,
   getApprovalSuggestions,
@@ -197,6 +197,8 @@ export class Agent {
   private tokenCacheValid: boolean = false;
   // Debugger module (breakpoints, checkpoints, time travel)
   private debugger: AgentDebugger = new AgentDebugger();
+  // Context manager (compaction, windowing, summarization)
+  private contextManager!: AgentContextManager;
   private callbacks: {
     onText?: (text: string) => void;
     onReasoning?: (reasoning: string) => void;
@@ -249,6 +251,14 @@ export class Agent {
     // Calculate adaptive context limit based on actual overhead
     this.maxContextTokens = options.maxContextTokens ??
       this.calculateAdaptiveContextLimit(this.provider);
+
+    // Initialize context manager
+    this.contextManager = new AgentContextManager({
+      maxContextTokens: this.maxContextTokens,
+      contextConfig: this.contextConfig,
+      contextOptimization: this.contextOptimization,
+    });
+
     this.callbacks = {
       onText: options.onText,
       onReasoning: options.onReasoning,
@@ -291,88 +301,23 @@ export class Agent {
   }
 
   private async doProactiveCompact(): Promise<void> {
-    const beforeTokens = countMessageTokens(this.messages);
-    const beforeMessages = this.messages.length;
-
-    // Be more aggressive with compaction when memory is high
-    const scores = scoreMessages(
+    // Use context manager for aggressive compaction
+    const summarizationProvider = createAggressiveSummarizationProvider(this.getSummaryProvider());
+    const result = await this.contextManager.compactAggressive(
       this.messages,
-      {
-        recency: 0.3, // Less weight on recent messages - let's compact more
-        referenceCount: CONTEXT_OPTIMIZATION.WEIGHTS.referenceCount,
-        userEmphasis: CONTEXT_OPTIMIZATION.WEIGHTS.userEmphasis,
-        actionRelevance: CONTEXT_OPTIMIZATION.WEIGHTS.actionRelevance,
-        codeRelevance: CONTEXT_OPTIMIZATION.WEIGHTS.codeRelevance,
-      },
-      undefined, // entities
-      this.indexedFiles ?? undefined
+      this.conversationSummary,
+      this.workingSet,
+      summarizationProvider
     );
 
-    const windowConfig: WindowingConfig = {
-      minRecentMessages: Math.max(CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES - 2, 3), // Keep fewer recent messages
-      maxMessages: Math.min(CONTEXT_OPTIMIZATION.MAX_MESSAGES, 30), // Lower max messages
-      importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD + 0.1, // Higher threshold - be more selective
-      preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
-      preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
-    };
+    this.messages = result.messages;
+    this.conversationSummary = result.summary;
 
-    const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
-
-    logger.debug(`Proactive compaction: keeping ${selection.keep.length}/${beforeMessages} messages, summarizing ${selection.summarize.length}`);
-
-    if (selection.summarize.length === 0) {
-      this.messages = applySelection(this.messages, selection);
-      this.memoryMonitor.recordCompaction();
-      return;
-    }
-
-    // Summarize and apply selection
-    const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
-    const oldContent = messagesToSummarize
-      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 400)}`)
-      .join('\n\n');
-
-    const contextToSummarize = this.conversationSummary
-      ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
-      : oldContent;
-
-    try {
-      const summaryProvider = this.getSummaryProvider();
-      const summaryResponse = await summaryProvider.streamChat(
-        [{
-          role: 'user',
-          content: `Create a brief summary for context preservation due to high memory usage.
-
-## What to Include
-- **Goal**: What task is being worked on?
-- **Progress**: What has been done?
-- **Key State**: Where did we leave off?
-
-## Format
-Write 2-3 short paragraphs. Be concise.
-
-## Conversation to Summarize
-${contextToSummarize}`,
-        }],
-        undefined,
-        undefined
-      );
-
-      this.conversationSummary = summaryResponse.content;
-      this.messages = applySelection(this.messages, selection);
-
-      const afterTokens = countMessageTokens(this.messages);
-      const savedTokens = beforeTokens - afterTokens;
-      const savedPct = beforeTokens > 0 ? (savedTokens / beforeTokens) * 100 : 0;
-
-      logger.debug(`Proactive compaction: ${beforeMessages} → ${this.messages.length} messages, ${beforeTokens} → ${afterTokens} tokens (${savedPct.toFixed(1)}% saved)`);
-      this.memoryMonitor.recordCompaction();
-    } catch (error) {
-      // If summarization fails, still apply selection
-      logger.debug(`Proactive compaction summarization failed, using selection only: ${error}`);
-      this.messages = applySelection(this.messages, selection);
-      this.memoryMonitor.recordCompaction();
-    }
+    const savedPct = result.tokensBefore > 0
+      ? ((result.tokensBefore - result.tokensAfter) / result.tokensBefore) * 100
+      : 0;
+    logger.debug(`Proactive compaction: ${result.messagesBefore} → ${result.messagesAfter} messages, ${result.tokensBefore} → ${result.tokensAfter} tokens (${savedPct.toFixed(1)}% saved)`);
+    this.memoryMonitor.recordCompaction();
   }
 
   /**
@@ -616,12 +561,9 @@ Always use tools to interact with the filesystem rather than asking the user to 
    * Uses importance scoring to determine what to keep vs summarize.
    */
   private async compactContext(): Promise<void> {
-    const totalTokens = countMessageTokens(this.messages);
-
-    // Proactive compaction: trigger at 85% of limit to avoid hitting hard limits
-    const proactiveThreshold = Math.floor(this.maxContextTokens * 0.85);
-    if (totalTokens <= proactiveThreshold) {
-      return; // No compaction needed
+    // Check if compaction is needed
+    if (!this.contextManager.needsCompaction(this.messages)) {
+      return;
     }
 
     // Notify UI that compaction is starting
@@ -629,13 +571,14 @@ Always use tools to interact with the filesystem rather than asking the user to 
     // Yield to event loop so UI can render the status update
     await new Promise(resolve => setImmediate(resolve));
     try {
-      await this.doCompactContext(totalTokens);
+      await this.doCompactContext();
     } finally {
       this.callbacks.onCompaction?.('end');
     }
   }
 
-  private async doCompactContext(totalTokens: number): Promise<void> {
+  private async doCompactContext(): Promise<void> {
+    const totalTokens = countMessageTokens(this.messages);
     const isProactive = totalTokens <= this.maxContextTokens;
     logger.debug(
       isProactive
@@ -643,149 +586,22 @@ Always use tools to interact with the filesystem rather than asking the user to 
         : `Compacting: ${totalTokens} tokens exceeds ${this.maxContextTokens} limit`
     );
 
-    // Score messages by importance (pass indexed files for RAG-enhanced scoring)
-    const scores = scoreMessages(
+    // Use the context manager to perform compaction
+    const summaryProvider = this.getSummaryProvider();
+    logger.debug(`Using ${summaryProvider.getName()} (${summaryProvider.getModel()}) for summarization`);
+
+    const summarizationProvider = createSummarizationProvider(summaryProvider);
+    const result = await this.contextManager.compact(
       this.messages,
-      CONTEXT_OPTIMIZATION.WEIGHTS,
-      undefined, // entities
-      this.indexedFiles ?? undefined
+      this.conversationSummary,
+      this.workingSet,
+      summarizationProvider
     );
 
-    // Configure windowing
-    const windowConfig: WindowingConfig = {
-      minRecentMessages: CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES,
-      maxMessages: CONTEXT_OPTIMIZATION.MAX_MESSAGES,
-      importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD,
-      preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
-      preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
-    };
+    this.messages = result.messages;
+    this.conversationSummary = result.summary;
 
-    // Select what to keep using smart windowing
-    const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
-
-    logger.debug(`Smart windowing: keeping ${selection.keep.length}/${this.messages.length} messages, summarizing ${selection.summarize.length}`);
-
-    // If nothing to summarize, just apply selection
-    if (selection.summarize.length === 0) {
-      this.messages = applySelection(this.messages, selection);
-      return;
-    }
-
-    // Get messages to summarize
-    const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
-
-    // Extract file paths from messages for better context preservation
-    const discussedFiles = new Set<string>();
-    for (const msg of messagesToSummarize) {
-      const text = getMessageText(msg);
-      const paths = extractFilePaths(text);
-      paths.forEach(p => discussedFiles.add(p));
-    }
-
-    // Try semantic deduplication if embedding provider is available
-    let oldContent: string;
-    if (this.embeddingProvider && messagesToSummarize.length > 2) {
-      try {
-        // Generate embeddings for messages
-        const messageTexts = messagesToSummarize.map(m => getMessageText(m).slice(0, 1000));
-        const embeddings = await this.embeddingProvider.embed(messageTexts);
-
-        // Group similar messages
-        const groups = groupBySimilarity(embeddings, 0.85);
-        logger.debug(`Semantic dedup: ${messagesToSummarize.length} messages → ${groups.length} groups`);
-
-        // Format grouped content
-        oldContent = groups.map((group, i) => {
-          if (group.length === 1) {
-            const msg = messagesToSummarize[group[0]];
-            return `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`;
-          } else {
-            // Multiple similar messages - show as a group
-            const groupMessages = group.map(idx => {
-              const msg = messagesToSummarize[idx];
-              return `  - [${msg.role}]: ${getMessageText(msg).slice(0, 200)}`;
-            }).join('\n');
-            return `[Similar discussion #${i + 1}, ${group.length} messages]:\n${groupMessages}`;
-          }
-        }).join('\n\n');
-      } catch (err) {
-        // Fall back to standard formatting
-        logger.debug(`Semantic dedup failed: ${err instanceof Error ? err.message : err}`);
-        oldContent = messagesToSummarize
-          .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
-          .join('\n\n');
-      }
-    } else {
-      // Standard formatting without semantic deduplication
-      oldContent = messagesToSummarize
-        .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
-        .join('\n\n');
-    }
-
-    // Include existing summary if present
-    const contextToSummarize = this.conversationSummary
-      ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
-      : oldContent;
-
-    // Build enhanced summary prompt with file context
-    const filesContext = discussedFiles.size > 0
-      ? `\n\nFiles discussed: ${[...discussedFiles].join(', ')}`
-      : '';
-
-    try {
-      // Ask the model to create a summary (use secondary provider if configured)
-      const summaryProvider = this.getSummaryProvider();
-      logger.debug(`Using ${summaryProvider.getName()} (${summaryProvider.getModel()}) for summarization`);
-      logger.debug(`Files context for summary: ${discussedFiles.size} files`);
-
-      const summaryResponse = await summaryProvider.streamChat(
-        [
-          {
-            role: 'user',
-            content: `Create a concise summary of this conversation for context preservation.
-
-## What to Include
-- **Goal**: What task is the user trying to accomplish?
-- **Progress**: What has been done so far?
-- **Files Modified**: List any files that were created, edited, or deleted
-- **Key Decisions**: Any important choices made during the conversation
-- **Current State**: Where did the conversation leave off?
-
-## Format
-Write 3-5 short paragraphs. Use bullet points for file lists. Be factual and specific.
-${filesContext}
-
-## Conversation to Summarize
-${contextToSummarize}`,
-          },
-        ],
-        undefined, // No tools for summary
-        undefined  // No streaming callback
-      );
-
-      this.conversationSummary = summaryResponse.content;
-      const messagesBefore = this.messages.length;
-      this.messages = applySelection(this.messages, selection);
-
-      const newTokens = countMessageTokens(this.messages);
-      logger.debug(`Compacted to ${newTokens} tokens. Summary: ${this.conversationSummary?.slice(0, 100)}...`);
-
-      // Debug bridge: context compaction
-      if (isDebugBridgeEnabled()) {
-        getDebugBridge().contextCompaction(totalTokens, newTokens, messagesBefore, this.messages.length);
-      }
-    } catch (error) {
-      // If summarization fails, fall back to simple selection without summary
-      logger.debug(`Summarization failed, using selection only: ${error}`);
-      const messagesBefore = this.messages.length;
-      this.messages = applySelection(this.messages, selection);
-
-      // Debug bridge: context compaction (fallback)
-      if (isDebugBridgeEnabled()) {
-        const newTokens = countMessageTokens(this.messages);
-        getDebugBridge().contextCompaction(totalTokens, newTokens, messagesBefore, this.messages.length);
-      }
-    }
+    logger.debug(`Compacted: ${result.messagesBefore} → ${result.messagesAfter} messages, ${result.tokensBefore} → ${result.tokensAfter} tokens`);
   }
 
   /**
@@ -793,10 +609,7 @@ ${contextToSummarize}`,
    * Helps smaller models stay on track during multi-turn tool use.
    */
   private buildContinuationPrompt(originalTask: string): string {
-    const taskPreview = originalTask.length > 150
-      ? originalTask.slice(0, 150) + '...'
-      : originalTask;
-    return `\n\nOriginal request: "${taskPreview}"\n\nIf you have completed the user's request, respond with your final answer. Do NOT continue calling tools unless the task is incomplete.`;
+    return this.contextManager.buildContinuationPrompt(originalTask);
   }
 
   /**
@@ -804,15 +617,7 @@ ${contextToSummarize}`,
    * Uses tier-based config to scale with model's context window.
    */
   private truncateToolResult(content: string): string {
-    const maxSize = this.contextConfig.maxImmediateToolResult;
-    if (content.length <= maxSize) {
-      return content;
-    }
-    const halfLimit = Math.floor(maxSize / 2);
-    const truncated = content.slice(0, halfLimit) +
-      `\n\n... [${content.length - maxSize} characters truncated] ...\n\n` +
-      content.slice(-halfLimit);
-    return truncated;
+    return this.contextManager.truncateToolResult(content);
   }
 
   /**
@@ -820,40 +625,9 @@ ${contextToSummarize}`,
    * Uses smart pruning: keeps recent messages and removes old ones.
    */
   private enforceMessageLimit(): void {
-    if (this.messages.length <= FIXED_CONFIG.MAX_MESSAGES) {
-      return;
-    }
-
-    logger.debug(`Enforcing message limit: ${this.messages.length} > ${FIXED_CONFIG.MAX_MESSAGES}`);
-
-    // Calculate how many to remove (keep some buffer below the limit)
-    const targetSize = Math.floor(FIXED_CONFIG.MAX_MESSAGES * 0.8); // Keep 80% of limit
-    const removeCount = this.messages.length - targetSize;
-
-    // Find a safe start point in the messages to remove
-    // We need to slice from the beginning, not break tool call/result pairs
-    const recentMessages = this.messages.slice(removeCount);
-    const safeStart = findSafeStartIndex(recentMessages);
-
-    // Adjust the actual slice point to respect tool pairs
-    const actualRemoveCount = removeCount + safeStart;
-    const pruned = actualRemoveCount;
-
-    if (pruned <= 0) {
-      return; // Nothing safe to prune
-    }
-
-    // Update summary to note that messages were pruned
-    const pruneNote = `[Note: ${pruned} older messages were automatically pruned to stay within memory limits]`;
-    if (this.conversationSummary) {
-      this.conversationSummary = `${pruneNote}\n\n${this.conversationSummary}`;
-    } else {
-      this.conversationSummary = pruneNote;
-    }
-
-    // Apply pruning
-    this.messages = this.messages.slice(actualRemoveCount);
-    logger.debug(`Pruned ${pruned} messages, now have ${this.messages.length}`);
+    const result = this.contextManager.enforceMessageLimit(this.messages, this.conversationSummary);
+    this.messages = result.messages;
+    this.conversationSummary = result.summary;
   }
 
   /**
@@ -2259,91 +2033,19 @@ Label:`,
    * Returns info about what was compacted.
    */
   async forceCompact(): Promise<{ before: number; after: number; summary: string | null }> {
-    const before = countMessageTokens(this.messages);
-
-    if (this.messages.length <= CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES) {
-      return { before, after: before, summary: this.conversationSummary };
-    }
-
-    // Score messages and use smart windowing (pass indexed files for RAG-enhanced scoring)
-    const scores = scoreMessages(
+    const summarizationProvider = createSummarizationProvider(this.getSummaryProvider());
+    const result = await this.contextManager.forceCompact(
       this.messages,
-      CONTEXT_OPTIMIZATION.WEIGHTS,
-      undefined, // entities
-      this.indexedFiles ?? undefined
+      this.conversationSummary,
+      this.workingSet,
+      summarizationProvider
     );
-    const windowConfig: WindowingConfig = {
-      minRecentMessages: CONTEXT_OPTIMIZATION.MIN_RECENT_MESSAGES,
-      maxMessages: Math.min(CONTEXT_OPTIMIZATION.MAX_MESSAGES, Math.ceil(this.messages.length / 2)),
-      importanceThreshold: CONTEXT_OPTIMIZATION.IMPORTANCE_THRESHOLD,
-      preserveToolPairs: CONTEXT_OPTIMIZATION.PRESERVE_TOOL_PAIRS,
-      preserveWorkingSet: CONTEXT_OPTIMIZATION.PRESERVE_WORKING_SET,
+    this.messages = result.messages;
+    this.conversationSummary = result.summary;
+    return {
+      before: result.tokensBefore,
+      after: result.tokensAfter,
+      summary: result.summary,
     };
-
-    const selection = selectMessagesToKeep(this.messages, scores, this.workingSet, windowConfig);
-
-    if (selection.summarize.length === 0) {
-      this.messages = applySelection(this.messages, selection);
-      const after = countMessageTokens(this.messages);
-      return { before, after, summary: this.conversationSummary };
-    }
-
-    const messagesToSummarize = selection.summarize.map(i => this.messages[i]);
-
-    // Extract file paths from messages for better context preservation
-    const discussedFiles = new Set<string>();
-    for (const msg of messagesToSummarize) {
-      const text = getMessageText(msg);
-      const paths = extractFilePaths(text);
-      paths.forEach(p => discussedFiles.add(p));
-    }
-
-    const oldContent = messagesToSummarize
-      .map((msg) => `[${msg.role}]: ${getMessageText(msg).slice(0, 500)}`)
-      .join('\n\n');
-
-    const contextToSummarize = this.conversationSummary
-      ? `Previous summary:\n${this.conversationSummary}\n\nNew messages:\n${oldContent}`
-      : oldContent;
-
-    // Build enhanced summary prompt with file context
-    const filesContext = discussedFiles.size > 0
-      ? `\n\nFiles discussed: ${[...discussedFiles].join(', ')}`
-      : '';
-
-    try {
-      // Use secondary provider for summarization if configured
-      const summaryProvider = this.getSummaryProvider();
-      const summaryResponse = await summaryProvider.chat(
-        [{
-          role: 'user',
-          content: `Create a concise summary of this conversation for context preservation.
-
-## What to Include
-- **Goal**: What task is the user trying to accomplish?
-- **Progress**: What has been done so far?
-- **Files Modified**: List any files that were created, edited, or deleted
-- **Key Decisions**: Any important choices made during the conversation
-- **Current State**: Where did the conversation leave off?
-
-## Format
-Write 3-5 short paragraphs. Use bullet points for file lists. Be factual and specific.
-${filesContext}
-
-## Conversation to Summarize
-${contextToSummarize}`,
-        }],
-        undefined, // tools
-        `You are a helpful assistant that creates concise conversation summaries. Summarize the conversation accurately without adding information not present in the context.` // systemPrompt
-      );
-      this.conversationSummary = summaryResponse.content;
-      this.messages = applySelection(this.messages, selection);
-    } catch (error) {
-      logger.debug(`Summarization failed during compaction: ${error instanceof Error ? error.message : error}`);
-      this.messages = applySelection(this.messages, selection);
-    }
-
-    const after = countMessageTokens(this.messages);
-    return { before, after, summary: this.conversationSummary };
   }
 }
