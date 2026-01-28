@@ -153,7 +153,7 @@ src/agent/
 
 ---
 
-### 2.3 Extract Config Module (855 lines)
+### 2.3 Extract Config Module (855 lines → 555 lines) ✅ PARTIAL
 **File**: `src/config.ts`
 
 **Mixed responsibilities**:
@@ -162,15 +162,34 @@ src/agent/
 - Merging configs
 - Tool-specific defaults
 
-**Proposed structure**:
+**Completed structure**:
 ```
 src/config/
-├── loader.ts      (load from disk)
-├── validator.ts   (validate structure)
-├── merger.ts      (merge configs)
-├── resolver.ts    (get resolved values)
-└── types.ts       (config interfaces)
+├── index.ts       ✅ DONE (41 lines - module re-exports)
+├── types.ts       ✅ DONE (333 lines - all config interfaces)
+├── loader.ts      (PENDING: load from disk)
+├── validator.ts   (PENDING: validate structure)
+├── merger.ts      (PENDING: merge configs)
+└── resolver.ts    (PENDING: get resolved values)
 ```
+
+**Extracted modules in Phase 2.3**:
+- `config/types.ts`: All config type definitions
+  - `WorkspaceConfig` - Workspace configuration interface
+  - `ResolvedConfig` - Resolved configuration with all values set
+  - `ApprovedPatternConfig` - Approved bash command patterns
+  - `ApprovedPathPatternConfig` - Approved file path patterns
+  - `ToolsConfig` - Per-tool configuration
+- `config/index.ts`: Module re-exports for backwards compatibility
+
+**Result**:
+- config.ts reduced from 855 to 555 lines (-300 lines, 35% reduction)
+- Clean separation of types from implementation
+- Backwards compatible imports via `./config/index.js`
+
+**Remaining for 2.3**: Extract loader, validator, merger, resolver modules
+
+**Impact**: Better organization, types can be imported independently
 
 ---
 
@@ -248,7 +267,9 @@ export async function loadAllCommands(): Promise<void> {
 | `src/index.ts` | Split into `src/cli/` modules | Partial (REPL pending) |
 | `src/agent.ts` | Split into `src/agent/` modules | Partial (debugger done) |
 | `src/agent/debugger.ts` | Extract debug/checkpoint functionality | ✅ Done |
-| `src/config.ts` | Split into `src/config/` modules | Pending |
+| `src/config.ts` | Split into `src/config/` modules | Partial (types done) |
+| `src/config/types.ts` | Extract config type definitions | ✅ Done |
+| `src/config/index.ts` | Module re-exports | ✅ Done |
 | `src/utils/cache.ts` | Create new (generic cache) | Pending |
 | Multiple files | Replace `console.*` with `logger.*` | ✅ Done |
 
@@ -281,7 +302,8 @@ pnpm test           # Unit tests
 | Index.ts REPL extraction | ~1,500 lines pending | Partial |
 | Agent.ts debugger extraction | -322 lines (2,671 → 2,349) | ✅ Complete |
 | Agent.ts remaining modules | context, execution, security | Pending |
-| Config extraction | ~855 lines | Pending |
+| Config types extraction | -300 lines (855 → 555) | ✅ Complete |
+| Config remaining modules | loader, validator, merger, resolver | Pending |
 
 ---
 
@@ -294,5 +316,6 @@ pnpm test           # Unit tests
    - Remaining: Extract REPL loop to `cli/repl.ts`
 5. ~~**Phase 2.2**: Modularize agent.ts~~ ✅ Partial (extracted debugger)
    - Remaining: Extract context, execution, security modules
-6. **Phase 2.3**: Extract config module
+6. ~~**Phase 2.3**: Extract config module~~ ✅ Partial (extracted types)
+   - Remaining: Extract loader, validator, merger, resolver modules
 7. **Phase 3**: Code quality improvements
