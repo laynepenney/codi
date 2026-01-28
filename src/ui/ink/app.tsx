@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Static, Text, useApp, useInput, useStdout } from 'ink';
-import TextInput from 'ink-text-input';
+import { Box, Static, Text, useApp, useInput as useInkInput, useStdout } from 'ink';
 
 import type { ConfirmationResult } from '../../agent.js';
 import type { ReaderResult, ReaderState, WorkerResult, WorkerState } from '../../orchestrate/types.js';
 import { formatSessionInfo } from '../../session.js';
+import { completeLine, getCompletionMatches } from '../../completions.js';
 import type {
   InkUiController,
   UiConfirmationRequest,
@@ -17,6 +17,7 @@ import type {
   UiStatus,
   UiWorkerLog,
 } from './controller.js';
+import { CompletableInput } from './completable-input.js';
 
 type FocusTarget = 'input' | 'activity' | 'selection';
 
@@ -51,7 +52,6 @@ export interface InkAppProps {
   onSubmit: (input: string) => void | Promise<void>;
   onExit: () => void;
   history?: string[];
-  completer?: (line: string) => [string[], string];
 }
 
 const MAX_LOG_BUFFER_LINES = 500;
@@ -358,7 +358,7 @@ const MESSAGE_COLORS = {
   worker: 'magenta',
 } as const;
 
-export function InkApp({ controller, onSubmit, onExit, history, completer }: InkAppProps) {
+export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [staticBlocks, setStaticBlocks] = useState<StaticBlock[]>([]);
@@ -669,35 +669,57 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     setCompletionHint(null);
   };
 
-  const handleCompletion = () => {
-    if (!completer) return;
-    if (!inputValue.startsWith('/')) return;
-    const [matches] = completer(inputValue);
-    if (matches.length === 0) {
-      setCompletionHint('No matches');
-      return;
-    }
-    if (matches.length === 1) {
-      setInputValue(matches[0]);
-      setCompletionHint(null);
-      setHistoryIndex(-1);
-      return;
-    }
-    const prefix = commonPrefix(matches);
-    if (prefix.length > inputValue.length) {
-      setInputValue(prefix);
-      setCompletionHint(null);
-      setHistoryIndex(-1);
-      return;
-    }
-    setCompletionHint(`Matches: ${matches.join(', ')}`);
+  const handleCompletion = (): string | null => {
+    if (!inputValue.startsWith('/')) return null;
+    return completeLine(inputValue);
   };
 
-  useInput((input, key) => {
+  const handleNextCompletion = (): string | null => {
+    // Handle Tab cycling through completions
+    if (!inputValue.startsWith('/')) return null;
+    const matches = getCompletionMatches(inputValue);
+    if (matches.length === 0) return null;
+    
+    // If we already have matches, find current position and cycle
+    const currentMatch = matches.find(m => m.trim() === inputValue.trim());
+    
+    if (!currentMatch) {
+      // Start from first match
+      return matches[0]?.trim() ?? null;
+    }
+    
+    // Find next match
+    const currentIndex = matches.indexOf(currentMatch);
+    const nextIndex = (currentIndex + 1) % matches.length;
+    return matches[nextIndex]?.trim() ?? null;
+  };
+
+  const handlePrevCompletion = (): string | null => {
+    // Handle Shift+Tab to cycle backwards
+    if (!inputValue.startsWith('/')) return null;
+    const matches = getCompletionMatches(inputValue);
+    if (matches.length === 0) return null;
+    
+    const currentMatch = matches.find(m => m.trim() === inputValue.trim());
+    
+    if (!currentMatch) {
+      // Start from last match
+      return matches[matches.length - 1]?.trim() ?? null;
+    }
+    
+    // Find previous match
+    const currentIndex = matches.indexOf(currentMatch);
+    const prevIndex = (currentIndex - 1 + matches.length) % matches.length;
+    return matches[prevIndex]?.trim() ?? null;
+  };
+
+  useInkInput((input, key) => {
     const inputKey = input.toLowerCase();
+    
+    // Handle Ctrl+C
     if (key.ctrl && input === 'c') {
       onExit();
-      exit();
+      (useApp().exit)();
       return;
     }
 
@@ -733,7 +755,17 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
       return;
     }
 
-    if ((key.shift && key.tab) || (key.ctrl && input.toLowerCase() === 'w')) {
+    // Handle Shift+Tab - switch focus (completion cycling handled by CompletableInput)
+    if (key.shift && key.tab) {
+      // Only switch focus if NOT in input mode, or if input doesn't start with /
+      if (focus !== 'input' || (confirmation || sessionSelection || !inputValue.startsWith('/'))) {
+        setFocus((prev) => (prev === 'input' ? 'activity' : 'input'));
+      }
+      return;
+    }
+    
+    // Handle Ctrl+W - switch focus
+    if (key.ctrl && inputKey === 'w') {
       setFocus((prev) => (prev === 'input' ? 'activity' : 'input'));
       return;
     }
@@ -770,16 +802,13 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     }
 
     if (focus === 'input') {
+      // Arrow keys for history (let CompletableInput handle cursor movement)
       if (key.upArrow) {
         handleHistoryUp();
         return;
       }
       if (key.downArrow) {
         handleHistoryDown();
-        return;
-      }
-      if (key.tab || input === '\t') {
-        handleCompletion();
         return;
       }
     }
@@ -950,7 +979,8 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
     if (completionHint) {
       return completionHint;
     }
-    return null;
+    // Normal input mode - show completion hint
+    return 'Commands: Tab to complete | Shift+Tab to cycle back | Esc to switch to activity panel';
   }, [confirmation, focus, completionHint]);
 
   const hintLines = useMemo(() => {
@@ -1046,7 +1076,7 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
           <Text color={focus === 'input' && !confirmation ? 'cyan' : 'gray'}>
             {focus === 'input' ? '> ' : '  '}
           </Text>
-          <TextInput
+          <CompletableInput
             value={inputValue}
             onChange={(value) => {
               setInputValue(value);
@@ -1057,8 +1087,25 @@ export function InkApp({ controller, onSubmit, onExit, history, completer }: Ink
               }
             }}
             onSubmit={handleSubmit}
+            onTab={(value) => {
+              const matches = getCompletionMatches(value);
+              if (matches.length === 0) return null;
+              
+              // Don't auto-complete - just show hints
+              if (matches.length === 1) {
+                // Only auto-complete when there's exactly one match
+                return matches[0];
+              }
+              
+              // Show all available completions
+              setCompletionHint(`Completions: ${matches.map(m => m.trim()).join(', ')}`);
+              
+              // Don't change the input - just return null
+              return null;
+            }}
             focus={focus === 'input' && !confirmation && !sessionSelection}
             placeholder={focus === 'input' && !sessionSelection ? 'Type a command' : ''}
+            showCursor={true}
           />
         </Box>
       </Box>

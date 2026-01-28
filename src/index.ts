@@ -1022,7 +1022,6 @@ Begin by analyzing the query and planning your research approach.`;
 
   if (useInkUi && inkController) {
     const history = loadHistory();
-    const completer = createCompleter();
     inkUiPromise = runInkUi({
       controller: inkController,
       onSubmit: handleInkSubmit,
@@ -1030,7 +1029,6 @@ Begin by analyzing the query and planning your research approach.`;
         handleExit();
       },
       history,
-      completer,
     });
   }
 

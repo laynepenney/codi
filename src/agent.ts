@@ -2314,7 +2314,7 @@ Label:`,
     try {
       // Use secondary provider for summarization if configured
       const summaryProvider = this.getSummaryProvider();
-      const summaryResponse = await summaryProvider.streamChat(
+      const summaryResponse = await summaryProvider.chat(
         [{
           role: 'user',
           content: `Create a concise summary of this conversation for context preservation.
@@ -2333,8 +2333,8 @@ ${filesContext}
 ## Conversation to Summarize
 ${contextToSummarize}`,
         }],
-        undefined,
-        undefined
+        undefined, // tools
+        `You are a helpful assistant that creates concise conversation summaries. Summarize the conversation accurately without adding information not present in the context.` // systemPrompt
       );
       this.conversationSummary = summaryResponse.content;
       this.messages = applySelection(this.messages, selection);

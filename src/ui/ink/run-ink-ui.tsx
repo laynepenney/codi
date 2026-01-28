@@ -12,7 +12,6 @@ export interface InkUiOptions {
   onSubmit: (input: string) => void | Promise<void>;
   onExit: () => void;
   history?: string[];
-  completer?: (line: string) => [string[], string];
 }
 
 export async function runInkUi(options: InkUiOptions): Promise<void> {
@@ -22,7 +21,6 @@ export async function runInkUi(options: InkUiOptions): Promise<void> {
       onSubmit={options.onSubmit}
       onExit={options.onExit}
       history={options.history}
-      completer={options.completer}
     />,
     { exitOnCtrlC: false }
   );

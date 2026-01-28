@@ -8,6 +8,9 @@ import {
   getSubcommands,
   getStaticArgs,
   getFlags,
+  completeLine,
+  getCompletionMatches,
+  getCommonPrefix,
 } from '../src/completions';
 
 // Register commands before tests
@@ -315,6 +318,68 @@ describe('Command Completions', () => {
     it('returns empty for command without specific flags', () => {
       const flags = getFlags('help');
       expect(flags).toHaveLength(0);
+    });
+  });
+
+  describe('completeLine - Ink UI helper', () => {
+    it('returns null for non-command input', () => {
+      const result = completeLine('hello world');
+      expect(result).toBeNull();
+    });
+
+    it('returns completed command for single match', () => {
+      const result = completeLine('/br');
+      expect(result).toBe('/branch ');
+    });
+
+    it('returns common prefix for multiple matches', () => {
+      const result = completeLine('/co');
+      // /commit and /compact both start with /co
+      expect(result).toBeTruthy();
+      expect(result?.startsWith('/co')).toBe(true);
+    });
+
+    it('returns null for no matches', () => {
+      const result = completeLine('/xyznonexistent');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getCompletionMatches - Ink UI helper', () => {
+    it('returns all matches for partial command', () => {
+      const matches = getCompletionMatches('/co');
+      expect(matches.some(m => m.startsWith('/co'))).toBe(true);
+      expect(matches.length).toBeGreaterThan(1);
+    });
+
+    it('returns empty for no matches', () => {
+      const matches = getCompletionMatches('/nonexistentxyz');
+      expect(matches).toHaveLength(0);
+    });
+
+    it('returns empty for non-command input', () => {
+      const matches = getCompletionMatches('hello');
+      expect(matches).toHaveLength(0);
+    });
+  });
+
+  describe('getCommonPrefix', () => {
+    it('returns empty for empty array', () => {
+      expect(getCommonPrefix([])).toBe('');
+    });
+
+    it('returns single element for single element array', () => {
+      expect(getCommonPrefix(['/branch'])).toBe('/branch');
+    });
+
+    it('returns common prefix for multiple strings', () => {
+      const result = getCommonPrefix(['/commit', '/compact', '/config']);
+      expect(result).toBe('/c');
+    });
+
+    it('returns empty when no common prefix', () => {
+      const result = getCommonPrefix(['/branch', '/commit']);
+      expect(result).toBe('/');
     });
   });
 });
