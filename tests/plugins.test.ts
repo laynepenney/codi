@@ -227,8 +227,9 @@ describe('Plugin System', () => {
       const plugins = await loadPluginsFromDirectory(testDir);
 
       expect(plugins).toEqual([]);
+      // The new warning format includes "Failed to load plugin" in the third warn call
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Warning: Failed to load plugin')
+        expect.stringContaining('Failed to load plugin')
       );
       consoleSpy.mockRestore();
     });
