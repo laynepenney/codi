@@ -14,6 +14,17 @@
   },
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./plugin-api": {
+      "import": "./dist/plugin-api.js",
+      "types": "./dist/plugin-api.d.ts"
+    }
+  },
   "engines": {
     "node": ">=22 <23"
   },

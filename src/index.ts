@@ -523,12 +523,12 @@ async function main() {
   // Register tools and commands
   registerToolsAndCommands();
 
-  // Plugin system disabled pending further investigation
-  // See: https://github.com/laynepenney/codi/issues/17
-  // const loadedPlugins = await loadPluginsFromDirectory();
-  // if (loadedPlugins.length > 0) {
-  //   console.log(chalk.dim(`Plugins: ${loadedPlugins.length} loaded (${loadedPlugins.map(p => p.plugin.name).join(', ')})`));
-  // }
+  // Load plugins from ~/.codi/plugins/
+  // Security: Plugins can execute arbitrary code - only install trusted plugins
+  const loadedPlugins = await loadPluginsFromDirectory();
+  if (loadedPlugins.length > 0) {
+    console.log(chalk.dim(`Plugins: ${loadedPlugins.length} loaded (${loadedPlugins.map(p => p.plugin.name).join(', ')})`));
+  }
 
   // Initialize MCP clients if configured and not disabled
   const mcpResult = await initializeMCP(workspaceConfig, options.mcp !== false);

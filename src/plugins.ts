@@ -50,7 +50,7 @@ export interface CodiPlugin {
 }
 
 /** Loaded plugin with metadata */
-interface LoadedPlugin {
+export interface LoadedPlugin {
   plugin: CodiPlugin;
   path: string;
   loadedAt: Date;
@@ -187,6 +187,10 @@ export async function registerPlugin(plugin: CodiPlugin, pluginPath: string): Pr
 
 /**
  * Load all plugins from the plugins directory.
+ *
+ * Security Warning: Plugins can execute arbitrary code. Only install plugins
+ * from trusted sources. Each plugin directory must contain a package.json
+ * with a valid entry point.
  */
 export async function loadPluginsFromDirectory(directory: string = CodiPaths.plugins()): Promise<LoadedPlugin[]> {
   // Create directory if it doesn't exist
@@ -195,20 +199,30 @@ export async function loadPluginsFromDirectory(directory: string = CodiPaths.plu
     return [];
   }
 
-  const loaded: LoadedPlugin[] = [];
   const entries = fs.readdirSync(directory, { withFileTypes: true });
+  const pluginDirs = entries.filter(entry => entry.isDirectory());
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+  // No plugins to load
+  if (pluginDirs.length === 0) {
+    return [];
+  }
 
+  // Security warning when plugins are present
+  logger.warn(`⚠️  Loading ${pluginDirs.length} plugin(s) from ${directory}`);
+  logger.warn('   Plugins can execute arbitrary code. Only install trusted plugins.');
+
+  const loaded: LoadedPlugin[] = [];
+
+  for (const entry of pluginDirs) {
     const pluginDir = path.join(directory, entry.name);
 
     try {
       const plugin = await loadPlugin(pluginDir);
       await registerPlugin(plugin, pluginDir);
       loaded.push(loadedPlugins.get(plugin.name)!);
+      logger.info(`   ✓ Loaded plugin: ${plugin.name} v${plugin.version}`);
     } catch (error) {
-      logger.warn(`Failed to load plugin from ${entry.name}: ${error}`);
+      logger.warn(`   ✗ Failed to load plugin from ${entry.name}: ${error}`);
     }
   }
 
