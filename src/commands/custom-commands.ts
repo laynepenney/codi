@@ -1,10 +1,11 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readFileSync, readdirSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, basename } from 'path';
-import { homedir } from 'os';
 import { registerCommand, type Command, type CommandContext } from './index.js';
+import { CodiPaths, ensureDir } from '../paths.js';
+import { logger } from '../logger.js';
 
 /**
  * Custom command template argument definition.
@@ -34,9 +35,6 @@ interface CustomCommand {
   template: string;
   filePath: string;
 }
-
-// Directory where custom commands are stored
-const CUSTOM_COMMANDS_DIR = join(homedir(), '.codi', 'commands');
 
 /**
  * Parse YAML frontmatter from a markdown file.
@@ -137,7 +135,7 @@ function parseCustomCommand(filePath: string): CustomCommand | null {
     // Validate required fields
     const name = meta.name as string;
     if (!name) {
-      console.warn(`Custom command at ${filePath} missing 'name' in frontmatter`);
+      logger.warn(`Custom command at ${filePath} missing 'name' in frontmatter`);
       return null;
     }
 
@@ -152,7 +150,7 @@ function parseCustomCommand(filePath: string): CustomCommand | null {
       filePath,
     };
   } catch (error) {
-    console.warn(`Failed to parse custom command at ${filePath}:`, error);
+    logger.warn(`Failed to parse custom command at ${filePath}: ${error}`);
     return null;
   }
 }
@@ -297,7 +295,7 @@ function createCommandFromCustom(custom: CustomCommand): Command {
       const { values, errors } = parseArgs(args, argDefs);
 
       if (errors.length > 0) {
-        console.error(`Error: ${errors.join(', ')}`);
+        logger.error(errors.join(', '));
         console.log(`Usage: ${usage}`);
         return null;
       }
@@ -314,11 +312,12 @@ function createCommandFromCustom(custom: CustomCommand): Command {
  */
 export function loadCustomCommands(): CustomCommand[] {
   const commands: CustomCommand[] = [];
+  const commandsDir = CodiPaths.commands();
 
   // Create directory if it doesn't exist
-  if (!existsSync(CUSTOM_COMMANDS_DIR)) {
+  if (!existsSync(commandsDir)) {
     try {
-      mkdirSync(CUSTOM_COMMANDS_DIR, { recursive: true });
+      ensureDir(commandsDir);
     } catch {
       // Ignore errors creating directory
     }
@@ -326,12 +325,12 @@ export function loadCustomCommands(): CustomCommand[] {
   }
 
   try {
-    const files = readdirSync(CUSTOM_COMMANDS_DIR);
+    const files = readdirSync(commandsDir);
 
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
 
-      const filePath = join(CUSTOM_COMMANDS_DIR, file);
+      const filePath = join(commandsDir, file);
       const command = parseCustomCommand(filePath);
 
       if (command) {
@@ -339,7 +338,7 @@ export function loadCustomCommands(): CustomCommand[] {
       }
     }
   } catch (error) {
-    console.warn('Failed to load custom commands:', error);
+    logger.warn(`Failed to load custom commands: ${error}`);
   }
 
   return commands;
@@ -366,7 +365,7 @@ export function registerCustomCommands(): void {
  * Get the path to the custom commands directory.
  */
 export function getCustomCommandsDir(): string {
-  return CUSTOM_COMMANDS_DIR;
+  return CodiPaths.commands();
 }
 
 /**

@@ -11,6 +11,7 @@ import type { AuditLogger } from '../audit.js';
 import type { BackgroundIndexer } from '../rag/index.js';
 import type { MCPClientManager } from '../mcp/index.js';
 import { spinner } from '../spinner.js';
+import { logger } from '../logger.js';
 
 /**
  * Non-interactive mode result type for JSON output.
@@ -126,7 +127,7 @@ export async function runNonInteractive(
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
-      console.error(chalk.red('Error: ' + errorMessage));
+      logger.error(errorMessage);
     }
 
     // Cleanup

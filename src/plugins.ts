@@ -6,7 +6,6 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { homedir } from 'os';
 import { pathToFileURL } from 'url';
 import type { BaseTool } from './tools/base.js';
 import type { Command } from './commands/index.js';
@@ -15,9 +14,8 @@ import type { ProviderConfig } from './types.js';
 import { globalRegistry } from './tools/index.js';
 import { registerCommand } from './commands/index.js';
 import { registerProviderFactory } from './providers/index.js';
-
-/** Directory where user plugins are stored */
-const PLUGINS_DIR = path.join(homedir(), '.codi', 'plugins');
+import { CodiPaths, ensureDir } from './paths.js';
+import { logger } from './logger.js';
 
 /**
  * Plugin interface that third-party extensions must implement.
@@ -190,10 +188,10 @@ export async function registerPlugin(plugin: CodiPlugin, pluginPath: string): Pr
 /**
  * Load all plugins from the plugins directory.
  */
-export async function loadPluginsFromDirectory(directory: string = PLUGINS_DIR): Promise<LoadedPlugin[]> {
+export async function loadPluginsFromDirectory(directory: string = CodiPaths.plugins()): Promise<LoadedPlugin[]> {
   // Create directory if it doesn't exist
   if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, { recursive: true });
+    ensureDir(directory);
     return [];
   }
 
@@ -210,7 +208,7 @@ export async function loadPluginsFromDirectory(directory: string = PLUGINS_DIR):
       await registerPlugin(plugin, pluginDir);
       loaded.push(loadedPlugins.get(plugin.name)!);
     } catch (error) {
-      console.warn(`Warning: Failed to load plugin from ${entry.name}: ${error}`);
+      logger.warn(`Failed to load plugin from ${entry.name}: ${error}`);
     }
   }
 
@@ -257,5 +255,5 @@ export async function unloadPlugin(name: string): Promise<boolean> {
  * Get the plugins directory path.
  */
 export function getPluginsDir(): string {
-  return PLUGINS_DIR;
+  return CodiPaths.plugins();
 }

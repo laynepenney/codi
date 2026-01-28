@@ -13,6 +13,7 @@ import type { ToolDefinition } from '../types.js';
 import { existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { logger } from '../logger.js';
 
 interface SearchResult {
   title: string;
@@ -486,7 +487,7 @@ export class EnhancedWebSearchTool extends BaseTool {
 
       // Check rate limit
       if (!this.canMakeRequest(engineName)) {
-        console.warn(`Rate limited: ${engineName}`);
+        logger.warn(`Rate limited: ${engineName}`);
         continue;
       }
 
@@ -500,7 +501,7 @@ export class EnhancedWebSearchTool extends BaseTool {
           return results;
         }
       } catch (error) {
-        console.warn(`Engine ${engineName} failed: ${error}`);
+        logger.warn(`Engine ${engineName} failed: ${error}`);
         continue;
       }
     }

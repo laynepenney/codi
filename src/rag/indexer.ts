@@ -25,6 +25,7 @@ import type {
 import type { BaseEmbeddingProvider } from './embeddings/base.js';
 import { VectorStore } from './vector-store.js';
 import { CodeChunker } from './chunker.js';
+import { logger } from '../logger.js';
 
 /** Default number of parallel indexing jobs */
 const DEFAULT_PARALLEL_JOBS = 4;
@@ -516,7 +517,7 @@ export class BackgroundIndexer {
           await this.vectorStore.deleteByFile(file);
         }
       } catch (err) {
-        console.error(`Failed to process ${file}: ${err}`);
+        logger.error(`Failed to process ${file}: ${err}`);
       }
     }
   }

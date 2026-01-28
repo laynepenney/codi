@@ -378,7 +378,9 @@ describe('History System', () => {
     it('returns the history directory path', () => {
       const dir = getHistoryDir();
       if (process.env.VITEST || process.env.NODE_ENV === 'test') {
-        expect(dir).toContain('codi-history-');
+        // Test environment uses .codi-test-{pid}/history path format
+        expect(dir).toContain('.codi-test-');
+        expect(dir).toContain('history');
         expect(dir).toContain(os.tmpdir());
       } else {
         expect(dir).toContain('.codi');

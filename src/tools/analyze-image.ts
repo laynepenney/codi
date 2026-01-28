@@ -6,6 +6,7 @@ import { existsSync, statSync } from 'fs';
 import { resolve, extname } from 'path';
 import { BaseTool } from './base.js';
 import type { ToolDefinition, ImageMediaType } from '../types.js';
+import { logger } from '../logger.js';
 
 // Maximum recommended image size (5MB)
 const MAX_RECOMMENDED_SIZE = 5 * 1024 * 1024;
@@ -76,8 +77,8 @@ export class AnalyzeImageTool extends BaseTool {
     const stats = statSync(resolvedPath);
     if (stats.size > MAX_RECOMMENDED_SIZE) {
       const sizeMB = (stats.size / (1024 * 1024)).toFixed(1);
-      console.warn(
-        `Warning: Image is ${sizeMB}MB. Large images may use significant context tokens.`
+      logger.warn(
+        `Image is ${sizeMB}MB. Large images may use significant context tokens.`
       );
     }
 

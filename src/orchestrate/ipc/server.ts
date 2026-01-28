@@ -9,6 +9,7 @@
  */
 
 import { createServer, type Server, type Socket } from 'net';
+import { logger } from '../../logger.js';
 import { existsSync, unlinkSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { EventEmitter } from 'events';
@@ -221,7 +222,7 @@ export class IPCServer extends EventEmitter {
 
     socket.on('error', (err) => {
       // Log but don't crash on individual socket errors
-      console.error(`Socket error for ${tempClient.childId || 'unknown'}:`, err.message);
+      logger.error(`Socket error for ${tempClient.childId || 'unknown'}: ${err.message}`);
     });
   }
 
@@ -239,7 +240,7 @@ export class IPCServer extends EventEmitter {
         const message = deserialize(line);
         this.handleMessage(client, message);
       } catch (err) {
-        console.error('Failed to parse IPC message:', err);
+        logger.error(`Failed to parse IPC message: ${err}`);
       }
     }
   }
@@ -299,7 +300,7 @@ export class IPCServer extends EventEmitter {
     for (const [childId, client] of this.clients) {
       if (now - client.lastActivity > timeout) {
         // Client hasn't responded, consider it dead
-        console.warn(`Worker ${childId} timed out, disconnecting`);
+        logger.warn(`Worker ${childId} timed out, disconnecting`);
         client.socket.destroy();
         this.clients.delete(childId);
         this.emit('workerDisconnected', childId);

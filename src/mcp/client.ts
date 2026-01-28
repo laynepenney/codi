@@ -12,6 +12,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { spawn, type ChildProcess } from 'child_process';
 import type { BaseTool } from '../tools/base.js';
 import { MCPToolWrapper } from './tool-wrapper.js';
+import { logger } from '../logger.js';
 
 /**
  * Configuration for an MCP server connection.
@@ -68,14 +69,14 @@ export class MCPClientManager {
 
     // Handle process errors
     serverProcess.on('error', (err) => {
-      console.error(`MCP server '${config.name}' error:`, err.message);
+      logger.error(`MCP server '${config.name}' error: ${err.message}`);
     });
 
     serverProcess.stderr?.on('data', (data: Buffer) => {
       // Log stderr but don't fail - some servers use stderr for logging
       const message = data.toString().trim();
       if (message) {
-        console.error(`[${config.name}] ${message}`);
+        logger.logError(`[${config.name}] ${message}`);
       }
     });
 
@@ -178,7 +179,7 @@ export class MCPClientManager {
           tools.push(new MCPToolWrapper(server.client, tool, serverName));
         }
       } catch (error) {
-        console.error(`Failed to get tools from MCP server '${serverName}':`, error);
+        logger.error(`Failed to get tools from MCP server '${serverName}': ${error}`);
       }
     }
 

@@ -10,9 +10,11 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { join, dirname } from 'path';
-import { homedir, tmpdir } from 'os';
+import { tmpdir } from 'os';
 import { existsSync } from 'fs';
 import { EventEmitter } from 'events';
+import { CodiPaths } from '../paths.js';
+import { logger } from '../logger.js';
 
 /**
  * Resolve the codi executable path, handling dev mode (tsx) vs production.
@@ -51,7 +53,7 @@ function resolveCodiPath(inputPath: string): string {
 const MAX_SOCKET_PATH_BYTES = 100;
 
 function getDefaultSocketPath(): string {
-  const homeSocket = join(homedir(), '.codi', 'orchestrator.sock');
+  const homeSocket = CodiPaths.orchestratorSocket();
   if (Buffer.byteLength(homeSocket, 'utf8') <= MAX_SOCKET_PATH_BYTES) {
     return homeSocket;
   }
@@ -728,7 +730,7 @@ export class Orchestrator extends EventEmitter {
     this.server.on('workerConnected', (childId, handshake) => {
       this.handleWorkerConnected(childId, handshake).catch((err) => {
         // Log error from async context provider
-        console.error(`[Orchestrator] Error handling worker connected: ${err}`);
+        logger.error(`[Orchestrator] Error handling worker connected: ${err}`);
       });
     });
 

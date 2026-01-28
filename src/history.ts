@@ -5,29 +5,13 @@
  * File change history system for undo/redo functionality.
  * Tracks file modifications and allows reverting changes.
  */
-import * as fs from 'fs';
-import * as path from 'path';
-import { homedir, tmpdir } from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { logger } from './logger.js';
+import { CodiPaths, ensureDir } from './paths.js';
 
 /** Maximum number of history entries to keep */
 const MAX_HISTORY_SIZE = 50;
-
-/** Directory where history is stored (allow test override). */
-const DEFAULT_HISTORY_DIR = path.join(homedir(), '.codi', 'history');
-const TEST_HISTORY_DIR = path.join(tmpdir(), `.codi-history-${process.pid}`);
-
-function resolveHistoryDir(): string {
-  if (process.env.CODI_HISTORY_DIR) {
-    return process.env.CODI_HISTORY_DIR;
-  }
-
-  if (process.env.VITEST || process.env.NODE_ENV === 'test') {
-    return TEST_HISTORY_DIR;
-  }
-
-  return DEFAULT_HISTORY_DIR;
-}
 
 /**
  * Types of file operations that can be undone.
@@ -68,24 +52,21 @@ interface HistoryIndex {
  * Get the path to the history index file.
  */
 function getIndexPath(): string {
-  return path.join(resolveHistoryDir(), 'index.json');
+  return CodiPaths.historyIndex();
 }
 
 /**
  * Get the path to a backup file.
  */
 function getBackupPath(id: string): string {
-  return path.join(resolveHistoryDir(), 'backups', `${id}.backup`);
+  return CodiPaths.historyBackupFile(id);
 }
 
 /**
  * Ensure the history directory exists.
  */
 function ensureHistoryDir(): void {
-  const backupsDir = path.join(resolveHistoryDir(), 'backups');
-  if (!fs.existsSync(backupsDir)) {
-    fs.mkdirSync(backupsDir, { recursive: true });
-  }
+  ensureDir(CodiPaths.historyBackups());
 }
 
 /**
@@ -346,7 +327,7 @@ export function clearHistory(): number {
   const count = index.entries.length;
 
   // Delete all backup files
-  const backupsDir = path.join(resolveHistoryDir(), 'backups');
+  const backupsDir = CodiPaths.historyBackups();
   if (fs.existsSync(backupsDir)) {
     try {
       fs.rmSync(backupsDir, { recursive: true });
@@ -394,5 +375,5 @@ export function formatHistoryEntry(entry: HistoryEntry): string {
  * Get the history directory path.
  */
 export function getHistoryDir(): string {
-  return resolveHistoryDir();
+  return CodiPaths.history();
 }

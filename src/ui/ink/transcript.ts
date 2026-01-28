@@ -3,10 +3,10 @@
 
 import { createWriteStream, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
-import { homedir } from 'os';
 
 import type { InkUiController, UiMessage, UiStatus } from './controller.js';
 import type { WorkerState } from '../../orchestrate/types.js';
+import { CodiPaths } from '../../paths.js';
 
 export interface InkTranscriptOptions {
   controller: InkUiController;
@@ -159,7 +159,7 @@ function getLabel(message: UiMessage, workers: Map<string, string>): string {
 }
 
 function createTranscriptPath(): string {
-  const transcriptDir = join(homedir(), '.codi', 'transcripts');
+  const transcriptDir = CodiPaths.transcripts();
   const sessionId = generateSessionId();
   return join(transcriptDir, `${sessionId}.txt`);
 }

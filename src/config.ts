@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { AGENT_CONFIG } from './constants.js';
+import { logger } from './logger.js';
 
 /**
  * Configuration file names (checked in order).
@@ -390,7 +391,7 @@ export function loadGlobalConfig(overrideDir?: string): {
       const config = JSON.parse(content) as WorkspaceConfig;
       return { config, configPath };
     } catch (error) {
-      console.warn(`Warning: Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
+      logger.warn(`Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
       return { config: null, configPath };
     }
   }
@@ -420,7 +421,7 @@ export function loadWorkspaceConfig(cwd: string = process.cwd()): {
         const config = JSON.parse(content) as WorkspaceConfig;
         return { config, configPath };
       } catch (error) {
-        console.warn(`Warning: Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
+        logger.warn(`Failed to parse ${configPath}: ${error instanceof Error ? error.message : error}`);
         return { config: null, configPath };
       }
     }

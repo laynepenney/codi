@@ -12,6 +12,7 @@ import { registerCommand, type Command, type CommandContext } from './index.js';
 import { Orchestrator } from '../orchestrate/commander.js';
 import type { WorkerConfig, WorkerState } from '../orchestrate/types.js';
 import { getProviderTypes } from '../providers/index.js';
+import { logger } from '../logger.js';
 
 // Global orchestrator instance (initialized lazily)
 let orchestrator: Orchestrator | null = null;
@@ -173,7 +174,7 @@ export const delegateCommand: Command = {
 
       return null; // Don't send to AI
     } catch (err) {
-      console.error(chalk.red(`Failed to spawn worker: ${err instanceof Error ? err.message : err}`));
+      logger.error(`Failed to spawn worker: ${err instanceof Error ? err.message : err}`);
       return null;
     }
   },

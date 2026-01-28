@@ -13,9 +13,9 @@
  */
 
 import { existsSync, mkdirSync, appendFileSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
 import type { Message, ToolDefinition, ToolCall, TokenUsage } from './types.js';
+import { CodiPaths, ensureDir } from './paths.js';
 
 /** Audit event types */
 export type AuditEventType =
@@ -166,14 +166,11 @@ export class AuditLogger {
     this.sessionStartTime = Date.now();
 
     // Default log file location
-    const auditDir = join(homedir(), '.codi', 'audit');
-    this.logFile = options.logFile ?? join(auditDir, `${this.sessionId}.jsonl`);
+    this.logFile = options.logFile ?? CodiPaths.auditFile(this.sessionId);
 
     if (this.enabled) {
       // Ensure audit directory exists
-      if (!existsSync(auditDir)) {
-        mkdirSync(auditDir, { recursive: true });
-      }
+      ensureDir(CodiPaths.audit());
       // Create empty log file
       writeFileSync(this.logFile, '');
     }

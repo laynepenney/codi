@@ -5,15 +5,10 @@
  * Usage tracking and cost estimation for API calls.
  */
 import * as fs from 'fs';
-import * as path from 'path';
-import { homedir } from 'os';
 import type { TokenUsage } from './types.js';
 import { logger } from './logger.js';
 import { getModelPricing } from './pricing.js';
-
-/** Directory where usage data is stored */
-const USAGE_DIR = path.join(homedir(), '.codi');
-const USAGE_FILE = path.join(USAGE_DIR, 'usage.json');
+import { CodiPaths, ensureCodiHome } from './paths.js';
 
 /**
  * A single usage record.
@@ -107,9 +102,7 @@ let sessionUsage: SessionUsage = {
  * Ensure usage directory exists.
  */
 function ensureUsageDir(): void {
-  if (!fs.existsSync(USAGE_DIR)) {
-    fs.mkdirSync(USAGE_DIR, { recursive: true });
-  }
+  ensureCodiHome();
 }
 
 /**
@@ -117,13 +110,14 @@ function ensureUsageDir(): void {
  */
 function loadUsageData(): UsageData {
   ensureUsageDir();
+  const usageFile = CodiPaths.usageFile();
 
-  if (!fs.existsSync(USAGE_FILE)) {
+  if (!fs.existsSync(usageFile)) {
     return { records: [], version: 1 };
   }
 
   try {
-    const content = fs.readFileSync(USAGE_FILE, 'utf-8');
+    const content = fs.readFileSync(usageFile, 'utf-8');
     return JSON.parse(content) as UsageData;
   } catch (error) {
     logger.debug(`Failed to load usage data: ${error instanceof Error ? error.message : error}`);
@@ -136,7 +130,7 @@ function loadUsageData(): UsageData {
  */
 function saveUsageData(data: UsageData): void {
   ensureUsageDir();
-  fs.writeFileSync(USAGE_FILE, JSON.stringify(data, null, 2));
+  fs.writeFileSync(CodiPaths.usageFile(), JSON.stringify(data, null, 2));
 }
 
 /**
@@ -379,5 +373,5 @@ export function formatTokens(tokens: number): string {
  * Get the usage file path.
  */
 export function getUsageFilePath(): string {
-  return USAGE_FILE;
+  return CodiPaths.usageFile();
 }

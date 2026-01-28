@@ -10,17 +10,12 @@
  * - Memory injection into system prompt
  * - Memory consolidation across sessions
  */
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { appendFile, readFile, writeFile } from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
 import yaml from 'js-yaml';
 import { logger } from './logger.js';
-
-const CODI_DIR = path.join(os.homedir(), '.codi');
-const PROFILE_PATH = path.join(CODI_DIR, 'profile.yaml');
-const MEMORIES_PATH = path.join(CODI_DIR, 'memories.md');
-const SESSION_NOTES_PATH = path.join(CODI_DIR, 'session-notes.md');
+import { CodiPaths, ensureCodiHome } from './paths.js';
 
 /**
  * User profile structure.
@@ -52,9 +47,7 @@ export interface MemoryEntry {
  * Ensure the .codi directory exists.
  */
 function ensureCodiDir(): void {
-  if (!existsSync(CODI_DIR)) {
-    mkdirSync(CODI_DIR, { recursive: true });
-  }
+  ensureCodiHome();
 }
 
 /**
@@ -113,12 +106,13 @@ function serializeProfile(profile: UserProfile): string {
  * Load user profile from disk.
  */
 export async function loadProfile(): Promise<UserProfile> {
-  if (!existsSync(PROFILE_PATH)) {
+  const profilePath = CodiPaths.profile();
+  if (!existsSync(profilePath)) {
     return {};
   }
 
   try {
-    const content = await readFile(PROFILE_PATH, 'utf-8');
+    const content = await readFile(profilePath, 'utf-8');
     return parseYamlProfile(content);
   } catch (error) {
     logger.debug(`Failed to load profile: ${error instanceof Error ? error.message : error}`);
@@ -132,7 +126,7 @@ export async function loadProfile(): Promise<UserProfile> {
 export async function saveProfile(profile: UserProfile): Promise<void> {
   ensureCodiDir();
   const content = serializeProfile(profile);
-  await writeFile(PROFILE_PATH, content);
+  await writeFile(CodiPaths.profile(), content);
 }
 
 /**
@@ -258,12 +252,13 @@ function serializeMemories(memories: MemoryEntry[]): string {
  * Load memories from disk.
  */
 export async function loadMemories(): Promise<MemoryEntry[]> {
-  if (!existsSync(MEMORIES_PATH)) {
+  const memoriesPath = CodiPaths.memories();
+  if (!existsSync(memoriesPath)) {
     return [];
   }
 
   try {
-    const content = await readFile(MEMORIES_PATH, 'utf-8');
+    const content = await readFile(memoriesPath, 'utf-8');
     return parseMemories(content);
   } catch (error) {
     logger.debug(`Failed to load memories: ${error instanceof Error ? error.message : error}`);
@@ -277,7 +272,7 @@ export async function loadMemories(): Promise<MemoryEntry[]> {
 export async function saveMemories(memories: MemoryEntry[]): Promise<void> {
   ensureCodiDir();
   const content = serializeMemories(memories);
-  await writeFile(MEMORIES_PATH, content);
+  await writeFile(CodiPaths.memories(), content);
 }
 
 /**
@@ -437,19 +432,20 @@ export async function addSessionNote(note: string): Promise<void> {
   ensureCodiDir();
   const timestamp = new Date().toISOString();
   const entry = `- ${note} (${timestamp})\n`;
-  await appendFile(SESSION_NOTES_PATH, entry);
+  await appendFile(CodiPaths.sessionNotes(), entry);
 }
 
 /**
  * Get session notes.
  */
 export async function getSessionNotes(): Promise<string[]> {
-  if (!existsSync(SESSION_NOTES_PATH)) {
+  const sessionNotesPath = CodiPaths.sessionNotes();
+  if (!existsSync(sessionNotesPath)) {
     return [];
   }
 
   try {
-    const content = await readFile(SESSION_NOTES_PATH, 'utf-8');
+    const content = await readFile(sessionNotesPath, 'utf-8');
     return content.split('\n')
       .map(line => line.trim())
       .filter(line => line.startsWith('-'))
@@ -464,8 +460,9 @@ export async function getSessionNotes(): Promise<string[]> {
  * Clear session notes.
  */
 export function clearSessionNotes(): void {
-  if (existsSync(SESSION_NOTES_PATH)) {
-    unlinkSync(SESSION_NOTES_PATH);
+  const sessionNotesPath = CodiPaths.sessionNotes();
+  if (existsSync(sessionNotesPath)) {
+    unlinkSync(sessionNotesPath);
   }
 }
 
@@ -496,8 +493,8 @@ export async function consolidateSessionNotes(): Promise<number> {
  */
 export function getMemoryPaths(): { profile: string; memories: string } {
   return {
-    profile: PROFILE_PATH,
-    memories: MEMORIES_PATH,
+    profile: CodiPaths.profile(),
+    memories: CodiPaths.memories(),
   };
 }
 

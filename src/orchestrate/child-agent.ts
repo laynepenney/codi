@@ -13,6 +13,7 @@ import { IPCClient, type IPCClientConfig } from './ipc/client.js';
 import type { WorkerResult } from './types.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { ToolRegistry } from '../tools/registry.js';
+import { logger } from '../logger.js';
 
 /**
  * Configuration for a child agent.
@@ -112,7 +113,7 @@ export class ChildAgent {
     // Handle cancel from commander
     this.ipcClient.on('cancel', () => {
       // TODO: Implement graceful cancellation
-      console.error('Task cancelled by commander');
+      logger.error('Task cancelled by commander');
       process.exit(1);
     });
 
@@ -149,7 +150,7 @@ export class ChildAgent {
       return result;
     } catch (err) {
       // On timeout or error, deny the request
-      console.error('Permission request failed:', err);
+      logger.error(`Permission request failed: ${err}`);
       return 'deny';
     }
   }
@@ -202,10 +203,7 @@ export class ChildAgent {
       const error = err instanceof Error ? err : new Error(String(err));
 
       // Log the error first
-      console.error('Child agent error:', error.message);
-      if (error.stack) {
-        console.error(error.stack);
-      }
+      logger.error('Child agent error: ' + error.message, error);
 
       // Only try to send error via IPC if we're connected
       if (this.ipcClient.isConnected()) {

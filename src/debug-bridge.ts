@@ -33,21 +33,9 @@ import {
   rmSync,
 } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { watch, type FSWatcher } from 'chokidar';
 import type { Message, ToolCall } from './types.js';
-
-/** Debug directory */
-const DEBUG_DIR = join(homedir(), '.codi', 'debug');
-
-/** Sessions directory */
-const SESSIONS_DIR = join(DEBUG_DIR, 'sessions');
-
-/** Symlink to current session */
-const CURRENT_LINK = join(DEBUG_DIR, 'current');
-
-/** Session index file */
-const INDEX_FILE = join(DEBUG_DIR, 'index.json');
+import { CodiPaths, ensureDir } from './paths.js';
 
 /**
  * Session index entry.
@@ -239,7 +227,7 @@ export class DebugBridge {
    */
   enable(): void {
     this.enabled = true;
-    this.sessionDir = join(SESSIONS_DIR, this.sessionId);
+    this.sessionDir = CodiPaths.debugSessionDir(this.sessionId);
     this.ensureSessionDir();
     this.cleanupStaleSessions();
     this.registerSession();
@@ -314,13 +302,14 @@ export class DebugBridge {
 
   private updateCurrentSymlink(): void {
     try {
+      const currentLink = CodiPaths.debugCurrentSession();
       // Remove existing symlink if present
-      if (existsSync(CURRENT_LINK)) {
-        unlinkSync(CURRENT_LINK);
+      if (existsSync(currentLink)) {
+        unlinkSync(currentLink);
       }
       // Create relative symlink to current session (sessions/<session-id>)
       const relativeTarget = join('sessions', this.sessionId);
-      symlinkSync(relativeTarget, CURRENT_LINK);
+      symlinkSync(relativeTarget, currentLink);
     } catch {
       // Symlinks may fail on Windows or due to permissions, ignore
     }
@@ -344,11 +333,12 @@ export class DebugBridge {
   }
 
   private loadSessionIndex(): SessionIndex {
-    if (!existsSync(INDEX_FILE)) {
+    const indexFile = CodiPaths.debugIndex();
+    if (!existsSync(indexFile)) {
       return { sessions: [] };
     }
     try {
-      return JSON.parse(readFileSync(INDEX_FILE, 'utf8'));
+      return JSON.parse(readFileSync(indexFile, 'utf8'));
     } catch {
       return { sessions: [] };
     }
@@ -356,10 +346,8 @@ export class DebugBridge {
 
   private saveSessionIndex(index: SessionIndex): void {
     // Ensure debug directory exists
-    if (!existsSync(DEBUG_DIR)) {
-      mkdirSync(DEBUG_DIR, { recursive: true });
-    }
-    writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2));
+    ensureDir(CodiPaths.debug());
+    writeFileSync(CodiPaths.debugIndex(), JSON.stringify(index, null, 2));
   }
 
   /**
@@ -374,7 +362,7 @@ export class DebugBridge {
         activeSessions.push(session);
       } else {
         // Process no longer running, remove session directory
-        const sessionDir = join(SESSIONS_DIR, session.id);
+        const sessionDir = CodiPaths.debugSessionDir(session.id);
         try {
           rmSync(sessionDir, { recursive: true, force: true });
         } catch {
@@ -781,28 +769,28 @@ export class DebugBridge {
  * Get the debug directory path.
  */
 export function getDebugDir(): string {
-  return DEBUG_DIR;
+  return CodiPaths.debug();
 }
 
 /**
  * Get the sessions directory path.
  */
 export function getSessionsDir(): string {
-  return SESSIONS_DIR;
+  return CodiPaths.debugSessions();
 }
 
 /**
  * Get the current session symlink path.
  */
 export function getCurrentSessionLink(): string {
-  return CURRENT_LINK;
+  return CodiPaths.debugCurrentSession();
 }
 
 /**
  * Get the session index file path.
  */
 export function getSessionIndexFile(): string {
-  return INDEX_FILE;
+  return CodiPaths.debugIndex();
 }
 
 // ============================================

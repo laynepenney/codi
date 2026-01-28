@@ -10,6 +10,7 @@
 import { registerCommand, type Command, type CommandContext } from './index.js';
 import type { BackgroundIndexer } from '../rag/indexer.js';
 import type { RAGConfig, IndexStats } from '../rag/types.js';
+import { logger } from '../logger.js';
 
 // Module-level references set by the main app
 let indexer: BackgroundIndexer | null = null;
@@ -128,7 +129,7 @@ To disable RAG: add "rag": { "enabled": false } to your .codi.json
         );
       })
       .catch((err) => {
-        console.error(`\nIndexing failed: ${err.message}`);
+        logger.error(`\nIndexing failed: ${err.message}`);
       });
 
     console.log(shouldClear
