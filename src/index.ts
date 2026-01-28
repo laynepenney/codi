@@ -142,7 +142,7 @@ program
   .option('-P, --prompt <text>', 'Run a single prompt and exit (non-interactive mode)')
   .option('-f, --output-format <format>', 'Output format: text or json (default: text)', 'text')
   .option('-q, --quiet', 'Suppress spinners and progress output (for scripting)')
-  .option('--ui <mode>', 'UI mode: classic or ink (default: classic)', 'classic')
+  .option('--ui <mode>', 'UI mode: classic or ink (default: ink)', 'ink')
   // Child mode options (for multi-agent orchestration)
   .option('--child-mode', 'Run as child agent (connects to commander via IPC)')
   .option('--reader-mode', 'Run as reader agent (read-only tools only)')
@@ -159,7 +159,7 @@ program
   );
 
 const options = program.opts();
-const requestedUiMode = String(options.ui || 'classic').toLowerCase();
+const requestedUiMode = String(options.ui || 'ink').toLowerCase();
 const supportedUiModes = new Set(['classic', 'ink']);
 if (!supportedUiModes.has(requestedUiMode)) {
   logger.error(`Unknown UI mode: ${requestedUiMode}. Use "classic" or "ink".`);
