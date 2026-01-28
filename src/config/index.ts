@@ -5,12 +5,19 @@
  * Configuration Module
  *
  * This module provides configuration loading, validation, and merging for Codi.
- * Types are separated into types.ts for better organization.
+ * The implementation is split across multiple files for better organization:
+ *
+ * - types.ts    - Type definitions (WorkspaceConfig, ResolvedConfig, etc.)
+ * - loader.ts   - File I/O (load/save config files)
+ * - validator.ts - Config validation
+ * - merger.ts   - Config merging with priority handling
+ * - utils.ts    - Utility functions
  *
  * Usage:
  *   import { WorkspaceConfig, ResolvedConfig, loadWorkspaceConfig, mergeConfig } from './config/index.js';
- *   // or
+ *   // or import specific modules:
  *   import { WorkspaceConfig, ResolvedConfig } from './config/types.js';
+ *   import { loadWorkspaceConfig } from './config/loader.js';
  */
 
 // Re-export all types
@@ -22,20 +29,33 @@ export type {
   ResolvedConfig,
 } from './types.js';
 
-// Re-export functions from main config module
-// Note: The main config.ts will be updated to import types from here
+// Re-export from loader
 export {
+  CONFIG_FILES,
+  LOCAL_CONFIG_FILE,
+  GLOBAL_CONFIG_DIR,
+  GLOBAL_CONFIG_FILE,
   loadGlobalConfig,
   getGlobalConfigDir,
   loadWorkspaceConfig,
+  saveWorkspaceConfig,
   loadLocalConfig,
-  validateConfig,
-  mergeConfig,
+  initConfig,
+} from './loader.js';
+
+// Re-export from validator
+export { validateConfig } from './validator.js';
+
+// Re-export from merger
+export { DEFAULT_CONFIG, mergeConfig } from './merger.js';
+export type { CLIOptions } from './merger.js';
+
+// Re-export from utils
+export {
   shouldAutoApprove,
   getCustomDangerousPatterns,
   isToolDisabled,
   getToolDefaults,
   mergeToolInput,
   getExampleConfig,
-  initConfig,
-} from '../config.js';
+} from './utils.js';

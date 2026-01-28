@@ -153,7 +153,7 @@ src/agent/
 
 ---
 
-### 2.3 Extract Config Module (855 lines → 555 lines) ✅ PARTIAL
+### 2.3 Extract Config Module (855 lines → 54 lines) ✅ COMPLETE
 **File**: `src/config.ts`
 
 **Mixed responsibilities**:
@@ -162,15 +162,15 @@ src/agent/
 - Merging configs
 - Tool-specific defaults
 
-**Completed structure**:
+**Final structure**:
 ```
 src/config/
-├── index.ts       ✅ DONE (41 lines - module re-exports)
+├── index.ts       ✅ DONE (61 lines - module re-exports)
 ├── types.ts       ✅ DONE (333 lines - all config interfaces)
-├── loader.ts      (PENDING: load from disk)
-├── validator.ts   (PENDING: validate structure)
-├── merger.ts      (PENDING: merge configs)
-└── resolver.ts    (PENDING: get resolved values)
+├── loader.ts      ✅ DONE (153 lines - file I/O operations)
+├── validator.ts   ✅ DONE (73 lines - config validation)
+├── merger.ts      ✅ DONE (205 lines - config merging with priority)
+└── utils.ts       ✅ DONE (147 lines - utility functions)
 ```
 
 **Extracted modules in Phase 2.3**:
@@ -180,16 +180,27 @@ src/config/
   - `ApprovedPatternConfig` - Approved bash command patterns
   - `ApprovedPathPatternConfig` - Approved file path patterns
   - `ToolsConfig` - Per-tool configuration
+- `config/loader.ts`: File I/O operations
+  - `loadGlobalConfig()`, `loadWorkspaceConfig()`, `loadLocalConfig()`
+  - `saveWorkspaceConfig()`, `initConfig()`
+  - Path constants: `CONFIG_FILES`, `GLOBAL_CONFIG_DIR`, etc.
+- `config/validator.ts`: Config validation
+  - `validateConfig()` - validates providers, tools, patterns
+- `config/merger.ts`: Config merging
+  - `mergeConfig()` - merges global, workspace, local, CLI configs
+  - `DEFAULT_CONFIG` - default configuration values
+- `config/utils.ts`: Utility functions
+  - `shouldAutoApprove()`, `isToolDisabled()`, `getToolDefaults()`
+  - `mergeToolInput()`, `getExampleConfig()`, `getCustomDangerousPatterns()`
 - `config/index.ts`: Module re-exports for backwards compatibility
 
 **Result**:
-- config.ts reduced from 855 to 555 lines (-300 lines, 35% reduction)
-- Clean separation of types from implementation
-- Backwards compatible imports via `./config/index.js`
+- config.ts reduced from 855 to 54 lines (94% reduction, just re-exports)
+- Total config module: 972 lines across 6 well-organized files
+- Clean separation of concerns
+- Backwards compatible imports via `./config.js` or `./config/index.js`
 
-**Remaining for 2.3**: Extract loader, validator, merger, resolver modules
-
-**Impact**: Better organization, types can be imported independently
+**Impact**: Better organization, testability, and maintainability
 
 ---
 
@@ -267,9 +278,13 @@ export async function loadAllCommands(): Promise<void> {
 | `src/index.ts` | Split into `src/cli/` modules | Partial (REPL pending) |
 | `src/agent.ts` | Split into `src/agent/` modules | Partial (debugger done) |
 | `src/agent/debugger.ts` | Extract debug/checkpoint functionality | ✅ Done |
-| `src/config.ts` | Split into `src/config/` modules | Partial (types done) |
+| `src/config.ts` | Split into `src/config/` modules | ✅ Complete |
 | `src/config/types.ts` | Extract config type definitions | ✅ Done |
 | `src/config/index.ts` | Module re-exports | ✅ Done |
+| `src/config/loader.ts` | Extract file I/O operations | ✅ Done |
+| `src/config/validator.ts` | Extract config validation | ✅ Done |
+| `src/config/merger.ts` | Extract config merging | ✅ Done |
+| `src/config/utils.ts` | Extract utility functions | ✅ Done |
 | `src/utils/cache.ts` | Create new (generic cache) | Pending |
 | Multiple files | Replace `console.*` with `logger.*` | ✅ Done |
 
@@ -302,8 +317,7 @@ pnpm test           # Unit tests
 | Index.ts REPL extraction | ~1,500 lines pending | Partial |
 | Agent.ts debugger extraction | -322 lines (2,671 → 2,349) | ✅ Complete |
 | Agent.ts remaining modules | context, execution, security | Pending |
-| Config types extraction | -300 lines (855 → 555) | ✅ Complete |
-| Config remaining modules | loader, validator, merger, resolver | Pending |
+| Config module extraction | -801 lines (855 → 54 re-exports) | ✅ Complete |
 
 ---
 
@@ -316,6 +330,6 @@ pnpm test           # Unit tests
    - Remaining: Extract REPL loop to `cli/repl.ts`
 5. ~~**Phase 2.2**: Modularize agent.ts~~ ✅ Partial (extracted debugger)
    - Remaining: Extract context, execution, security modules
-6. ~~**Phase 2.3**: Extract config module~~ ✅ Partial (extracted types)
-   - Remaining: Extract loader, validator, merger, resolver modules
+6. ~~**Phase 2.3**: Extract config module~~ ✅ Complete
+   - Extracted: types, loader, validator, merger, utils modules
 7. **Phase 3**: Code quality improvements
