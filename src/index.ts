@@ -1040,6 +1040,9 @@ Begin by analyzing the query and planning your research approach.`;
   // Track tool start times for duration logging
   const toolStartTimes = new Map<string, number>();
 
+  // Track running turn progress for Ink UI
+  let turnToolCallCount = 0;
+
   // =========================================================================
   // ORCHESTRATOR - Initialize for multi-agent orchestration
   // =========================================================================
@@ -1353,6 +1356,9 @@ Begin by analyzing the query and planning your research approach.`;
       const toolId = `tool_${Date.now()}`;
       toolStartTimes.set(name, Date.now());
 
+      // Increment running tool call count
+      turnToolCallCount++;
+
       // Audit log
       auditLogger.toolCall(name, input as Record<string, unknown>, toolId);
 
@@ -1370,7 +1376,11 @@ Begin by analyzing the query and planning your research approach.`;
 
       if (useInkUi && inkController) {
         inkController.addToolCall(name, input as Record<string, unknown>);
-        inkController.setStatus({ activity: 'tool', activityDetail: name });
+        inkController.setStatus({
+          activity: 'tool',
+          activityDetail: name,
+          turnProgress: { toolCallCount: turnToolCallCount, totalTokens: 0 },
+        });
       } else if (workerStatusUI) {
         workerStatusUI.setAgentActivity('tool', name);
       }
@@ -1507,6 +1517,20 @@ Begin by analyzing the query and planning your research approach.`;
           workerStatusUI.setAgentActivity('thinking', null);
         }
       }
+    },
+    onTurnComplete: (stats) => {
+      // Emit turn completion to Ink UI (terminal mode does not display turn summaries)
+      if (useInkUi && inkController) {
+        // Complete the current assistant message first so liveAssistant is cleared
+        if (currentAssistantMessageId) {
+          inkController.completeAssistantMessage(currentAssistantMessageId);
+          currentAssistantMessageId = null;
+        }
+        inkController.completeTurn(stats);
+        inkController.setStatus({ activity: 'idle', activityDetail: null, turnProgress: null });
+      }
+      // Reset turn counter for next turn
+      turnToolCallCount = 0;
     },
   });
 
@@ -2539,9 +2563,13 @@ Begin by analyzing the query and planning your research approach.`;
       console.log(chalk.bold.magenta('\nAssistant: '));
     }
     isStreaming = false;
+
+    // Reset turn counter at the start of a new turn
+    turnToolCallCount = 0;
+
     spinner.thinking();
     if (useInkUi && inkController) {
-      inkController.setStatus({ activity: 'thinking', activityDetail: null });
+      inkController.setStatus({ activity: 'thinking', activityDetail: null, turnProgress: null });
     } else if (workerStatusUI) {
       workerStatusUI.setAgentActivity('thinking', null);
     }

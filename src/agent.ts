@@ -1,11 +1,11 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Message, ContentBlock, ToolResult, ToolCall } from './types.js';
+import type { Message, ContentBlock, ToolResult, ToolCall, TurnStats, TurnToolCall } from './types.js';
 import type { BaseProvider } from './providers/base.js';
 import { ToolRegistry } from './tools/registry.js';
 import { generateWriteDiff, generateEditDiff, type DiffResult } from './diff.js';
-import { recordUsage } from './usage.js';
+import { recordUsage, calculateCost } from './usage.js';
 import { AGENT_CONFIG, TOOL_CATEGORIES, CONTEXT_OPTIMIZATION, type DangerousPattern } from './constants.js';
 import { computeContextConfig, computeScaledContextConfig, FIXED_CONFIG, type ComputedContextConfig } from './context-config.js';
 import type { ModelMap } from './model-map/index.js';
@@ -153,6 +153,7 @@ export interface AgentOptions {
   onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>; // Confirm destructive tools
   onCompaction?: (status: 'start' | 'end') => void; // Notify when context compaction starts/ends
   onProviderChange?: (provider: BaseProvider) => void; // Notify when provider changes (e.g., during workflow model switch)
+  onTurnComplete?: (stats: TurnStats) => void; // Notify when a turn completes with usage stats
 }
 
 /**
@@ -208,6 +209,7 @@ export class Agent {
     onConfirm?: (confirmation: ToolConfirmation) => Promise<ConfirmationResult>;
     onCompaction?: (status: 'start' | 'end') => void;
     onProviderChange?: (provider: BaseProvider) => void;
+    onTurnComplete?: (stats: TurnStats) => void;
   };
 
   constructor(options: AgentOptions) {
@@ -268,6 +270,7 @@ export class Agent {
       onConfirm: options.onConfirm,
       onCompaction: options.onCompaction,
       onProviderChange: options.onProviderChange,
+      onTurnComplete: options.onTurnComplete,
     };
   }
 
@@ -644,6 +647,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
     // Record start time for timeout check
     const startTime = Date.now();
 
+    // Initialize turn stats tracking
+    const turnStats: TurnStats = {
+      toolCallCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      cost: 0,
+      durationMs: 0,
+      toolCalls: [],
+    };
+
     // Determine which provider to use for this chat
     const chatProvider = this.getProviderForChat(options?.taskType);
 
@@ -863,6 +877,16 @@ Always use tools to interact with the filesystem rather than asking the user to 
       // Record usage for cost tracking
       if (response.usage) {
         recordUsage(chatProvider.getName(), chatProvider.getModel(), response.usage);
+
+        // Accumulate turn stats
+        turnStats.inputTokens += response.usage.inputTokens || 0;
+        turnStats.outputTokens += response.usage.outputTokens || 0;
+        turnStats.totalTokens = turnStats.inputTokens + turnStats.outputTokens;
+        turnStats.cost += calculateCost(
+          chatProvider.getModel(),
+          response.usage.inputTokens || 0,
+          response.usage.outputTokens || 0
+        );
 
         // Update token calibration with actual usage data
         if (response.usage.inputTokens && response.usage.inputTokens > 0) {
@@ -1327,6 +1351,15 @@ Always use tools to interact with the filesystem rather than asking the user to 
               const result = parallelResults[i];
               const toolCall = batch.calls[i];
               toolResults.push(result);
+
+              // Track tool call for turn stats (parallel tools share the same duration)
+              turnStats.toolCallCount++;
+              turnStats.toolCalls.push({
+                name: toolCall.name,
+                durationMs: parallelDuration,
+                isError: !!result.is_error,
+              });
+
               if (result.is_error) {
                 hasError = true;
                 // Phase 4: Check error breakpoints
@@ -1370,7 +1403,17 @@ Always use tools to interact with the filesystem rather than asking the user to 
               }
 
               const result = await this.toolRegistry.execute(toolCall);
+              const toolDurationMs = Date.now() - toolStartTime;
               toolResults.push(result);
+
+              // Track tool call for turn stats
+              turnStats.toolCallCount++;
+              turnStats.toolCalls.push({
+                name: toolCall.name,
+                durationMs: toolDurationMs,
+                isError: !!result.is_error,
+              });
+
               if (result.is_error) {
                 hasError = true;
                 // Phase 4: Check error breakpoints
@@ -1396,8 +1439,7 @@ Always use tools to interact with the filesystem rather than asking the user to 
 
               // Debug bridge: tool call end and result
               if (isDebugBridgeEnabled()) {
-                const durationMs = Date.now() - toolStartTime;
-                getDebugBridge().toolCallEnd(toolCall.name, toolCall.id, durationMs, !!result.is_error);
+                getDebugBridge().toolCallEnd(toolCall.name, toolCall.id, toolDurationMs, !!result.is_error);
                 getDebugBridge().toolResult(toolCall.name, toolCall.id, result.content, !!result.is_error);
               }
 
@@ -1549,6 +1591,10 @@ Always use tools to interact with the filesystem rather than asking the user to 
       }
       finalResponse = decompressText(finalResponse, this.lastCompressionEntities);
     }
+
+    // Emit turn complete with accumulated stats
+    turnStats.durationMs = Date.now() - startTime;
+    this.callbacks.onTurnComplete?.(turnStats);
 
     return finalResponse;
   }

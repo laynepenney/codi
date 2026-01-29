@@ -180,6 +180,34 @@ export interface ProviderConfig {
   cleanHallucinatedTraces?: boolean;
 }
 
+/** Details of a single tool call within a turn */
+export interface TurnToolCall {
+  /** Tool name */
+  name: string;
+  /** Duration of tool execution in milliseconds */
+  durationMs: number;
+  /** Whether the tool call resulted in an error */
+  isError: boolean;
+}
+
+/** Statistics for a single conversation turn */
+export interface TurnStats {
+  /** Number of tool calls in this turn */
+  toolCallCount: number;
+  /** Total input tokens used in this turn */
+  inputTokens: number;
+  /** Total output tokens used in this turn */
+  outputTokens: number;
+  /** Total tokens (input + output) */
+  totalTokens: number;
+  /** Estimated cost in USD */
+  cost: number;
+  /** Duration of the turn in milliseconds */
+  durationMs: number;
+  /** Details of each tool call */
+  toolCalls: TurnToolCall[];
+}
+
 /**
  * Interface for AI model providers.
  * This interface defines the contract that all providers must implement.

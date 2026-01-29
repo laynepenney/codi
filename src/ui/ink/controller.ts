@@ -7,6 +7,7 @@ import type { ToolConfirmation, ConfirmationResult } from '../../agent.js';
 import type { WorkerState, WorkerResult, ReaderState, ReaderResult } from '../../orchestrate/types.js';
 import type { LogMessage } from '../../orchestrate/ipc/protocol.js';
 import type { SessionInfo } from '../../session.js';
+import type { TurnStats } from '../../types.js';
 
 export type UiMessageKind = 'user' | 'assistant' | 'system' | 'worker';
 
@@ -40,6 +41,11 @@ export interface UiStatus {
   model?: string;
   activity?: string | null;
   activityDetail?: string | null;
+  /** Running turn progress - tool call count and tokens */
+  turnProgress?: {
+    toolCallCount: number;
+    totalTokens: number;
+  } | null;
 }
 
 export interface UiConfirmationRequest {
@@ -300,6 +306,10 @@ export class InkUiController extends EventEmitter {
   getActiveSessionSelection(): UiSessionSelectionRequest | null {
     return this.sessionSelection?.request ?? null;
   }
+
+  completeTurn(stats: TurnStats): void {
+    this.emit('turnComplete', stats);
+  }
 }
 
 export interface InkUiControllerEvents {
@@ -315,6 +325,7 @@ export interface InkUiControllerEvents {
   status: (status: UiStatus) => void;
   confirmation: (request: UiConfirmationRequest | null) => void;
   sessionSelection: (request: UiSessionSelectionRequest | null) => void;
+  turnComplete: (stats: TurnStats) => void;
   exit: () => void;
 }
 
