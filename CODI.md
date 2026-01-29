@@ -151,6 +151,13 @@ gh release create vX.Y.Z --title "vX.Y.Z: Title" --notes "Release notes"
 
 **IMPORTANT: Never merge a PR without reviewing it first.** Always review your own PRs before merging. This creates a traceable review history and catches mistakes before they reach main.
 
+**CRITICAL: Never merge a PR until ALL checks pass.** This includes:
+- All tests must pass (`pnpm test` with zero failures)
+- Build must succeed (`pnpm build`)
+- Any CI/CD checks must be green
+
+If tests are failing, fix them before merging - even if the failures appear unrelated to your changes.
+
 **For AI agents (Claude, Codi, etc.):** Do NOT immediately merge after creating a PR. Always:
 1. Create the PR
 2. Run `pnpm build && pnpm test` to verify nothing is broken
