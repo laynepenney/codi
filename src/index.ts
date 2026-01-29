@@ -1262,8 +1262,10 @@ Begin by analyzing the query and planning your research approach.`;
         workerStatusUI.updateReaderLog(readerId, log);
       });
     }
-    // Don't log here - it interferes with Ink UI initialization
-    // The orchestrator status is shown in the Activity panel instead
+    // Only log for classic UI - Ink shows status in Activity panel
+    if (!useInkUi) {
+      console.log(chalk.dim('Orchestrator: ready'));
+    }
   } catch (err) {
     // Non-fatal - orchestrator commands will show appropriate errors
     // Only log errors, not success, to avoid Ink interference
