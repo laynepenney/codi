@@ -95,8 +95,10 @@ interface ActivityPanelResult {
  * Separate component for the activity panel that manages its own spinner state.
  * This isolates spinner animation from the main App component, preventing
  * full app re-renders every 120ms which can drop key events.
+ *
+ * Wrapped in React.memo to prevent re-renders from parent input changes.
  */
-function ActivityPanel({
+const ActivityPanel = React.memo(function ActivityPanel({
   workerList,
   workerLogs,
   workerResults,
@@ -313,16 +315,16 @@ function ActivityPanel({
     return null;
   }
 
+  // Render as a single Text block to avoid Ink reconciliation issues
+  // during rapid re-renders that can cause duplicate lines
+  const activityText = panel.lines.map(line => line.text || ' ').join('\n');
+
   return (
     <Box flexDirection="column">
-      {panel.lines.map((line, index) => (
-        <Text key={`activity-${index}`} color={line.color} dimColor={line.dim}>
-          {line.text || ' '}
-        </Text>
-      ))}
+      <Text dimColor>{activityText}</Text>
     </Box>
   );
-}
+});
 
 const STATUS_LABELS: Record<string, string> = {
   starting: 'STARTING',
@@ -359,6 +361,94 @@ const MESSAGE_COLORS = {
   system: 'yellow',
   worker: 'magenta',
 } as const;
+
+interface FooterSectionProps {
+  statusLines: string[];
+  hintLines: string[];
+  inputValue: string;
+  setInputValue: (value: string) => void;
+  setCompletionHint: (hint: string | null) => void;
+  historyIndex: number;
+  setHistoryIndex: (index: number) => void;
+  setHistoryBuffer: (value: string) => void;
+  handleSubmit: (value?: string) => void;
+  focus: FocusTarget;
+  confirmation: UiConfirmationRequest | null;
+  sessionSelection: UiSessionSelectionRequest | null;
+}
+
+/**
+ * Footer section with status, hint, and input.
+ * Wrapped in React.memo to prevent re-renders from parent state changes
+ * that don't affect this component (e.g., activity panel updates).
+ *
+ * Uses stable rendering pattern to prevent layout thrashing when input wraps.
+ */
+const FooterSection = React.memo(function FooterSection({
+  statusLines,
+  hintLines,
+  inputValue,
+  setInputValue,
+  setCompletionHint,
+  historyIndex,
+  setHistoryIndex,
+  setHistoryBuffer,
+  handleSubmit,
+  focus,
+  confirmation,
+  sessionSelection,
+}: FooterSectionProps) {
+  const isFocused = focus === 'input' && !confirmation && !sessionSelection;
+
+  // Handle input change
+  const handleChange = (value: string) => {
+    setInputValue(value);
+    setCompletionHint(null);
+    if (historyIndex !== -1) {
+      setHistoryIndex(-1);
+      setHistoryBuffer(value);
+    }
+  };
+
+  // Handle tab completion
+  const handleTab = (value: string): string | null => {
+    const matches = getCompletionMatches(value);
+    if (matches.length === 0) return null;
+
+    // Only auto-complete when there's exactly one match
+    if (matches.length === 1) {
+      return matches[0];
+    }
+
+    // Show all available completions
+    setCompletionHint(`Completions: ${matches.map(m => m.trim()).join(', ')}`);
+    return null;
+  };
+
+  // Combine all footer text into a single stable string
+  // This prevents Ink from adding extra lines during re-renders
+  const footerText = [...statusLines, ...hintLines].join('\n');
+
+  return (
+    <Box flexDirection="column">
+      <Text dimColor>{footerText}</Text>
+      <Box>
+        <Text color={isFocused ? 'cyan' : 'gray'}>
+          {focus === 'input' ? '> ' : '  '}
+        </Text>
+        <CompletableInput
+          value={inputValue}
+          onChange={handleChange}
+          onSubmit={handleSubmit}
+          onTab={handleTab}
+          focus={isFocused}
+          placeholder={focus === 'input' && !sessionSelection ? 'Type a command' : ''}
+          showCursor={true}
+        />
+      </Box>
+    </Box>
+  );
+});
 
 export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
   const { exit } = useApp();
@@ -1088,50 +1178,21 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
           ))}
         </Box>
       )}
-      <Box flexDirection="column">
-        {statusLines.map((line, index) => (
-          <Text dimColor key={`status-${index}`}>{line || ' '}</Text>
-        ))}
-        {hintLines.map((line, index) => (
-          <Text dimColor key={`hint-${index}`}>{line || ' '}</Text>
-        ))}
-        <Box>
-          <Text color={focus === 'input' && !confirmation ? 'cyan' : 'gray'}>
-            {focus === 'input' ? '> ' : '  '}
-          </Text>
-          <CompletableInput
-            value={inputValue}
-            onChange={(value) => {
-              setInputValue(value);
-              setCompletionHint(null);
-              if (historyIndex !== -1) {
-                setHistoryIndex(-1);
-                setHistoryBuffer(value);
-              }
-            }}
-            onSubmit={handleSubmit}
-            onTab={(value) => {
-              const matches = getCompletionMatches(value);
-              if (matches.length === 0) return null;
-              
-              // Don't auto-complete - just show hints
-              if (matches.length === 1) {
-                // Only auto-complete when there's exactly one match
-                return matches[0];
-              }
-              
-              // Show all available completions
-              setCompletionHint(`Completions: ${matches.map(m => m.trim()).join(', ')}`);
-              
-              // Don't change the input - just return null
-              return null;
-            }}
-            focus={focus === 'input' && !confirmation && !sessionSelection}
-            placeholder={focus === 'input' && !sessionSelection ? 'Type a command' : ''}
-            showCursor={true}
-          />
-        </Box>
-      </Box>
+      {/* Fixed-height footer to prevent layout thrashing when input wraps */}
+      <FooterSection
+        statusLines={statusLines}
+        hintLines={hintLines}
+        inputValue={inputValue}
+        setInputValue={setInputValue}
+        setCompletionHint={setCompletionHint}
+        historyIndex={historyIndex}
+        setHistoryIndex={setHistoryIndex}
+        setHistoryBuffer={setHistoryBuffer}
+        handleSubmit={handleSubmit}
+        focus={focus}
+        confirmation={confirmation}
+        sessionSelection={sessionSelection}
+      />
     </Box>
   );
 }

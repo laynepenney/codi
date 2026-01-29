@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     // Default timeout (increased for e2e tests in their own files)
     testTimeout: 10000,
     // Retry failed tests (helps with flaky e2e tests)

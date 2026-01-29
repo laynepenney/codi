@@ -129,7 +129,9 @@ export function CompletableInput({
     }
 
     // Handle printable characters
-    if (input && !key.ctrl && !key.meta && !key.shift) {
+    // Note: key.shift is allowed here because it's used for capital letters
+    // Shift+Tab and other shift combinations are handled by the parent before reaching here
+    if (input && !key.ctrl && !key.meta) {
       const newChar = input;
       const newValue = value.slice(0, cursorIndex) + newChar + value.slice(cursorIndex);
       onChange(newValue);
@@ -145,24 +147,26 @@ export function CompletableInput({
     return <Text dimColor={(!value) as boolean}>{displayValue}</Text>;
   }
 
-  // When focused - always show the block cursor
-  // If there's a value, display it with cursor at position
+  // When focused - show cursor as underscore at cursor position
+  // Using underscore instead of block to avoid text displacement issues
   if (value) {
     const beforeCursor = value.slice(0, cursorIndex);
     const afterCursor = value.slice(cursorIndex);
+    // Show underscore cursor that doesn't displace text
     return (
       <Text>
         {beforeCursor}
-        <Text inverse>█</Text>
+        <Text color="cyan">_</Text>
         {afterCursor}
       </Text>
     );
   }
 
-  // Empty input - show placeholder with cursor at the end
+  // Empty input - show cursor then placeholder
   return (
-    <Text dimColor>
-      {placeholder}<Text inverse>█</Text>
+    <Text>
+      <Text color="cyan">_</Text>
+      <Text dimColor>{placeholder}</Text>
     </Text>
   );
 }
