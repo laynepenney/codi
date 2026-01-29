@@ -29,13 +29,18 @@ set env(LINES) 24
 # Spawn codi
 spawn node ./dist/index.js
 
-# Wait for codi to fully start (look for the input prompt)
+# Wait for codi to fully start (look for the input prompt or Activity panel)
 expect {
     -re "Type a command" {
         puts stderr "\n>>> Codi started"
     }
     -re "> _" {
         puts stderr "\n>>> Codi started (prompt found)"
+    }
+    -re "Activity" {
+        puts stderr "\n>>> Codi started (Activity panel found)"
+        # Wait a bit more for full render
+        sleep 1
     }
     timeout {
         puts stderr "\n>>> FAIL: Timeout waiting for codi prompt"

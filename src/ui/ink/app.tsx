@@ -1155,25 +1155,22 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
           ))}
         </Box>
       )}
-      {/* Activity panel disabled for debugging - suspected source of flooding issue */}
-      {false && (
-        <ActivityPanel
-          workerList={workerList}
-          workerLogs={workerLogs}
-          workerResults={workerResults}
-          selectedWorkerId={selectedWorkerId}
-          showWorkerLogs={showWorkerLogs}
-          showWorkerDetails={showWorkerDetails}
-          readerList={readerList}
-          readerLogs={readerLogs}
-          readerResults={readerResults}
-          status={status}
-          confirmation={confirmation}
-          contentWidth={contentWidth}
-          rows={stdout.rows ?? 24}
-          scrollOffset={activityScrollOffset}
-        />
-      )}
+      <ActivityPanel
+        workerList={workerList}
+        workerLogs={workerLogs}
+        workerResults={workerResults}
+        selectedWorkerId={selectedWorkerId}
+        showWorkerLogs={showWorkerLogs}
+        showWorkerDetails={showWorkerDetails}
+        readerList={readerList}
+        readerLogs={readerLogs}
+        readerResults={readerResults}
+        status={status}
+        confirmation={confirmation}
+        contentWidth={contentWidth}
+        rows={stdout.rows ?? 24}
+        scrollOffset={activityScrollOffset}
+      />
       {confirmationLines.length > 0 && (
         <Box flexDirection="column">
           {confirmationLines.map((line, index) => (
