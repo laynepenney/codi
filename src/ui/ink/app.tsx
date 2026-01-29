@@ -6,8 +6,10 @@ import { Box, Static, Text, useApp, useInput as useInkInput, useStdout } from 'i
 
 import type { ConfirmationResult } from '../../agent.js';
 import type { ReaderResult, ReaderState, WorkerResult, WorkerState } from '../../orchestrate/types.js';
+import type { TurnStats } from '../../types.js';
 import { formatSessionInfo } from '../../session.js';
 import { completeLine, getCompletionMatches } from '../../completions.js';
+import { formatTokens } from '../../usage.js';
 import type {
   InkUiController,
   UiConfirmationRequest,
@@ -539,6 +541,16 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
       }
     };
 
+    const onTurnComplete = (stats: TurnStats) => {
+      // Add turn summary as a static block so it persists in scroll history
+      const tokenStr = formatTokens(stats.totalTokens);
+      const toolStr = `${stats.toolCallCount} tool use${stats.toolCallCount !== 1 ? 's' : ''}`;
+      const summaryLines: LogLine[] = [
+        { text: `Done (${toolStr} · ${tokenStr} tokens)`, tone: 'body' },
+      ];
+      appendStaticBlock(summaryLines);
+    };
+
     const onExitRequest = () => {
       onExit();
       exit();
@@ -556,6 +568,7 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
     controller.on('status', onStatus);
     controller.on('confirmation', onConfirmation);
     controller.on('sessionSelection', onSessionSelection);
+    controller.on('turnComplete', onTurnComplete);
     controller.on('exit', onExitRequest);
 
     const existingStatus = controller.getStatus();
@@ -582,6 +595,7 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
       controller.off('status', onStatus);
       controller.off('confirmation', onConfirmation);
       controller.off('sessionSelection', onSessionSelection);
+      controller.off('turnComplete', onTurnComplete);
       controller.off('exit', onExitRequest);
     };
   }, [controller, exit, onExit, stdout]);
@@ -715,7 +729,7 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
 
   useInkInput((input, key) => {
     const inputKey = input.toLowerCase();
-    
+
     // Handle Ctrl+C
     if (key.ctrl && input === 'c') {
       onExit();
@@ -958,6 +972,15 @@ export function InkApp({ controller, onSubmit, onExit, history }: InkAppProps) {
       `Workers ${workerCount}`,
       `Readers ${readerCount}`,
     ];
+
+    // Add turn progress if active
+    if (status.turnProgress && status.turnProgress.toolCallCount > 0) {
+      const tokenStr = status.turnProgress.totalTokens > 0
+        ? ` · ${formatTokens(status.turnProgress.totalTokens)} tokens`
+        : '';
+      infoParts.push(`${status.turnProgress.toolCallCount} tool use${status.turnProgress.toolCallCount !== 1 ? 's' : ''}${tokenStr}`);
+    }
+
     if (focus === 'activity') {
       infoParts.push('Focus activity');
     }
@@ -1155,16 +1178,18 @@ function formatMessageBlock(
 function formatActivity(status: UiStatus): string {
   const activity = status.activity ?? 'idle';
   const detail = status.activityDetail ?? '';
+  const toolCount = status.turnProgress?.toolCallCount ?? 0;
+  const toolCountSuffix = toolCount > 0 ? ` (${toolCount} tool${toolCount !== 1 ? 's' : ''})` : '';
 
   switch (activity) {
     case 'thinking':
-      return 'Thinking';
+      return `Thinking${toolCountSuffix}`;
     case 'responding':
-      return 'Responding';
+      return `Responding${toolCountSuffix}`;
     case 'tool':
-      return detail ? `Tool ${detail}` : 'Tool';
+      return detail ? `Tool ${detail}${toolCountSuffix}` : `Tool${toolCountSuffix}`;
     case 'confirm':
-      return detail ? `Confirm ${detail}` : 'Confirm';
+      return detail ? `Confirm ${detail}${toolCountSuffix}` : `Confirm${toolCountSuffix}`;
     case 'idle':
     default:
       return 'Ready';
