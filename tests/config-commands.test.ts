@@ -29,8 +29,7 @@ describe('config-commands', () => {
     it('should return a string for empty args', async () => {
       const result = await configCommand.execute('', {} as any);
       expect(typeof result).toBe('string');
-      // Result is a control string like __CONFIG_SHOW__ or __CONFIG_NOT_FOUND__
-      expect(result?.toLowerCase()).toContain('config');
+      expect(result).toContain('config');
     });
 
     it('should return a string for init subcommand', async () => {
