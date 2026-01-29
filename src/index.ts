@@ -1262,10 +1262,14 @@ Begin by analyzing the query and planning your research approach.`;
         workerStatusUI.updateReaderLog(readerId, log);
       });
     }
-    console.log(chalk.dim('Orchestrator: ready'));
+    // Don't log here - it interferes with Ink UI initialization
+    // The orchestrator status is shown in the Activity panel instead
   } catch (err) {
     // Non-fatal - orchestrator commands will show appropriate errors
-    console.log(chalk.dim(`Orchestrator: disabled (${err instanceof Error ? err.message : err})`));
+    // Only log errors, not success, to avoid Ink interference
+    if (!useInkUi) {
+      console.log(chalk.dim(`Orchestrator: disabled (${err instanceof Error ? err.message : err})`));
+    }
   }
 
   // Create agent with enhanced system prompt
