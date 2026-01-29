@@ -1,0 +1,136 @@
+#!/usr/bin/expect -f
+# Test for Ink UI flooding bug
+# Spawns codi in a narrow terminal, types characters that will wrap,
+# and checks output for duplicate lines without screen clears
+#
+# Usage: expect tests/expect-flooding.exp [output-file]
+# Exit codes: 0 = pass, 1 = fail
+
+set timeout 30
+
+# CRITICAL: Set terminal to raw mode before spawning
+# Without this, Ink's useInput won't receive characters from expect
+set stty_init "raw -echo"
+
+# Get output file from argument (optional)
+if {[llength $argv] >= 1} {
+    set output_file [lindex $argv 0]
+} else {
+    set output_file "/tmp/codi-flooding-test.txt"
+}
+
+# Start logging
+log_file -noappend $output_file
+
+# Set narrow terminal via environment
+set env(COLUMNS) 40
+set env(LINES) 24
+
+# Spawn codi
+spawn node ./dist/index.js
+
+# Wait for codi to fully start (look for the input prompt)
+expect {
+    -re "Type a command" {
+        puts stderr "\n>>> Codi started"
+    }
+    -re "> _" {
+        puts stderr "\n>>> Codi started (prompt found)"
+    }
+    timeout {
+        puts stderr "\n>>> FAIL: Timeout waiting for codi prompt"
+        log_file
+        exit 1
+    }
+}
+
+# Let UI settle
+sleep 1
+
+# Type 60 characters - will wrap on 40-col terminal (prompt takes ~3 chars)
+puts stderr ">>> Typing 60 characters (will wrap around column 37)..."
+
+for {set i 0} {$i < 60} {incr i} {
+    exp_send "a"
+    # Small delay to let Ink process each keystroke
+    after 50
+}
+
+# Wait for final renders
+sleep 1
+
+# Stop logging before analysis
+log_file
+
+# Exit codi cleanly
+exp_send "\x03"
+expect {
+    "Goodbye" { }
+    eof { }
+    timeout { }
+}
+
+# Analyze the output
+set fp [open $output_file r]
+set content [read $fp]
+close $fp
+
+# Count key indicators:
+# - Screen clears: ESC[2J (normal Ink behavior clears before each render)
+# - Status line occurrences: "Session" appears in status
+# - Activity mentions: if flooding, "Activity" appears many times without clears
+set clear_count [regexp -all {\x1b\[2J} $content]
+set session_count [regexp -all {Session} $content]
+set activity_count [regexp -all {Activity} $content]
+set model_count [regexp -all {Model} $content]
+
+# Calculate bytes of output
+set output_size [string length $content]
+
+puts stderr ""
+puts stderr "=== Flooding Test Results ==="
+puts stderr "Output size: $output_size bytes"
+puts stderr "Screen clears (ESC\[2J): $clear_count"
+puts stderr "Status 'Session': $session_count"
+puts stderr "Status 'Model': $model_count"
+puts stderr "'Activity' mentions: $activity_count"
+
+# Determine pass/fail
+# Normal behavior: roughly 1 status line per screen clear (ratio ~1)
+# Flooding: many status/activity lines without corresponding clears
+
+set failed 0
+
+if {$clear_count > 0} {
+    set session_ratio [expr {double($session_count) / $clear_count}]
+    puts stderr "Session/Clear ratio: [format %.2f $session_ratio]"
+
+    # If ratio is much > 1, there's flooding
+    if {$session_ratio > 3.0} {
+        puts stderr "\n❌ FAIL: Session lines greatly exceed screen clears"
+        puts stderr "   This indicates status line flooding"
+        set failed 1
+    }
+} else {
+    # No clears at all but status lines exist = definite flooding
+    if {$session_count > 5} {
+        puts stderr "\n❌ FAIL: Many status lines but no screen clears"
+        puts stderr "   This indicates severe flooding"
+        set failed 1
+    }
+}
+
+# Check for Activity flooding specifically
+if {$activity_count > [expr {$clear_count + 10}]} {
+    puts stderr "\n❌ FAIL: Activity mentions ($activity_count) >> screen clears ($clear_count)"
+    puts stderr "   This indicates Activity panel flooding"
+    set failed 1
+}
+
+if {!$failed} {
+    puts stderr "\n✅ PASS: No flooding detected"
+    puts stderr "   Output appears normal"
+    exit 0
+} else {
+    exit 1
+}
