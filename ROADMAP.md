@@ -86,10 +86,10 @@ Codi is a feature-rich AI coding assistant CLI. This document tracks completed w
 
 - [x] **Command unit tests** - coverage for command modules (see list below)
   ✅ **approval-commands** (11 tests)
-  ✅ **code-commands** (12 tests)  
-  ✅ **config-commands** (7 tests)
+  ✅ **code-commands** (12 tests)
+  ✅ **config-commands** (8 tests) ✓ on main via PR #219
   ✅ **history-commands** (18 tests)
-  ✅ **image-commands** (10 tests)
+  ✅ **image-commands** (8 tests) ✓ on main via PR #219
   ✅ **model-commands** (18 tests)
   ✅ **prompt-commands** (20 tests)
   ⏭️ **plugin-commands** (skipped - plugin system disabled)
