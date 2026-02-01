@@ -390,6 +390,13 @@ impl Agent {
         // Calculate duration
         turn_stats.duration_ms = start_time.elapsed().as_millis() as u64;
 
+        // Record telemetry
+        #[cfg(feature = "telemetry")]
+        {
+            GLOBAL_METRICS.record_operation("agent.chat", start_time.elapsed());
+            GLOBAL_METRICS.record_tokens(turn_stats.input_tokens, turn_stats.output_tokens);
+        }
+
         // Notify turn complete
         if let Some(ref on_turn_complete) = self.callbacks.on_turn_complete {
             on_turn_complete(&turn_stats);
