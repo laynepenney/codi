@@ -31,7 +31,7 @@ pub mod handlers;
 pub mod registry;
 
 pub use handlers::*;
-pub use registry::{ToolHandler, ToolOutput, ToolRegistry, ToolRegistryBuilder};
+pub use registry::{DispatchResult, ToolHandler, ToolOutput, ToolRegistry, ToolRegistryBuilder};
 
 use serde::Deserialize;
 use crate::error::ToolError;
