@@ -18,6 +18,7 @@
 //! - [`telemetry`] - Tracing, metrics, and observability infrastructure
 //! - [`tools`] - Tool handlers and registry
 //! - [`agent`] - Core agentic orchestration loop
+//! - [`symbol_index`] - Tree-sitter based code navigation and symbol search
 //!
 //! # Migration Status
 //!
@@ -26,8 +27,8 @@
 //! - **Phase 0**: Foundation - types, errors, config, CLI shell ✓
 //! - **Phase 1**: Tool layer - file tools, grep, glob, bash ✓
 //! - **Phase 2**: Provider layer - Anthropic, OpenAI, Ollama ✓
-//! - **Phase 3** (Current): Agent loop - core agentic orchestration
-//! - **Phase 4**: Symbol index - tree-sitter based code navigation
+//! - **Phase 3**: Agent loop - core agentic orchestration ✓
+//! - **Phase 4** (Current): Symbol index - tree-sitter based code navigation
 //! - **Phase 5**: RAG system - vector search with lance
 //! - **Phase 6**: Terminal UI - ratatui based interface
 //! - **Phase 7**: Multi-agent - IPC-based worker orchestration
@@ -49,6 +50,7 @@ pub mod agent;
 pub mod config;
 pub mod error;
 pub mod providers;
+pub mod symbol_index;
 pub mod telemetry;
 pub mod tools;
 pub mod types;
@@ -74,7 +76,7 @@ pub use types::{
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Migration phase identifier.
-pub const MIGRATION_PHASE: u8 = 3;
+pub const MIGRATION_PHASE: u8 = 4;
 
 #[cfg(test)]
 mod tests {
@@ -87,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_migration_phase() {
-        assert_eq!(MIGRATION_PHASE, 3);
+        assert_eq!(MIGRATION_PHASE, 4);
     }
 
     #[test]
