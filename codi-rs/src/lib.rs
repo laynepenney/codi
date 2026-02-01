@@ -49,8 +49,13 @@ pub mod types;
 // Re-export commonly used types at crate root
 pub use error::{AgentError, ConfigError, ProviderError, Result, ToolError};
 pub use types::{
-    ContentBlock, Message, MessageContent, ModelInfo, ProviderResponse, Role, StopReason,
-    ToolCall, ToolDefinition, ToolResult, TokenUsage,
+    // Message types
+    ContentBlock, Message, MessageContent, Role,
+    // Tool types
+    ToolCall, ToolDefinition, ToolResult,
+    // Provider types
+    BoxedProvider, ModelInfo, Provider, ProviderConfig, ProviderResponse, SharedProvider,
+    StopReason, StreamEvent, TokenUsage,
 };
 
 /// Codi version.

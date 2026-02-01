@@ -595,6 +595,239 @@ pub struct ModelInfo {
     pub deprecated: Option<bool>,
 }
 
+// ============================================================================
+// Provider Configuration
+// ============================================================================
+
+/// Configuration for an AI provider instance.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    /// API key for authentication
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+
+    /// Base URL for the API endpoint
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+
+    /// Model identifier to use
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+
+    /// Sampling temperature (0.0 - 2.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+
+    /// Maximum tokens to generate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+
+    /// Strip hallucinated tool traces from responses
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clean_hallucinated_traces: Option<bool>,
+
+    /// Request timeout in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+impl ProviderConfig {
+    /// Create a new provider config with just an API key.
+    pub fn with_api_key(api_key: impl Into<String>) -> Self {
+        Self {
+            api_key: Some(api_key.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new provider config with API key and model.
+    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            api_key: Some(api_key.into()),
+            model: Some(model.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Set the base URL.
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = Some(url.into());
+        self
+    }
+
+    /// Set the temperature.
+    pub fn with_temperature(mut self, temp: f32) -> Self {
+        self.temperature = Some(temp);
+        self
+    }
+
+    /// Set the max tokens.
+    pub fn with_max_tokens(mut self, tokens: u32) -> Self {
+        self.max_tokens = Some(tokens);
+        self
+    }
+}
+
+// ============================================================================
+// Streaming Types
+// ============================================================================
+
+/// Events emitted during streaming responses.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// A chunk of text content.
+    TextDelta(String),
+
+    /// A chunk of reasoning/thinking content.
+    ReasoningDelta(String),
+
+    /// Start of a tool use block.
+    ToolUseStart {
+        id: String,
+        name: String,
+    },
+
+    /// A chunk of tool input JSON.
+    ToolInputDelta(String),
+
+    /// End of a tool use block.
+    ToolUseEnd,
+
+    /// Token usage information (sent at end of stream).
+    Usage(TokenUsage),
+
+    /// Stream completed with stop reason.
+    Done(StopReason),
+
+    /// An error occurred during streaming.
+    Error(String),
+}
+
+impl StreamEvent {
+    /// Check if this is a text delta event.
+    pub fn is_text(&self) -> bool {
+        matches!(self, Self::TextDelta(_))
+    }
+
+    /// Check if this is a done event.
+    pub fn is_done(&self) -> bool {
+        matches!(self, Self::Done(_))
+    }
+
+    /// Get the text content if this is a text delta.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::TextDelta(s) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+// ============================================================================
+// Provider Trait
+// ============================================================================
+
+use async_trait::async_trait;
+use crate::error::ProviderError;
+
+/// Trait that all AI providers must implement.
+///
+/// This is the core abstraction for interacting with AI models.
+/// Implementations handle the specifics of each provider's API.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use codi::types::{Provider, Message, ProviderResponse, ProviderConfig};
+///
+/// struct MyProvider {
+///     config: ProviderConfig,
+/// }
+///
+/// #[async_trait]
+/// impl Provider for MyProvider {
+///     async fn chat(
+///         &self,
+///         messages: &[Message],
+///         tools: Option<&[ToolDefinition]>,
+///         system_prompt: Option<&str>,
+///     ) -> Result<ProviderResponse, ProviderError> {
+///         // Implementation...
+///     }
+///     // ... other methods
+/// }
+/// ```
+#[async_trait]
+pub trait Provider: Send + Sync {
+    /// Send a chat completion request to the model.
+    ///
+    /// # Arguments
+    /// * `messages` - Conversation history
+    /// * `tools` - Optional tool definitions for function calling
+    /// * `system_prompt` - Optional system prompt
+    ///
+    /// # Returns
+    /// Provider response with content and any tool calls
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+        system_prompt: Option<&str>,
+    ) -> Result<ProviderResponse, ProviderError>;
+
+    /// Send a streaming chat completion request.
+    ///
+    /// # Arguments
+    /// * `messages` - Conversation history
+    /// * `tools` - Optional tool definitions
+    /// * `system_prompt` - Optional system prompt
+    /// * `on_event` - Callback for each stream event
+    ///
+    /// # Returns
+    /// Final provider response after stream completes
+    async fn stream_chat(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+        system_prompt: Option<&str>,
+        on_event: Box<dyn Fn(StreamEvent) + Send + Sync>,
+    ) -> Result<ProviderResponse, ProviderError>;
+
+    /// Check if this provider supports tool use / function calling.
+    fn supports_tool_use(&self) -> bool;
+
+    /// Check if this provider supports vision / image analysis.
+    fn supports_vision(&self) -> bool {
+        false
+    }
+
+    /// Get the name of this provider for display purposes.
+    fn name(&self) -> &str;
+
+    /// Get the current model being used.
+    fn model(&self) -> &str;
+
+    /// Get the context window size for the current model in tokens.
+    fn context_window(&self) -> u32 {
+        128_000 // Default 128k
+    }
+
+    /// List available models from this provider.
+    ///
+    /// Not all providers may support model listing.
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError> {
+        Err(ProviderError::UnsupportedOperation(
+            "Model listing not supported".to_string(),
+        ))
+    }
+}
+
+/// A boxed provider for dynamic dispatch.
+pub type BoxedProvider = Box<dyn Provider>;
+
+/// Arc-wrapped provider for shared ownership.
+pub type SharedProvider = std::sync::Arc<dyn Provider>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
