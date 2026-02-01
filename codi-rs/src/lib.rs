@@ -53,7 +53,11 @@ pub mod types;
 
 // Re-export commonly used types at crate root
 pub use error::{AgentError, ConfigError, ProviderError, Result, ToolError};
-pub use providers::{create_provider, create_provider_from_env, AnthropicProvider, ProviderType};
+pub use providers::{
+    create_provider, create_provider_from_env,
+    anthropic, openai, ollama, ollama_at,
+    AnthropicProvider, OpenAIProvider, ProviderType,
+};
 pub use types::{
     // Message types
     ContentBlock, Message, MessageContent, Role,
