@@ -2,7 +2,7 @@
 
 Rust implementation of Codi - Your AI coding wingman.
 
-## Status: Phase 2 Complete (Provider Layer)
+## Status: Phase 3 In Progress (Agent Loop)
 
 This is the Rust implementation of Codi, being developed incrementally alongside the TypeScript version. The migration is structured in phases:
 
@@ -11,7 +11,7 @@ This is the Rust implementation of Codi, being developed incrementally alongside
 | **0** | Foundation - types, errors, config, CLI shell | ✅ Complete |
 | **1** | Tool layer - file tools, grep, glob, bash | ✅ Complete |
 | **2** | Provider layer - Anthropic, OpenAI, Ollama | ✅ Complete |
-| 3 | Agent loop - core agentic orchestration | Planned |
+| **3** | Agent loop - core agentic orchestration | 🚧 In Progress |
 | 4 | Symbol index - tree-sitter based code navigation | Planned |
 | 5 | RAG system - vector search with lance | Planned |
 | 6 | Terminal UI - ratatui based interface | Planned |
@@ -38,6 +38,37 @@ let local = ollama("llama3.2");
 - **OpenAI** - GPT models with streaming and tool use
 - **Ollama** - Local models, no API key required
 - **Any OpenAI-compatible API** - Azure, Together, Groq, etc.
+
+### Agent Loop
+
+```rust
+use codi::agent::{Agent, AgentConfig, AgentOptions, AgentCallbacks};
+use codi::tools::ToolRegistry;
+use std::sync::Arc;
+
+// Create provider and tool registry
+let provider = anthropic("claude-sonnet-4-20250514")?;
+let registry = Arc::new(ToolRegistry::with_defaults());
+
+// Create agent
+let mut agent = Agent::new(AgentOptions {
+    provider,
+    tool_registry: registry,
+    system_prompt: Some("You are a helpful assistant.".to_string()),
+    config: AgentConfig::default(),
+    callbacks: AgentCallbacks::default(),
+});
+
+// Chat - handles the full agentic loop (message -> model -> tools -> repeat)
+let response = agent.chat("Read the README and summarize it").await?;
+```
+
+**Agent Features:**
+- Iterative tool calling loop
+- Tool confirmation for destructive operations
+- Auto-approval configuration
+- Consecutive error tracking
+- Turn statistics (tokens, costs, duration)
 
 ### Tools
 
@@ -94,6 +125,9 @@ src/
 ├── lib.rs            # Library exports
 ├── types.rs          # Core types (Message, ToolDefinition, Provider, etc.)
 ├── error.rs          # Error types (thiserror)
+├── agent/            # Core agentic orchestration
+│   ├── mod.rs        # Agent struct and chat loop
+│   └── types.rs      # AgentConfig, callbacks, stats
 ├── config/           # Configuration module
 │   ├── mod.rs        # Module exports and load_config()
 │   ├── types.rs      # Config type definitions
