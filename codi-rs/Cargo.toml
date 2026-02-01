@@ -93,6 +93,10 @@ harness = false
 name = "config"
 harness = false
 
+[[bench]]
+name = "providers"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1

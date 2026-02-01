@@ -21,10 +21,13 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "telemetry")]
 use tracing::debug;
+
+#[cfg(feature = "telemetry")]
+use crate::telemetry::metrics::GLOBAL_METRICS;
 
 use crate::error::ProviderError;
 use crate::types::{
@@ -160,6 +163,7 @@ impl Provider for AnthropicProvider {
         system_prompt: Option<&str>,
     ) -> Result<ProviderResponse, ProviderError> {
         let request = self.build_request(messages, tools, system_prompt);
+        let start = Instant::now();
 
         #[cfg(feature = "telemetry")]
         debug!(model = %self.model, messages = messages.len(), "Sending chat request");
@@ -178,6 +182,8 @@ impl Provider for AnthropicProvider {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
+            #[cfg(feature = "telemetry")]
+            GLOBAL_METRICS.record_operation("anthropic.chat", start.elapsed());
             return Err(self.handle_error_response(status.as_u16(), &error_text));
         }
 
@@ -186,7 +192,18 @@ impl Provider for AnthropicProvider {
             .await
             .map_err(|e| ProviderError::ParseError(e.to_string()))?;
 
-        Ok(api_response.into())
+        let provider_response: ProviderResponse = api_response.into();
+
+        // Record metrics
+        #[cfg(feature = "telemetry")]
+        {
+            GLOBAL_METRICS.record_operation("anthropic.chat", start.elapsed());
+            if let Some(ref usage) = provider_response.usage {
+                GLOBAL_METRICS.record_tokens(usage.input_tokens as u64, usage.output_tokens as u64);
+            }
+        }
+
+        Ok(provider_response)
     }
 
     async fn stream_chat(
@@ -197,6 +214,7 @@ impl Provider for AnthropicProvider {
         on_event: Box<dyn Fn(StreamEvent) + Send + Sync>,
     ) -> Result<ProviderResponse, ProviderError> {
         let request = self.build_streaming_request(messages, tools, system_prompt);
+        let start = Instant::now();
 
         #[cfg(feature = "telemetry")]
         debug!(model = %self.model, messages = messages.len(), "Sending streaming chat request");
@@ -215,6 +233,8 @@ impl Provider for AnthropicProvider {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
+            #[cfg(feature = "telemetry")]
+            GLOBAL_METRICS.record_operation("anthropic.stream_chat", start.elapsed());
             return Err(self.handle_error_response(status.as_u16(), &error_text));
         }
 
@@ -253,7 +273,18 @@ impl Provider for AnthropicProvider {
         }
 
         // Build final response
-        Ok(stream_state.into_response())
+        let provider_response = stream_state.into_response();
+
+        // Record metrics
+        #[cfg(feature = "telemetry")]
+        {
+            GLOBAL_METRICS.record_operation("anthropic.stream_chat", start.elapsed());
+            if let Some(ref usage) = provider_response.usage {
+                GLOBAL_METRICS.record_tokens(usage.input_tokens as u64, usage.output_tokens as u64);
+            }
+        }
+
+        Ok(provider_response)
     }
 
     fn supports_tool_use(&self) -> bool {
