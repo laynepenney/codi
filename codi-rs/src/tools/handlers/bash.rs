@@ -11,10 +11,11 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::time::timeout;
+use tracing::{debug, instrument, warn};
 
 use crate::error::ToolError;
-use crate::tools::{parse_arguments, truncate_output, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS};
 use crate::tools::registry::{ToolHandler, ToolOutput};
+use crate::tools::{parse_arguments, truncate_output, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS};
 use crate::types::{InputSchema, ToolDefinition};
 
 /// Handler for the `bash` tool.
@@ -75,8 +76,22 @@ impl ToolHandler for BashHandler {
         true // Shell commands can modify the system
     }
 
+    #[instrument(skip(self, input), fields(command, cwd, timeout_ms, exit_code))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: BashArgs = parse_arguments(&input)?;
+
+        // Record span fields (truncate command for safety in logs)
+        let span = tracing::Span::current();
+        let cmd_preview = if args.command.len() > 100 {
+            format!("{}...", &args.command[..100])
+        } else {
+            args.command.clone()
+        };
+        span.record("command", cmd_preview.as_str());
+        span.record("timeout_ms", args.timeout);
+        if let Some(ref cwd) = args.cwd {
+            span.record("cwd", cwd.as_str());
+        }
 
         if args.command.trim().is_empty() {
             return Err(ToolError::InvalidInput(
@@ -106,6 +121,18 @@ impl ToolHandler for BashHandler {
 
         // Execute the command
         let result = run_bash_command(&args.command, &cwd, timeout_duration).await?;
+
+        // Record exit code and log
+        tracing::Span::current().record("exit_code", result.exit_code);
+        if result.timed_out {
+            warn!(command = %cmd_preview, "Command timed out");
+        } else {
+            debug!(
+                exit_code = result.exit_code,
+                duration_ms = result.duration.as_millis() as u64,
+                "Command executed"
+            );
+        }
 
         // Format output
         let output = format_bash_output(&result);

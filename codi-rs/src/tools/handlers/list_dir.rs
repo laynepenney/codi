@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tokio::fs;
+use tracing::{debug, instrument};
 
 use crate::error::ToolError;
 use crate::tools::parse_arguments;
@@ -65,8 +66,12 @@ impl ToolHandler for ListDirHandler {
         false
     }
 
+    #[instrument(skip(self, input), fields(path, entries))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: ListDirArgs = parse_arguments(&input)?;
+
+        // Record span fields
+        tracing::Span::current().record("path", args.path.as_str());
 
         let path = PathBuf::from(&args.path);
 
@@ -88,6 +93,10 @@ impl ToolHandler for ListDirHandler {
 
         // Read directory entries
         let entries = list_directory(&path, args.limit, args.show_hidden).await?;
+
+        // Record entry count
+        tracing::Span::current().record("entries", entries.len());
+        debug!(path = %path.display(), entries = entries.len(), "Directory listed");
 
         if entries.is_empty() {
             Ok(ToolOutput::success("[Empty directory]"))

@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tokio::fs;
+use tracing::{debug, instrument};
 
 use crate::error::ToolError;
 use crate::tools::parse_arguments;
@@ -69,8 +70,14 @@ impl ToolHandler for EditFileHandler {
         true
     }
 
+    #[instrument(skip(self, input), fields(path, replace_all, replacements))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: EditFileArgs = parse_arguments(&input)?;
+
+        // Record span fields
+        let span = tracing::Span::current();
+        span.record("path", &args.file_path);
+        span.record("replace_all", args.replace_all);
 
         let path = PathBuf::from(&args.file_path);
 
@@ -140,6 +147,11 @@ impl ToolHandler for EditFileHandler {
         })?;
 
         let replaced_count = if args.replace_all { count } else { 1 };
+
+        // Record replacement count
+        tracing::Span::current().record("replacements", replaced_count);
+        debug!(path = %path.display(), replacements = replaced_count, "Edit complete");
+
         Ok(ToolOutput::success(format!(
             "Edited {} - replaced {replaced_count} occurrence(s)",
             path.display()

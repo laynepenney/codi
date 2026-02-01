@@ -12,8 +12,10 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tracing::{debug, info_span, instrument, Instrument};
 
 use crate::error::ToolError;
+use crate::telemetry::metrics::GLOBAL_METRICS;
 use crate::types::ToolDefinition;
 
 /// Output from executing a tool.
@@ -181,6 +183,9 @@ impl ToolRegistry {
     }
 
     /// Dispatch a tool call and return the result.
+    ///
+    /// This method is instrumented with tracing and records metrics.
+    #[instrument(skip(self, input), fields(tool = %tool_name, duration_ms, success))]
     pub async fn dispatch(
         &self,
         tool_name: &str,
@@ -190,23 +195,51 @@ impl ToolRegistry {
             .get(tool_name)
             .ok_or_else(|| ToolError::NotFound(tool_name.to_string()))?;
 
+        debug!(tool = %tool_name, "Executing tool");
+
         let start = Instant::now();
-        let result = handler.execute(input).await;
+        let result = handler
+            .execute(input)
+            .instrument(info_span!("tool_execute", tool = %tool_name))
+            .await;
         let duration = start.elapsed();
 
+        // Record metrics
+        let success = result.is_ok();
+        GLOBAL_METRICS.record_tool(tool_name, duration, success);
+
+        // Record span fields
+        tracing::Span::current().record("duration_ms", duration.as_secs_f64() * 1000.0);
+        tracing::Span::current().record("success", success);
+
         match result {
-            Ok(output) => Ok(DispatchResult {
-                tool_name: tool_name.to_string(),
-                output,
-                duration,
-                is_error: false,
-            }),
-            Err(err) => Ok(DispatchResult {
-                tool_name: tool_name.to_string(),
-                output: ToolOutput::from(err),
-                duration,
-                is_error: true,
-            }),
+            Ok(output) => {
+                debug!(
+                    tool = %tool_name,
+                    duration_ms = duration.as_secs_f64() * 1000.0,
+                    "Tool execution succeeded"
+                );
+                Ok(DispatchResult {
+                    tool_name: tool_name.to_string(),
+                    output,
+                    duration,
+                    is_error: false,
+                })
+            }
+            Err(err) => {
+                debug!(
+                    tool = %tool_name,
+                    duration_ms = duration.as_secs_f64() * 1000.0,
+                    error = %err,
+                    "Tool execution failed"
+                );
+                Ok(DispatchResult {
+                    tool_name: tool_name.to_string(),
+                    output: ToolOutput::from(err),
+                    duration,
+                    is_error: true,
+                })
+            }
         }
     }
 }

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
+use tracing::{debug, instrument};
 
 use crate::error::ToolError;
 use crate::tools::parse_arguments;
@@ -114,8 +115,17 @@ impl ToolHandler for GrepHandler {
         false
     }
 
+    #[instrument(skip(self, input), fields(pattern, path, output_mode, matches))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: GrepArgs = parse_arguments(&input)?;
+
+        // Record span fields
+        let span = tracing::Span::current();
+        span.record("pattern", args.pattern.as_str());
+        span.record("output_mode", args.output_mode.as_str());
+        if let Some(ref p) = args.path {
+            span.record("path", p.as_str());
+        }
 
         let pattern = args.pattern.trim();
         if pattern.is_empty() {
@@ -165,6 +175,10 @@ impl ToolHandler for GrepHandler {
             args.context_before,
         )
         .await?;
+
+        // Record match count
+        tracing::Span::current().record("matches", results.len());
+        debug!(pattern, matches = results.len(), "Grep search complete");
 
         if results.is_empty() {
             Ok(ToolOutput::success("No matches found."))

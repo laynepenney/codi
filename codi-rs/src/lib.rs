@@ -14,6 +14,8 @@
 //! - [`types`] - Core type definitions (Message, ToolDefinition, ProviderResponse, etc.)
 //! - [`error`] - Error types and result aliases
 //! - [`config`] - Configuration loading and merging
+//! - [`telemetry`] - Tracing, metrics, and observability infrastructure
+//! - [`tools`] - Tool handlers and registry
 //!
 //! # Migration Status
 //!
@@ -43,6 +45,7 @@
 
 pub mod config;
 pub mod error;
+pub mod telemetry;
 pub mod tools;
 pub mod types;
 

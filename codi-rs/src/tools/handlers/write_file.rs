@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tokio::fs;
+use tracing::{debug, instrument};
 
 use crate::error::ToolError;
 use crate::tools::parse_arguments;
@@ -50,8 +51,14 @@ impl ToolHandler for WriteFileHandler {
         true
     }
 
+    #[instrument(skip(self, input), fields(path, bytes, created))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: WriteFileArgs = parse_arguments(&input)?;
+
+        // Record span fields
+        let span = tracing::Span::current();
+        span.record("path", &args.file_path);
+        span.record("bytes", args.content.len());
 
         let path = PathBuf::from(&args.file_path);
 
@@ -85,6 +92,10 @@ impl ToolHandler for WriteFileHandler {
         let action = if existed { "Updated" } else { "Created" };
         let lines = args.content.lines().count();
         let bytes = args.content.len();
+
+        // Record whether file was created or updated
+        tracing::Span::current().record("created", !existed);
+        debug!(path = %path.display(), bytes, lines, created = !existed, "File write complete");
 
         Ok(ToolOutput::success(format!(
             "{action} {path} ({lines} lines, {bytes} bytes)",

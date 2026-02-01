@@ -71,6 +71,15 @@ regex = "1"
 tempfile = "3"
 tokio-test = "0.4"
 wiremock = "0.6"
+criterion = { version = "0.6", features = ["async_tokio"] }
+
+[[bench]]
+name = "tools"
+harness = false
+
+[[bench]]
+name = "config"
+harness = false
 
 [profile.release]
 lto = true
