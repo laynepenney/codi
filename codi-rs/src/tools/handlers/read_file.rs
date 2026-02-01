@@ -13,6 +13,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
+
+#[cfg(feature = "telemetry")]
 use tracing::{debug, instrument};
 
 use crate::error::ToolError;
@@ -72,15 +74,18 @@ impl ToolHandler for ReadFileHandler {
         false
     }
 
-    #[instrument(skip(self, input), fields(path, offset, limit, lines_read))]
+    #[cfg_attr(feature = "telemetry", instrument(skip(self, input), fields(path, offset, limit, lines_read)))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: ReadFileArgs = parse_arguments(&input)?;
 
-        // Record span fields
-        let span = tracing::Span::current();
-        span.record("path", &args.file_path);
-        span.record("offset", args.offset);
-        span.record("limit", args.limit);
+        // Record span fields (only with telemetry)
+        #[cfg(feature = "telemetry")]
+        {
+            let span = tracing::Span::current();
+            span.record("path", &args.file_path);
+            span.record("offset", args.offset);
+            span.record("limit", args.limit);
+        }
 
         // Validate arguments
         if args.offset == 0 {
@@ -105,9 +110,12 @@ impl ToolHandler for ReadFileHandler {
         // Read the file
         let lines = read_file_lines(&path, args.offset, args.limit).await?;
 
-        // Record how many lines were actually read
-        tracing::Span::current().record("lines_read", lines.len());
-        debug!(path = %args.file_path, lines = lines.len(), "File read complete");
+        // Record how many lines were actually read (only with telemetry)
+        #[cfg(feature = "telemetry")]
+        {
+            tracing::Span::current().record("lines_read", lines.len());
+            debug!(path = %args.file_path, lines = lines.len(), "File read complete");
+        }
 
         if lines.is_empty() {
             Ok(ToolOutput::success("[Empty file or no lines in range]"))

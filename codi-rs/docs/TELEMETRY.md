@@ -10,6 +10,44 @@ Codi uses a lightweight observability stack suitable for CLI applications:
 - **Metrics**: In-memory metrics collection for tool execution
 - **Benchmarks**: Criterion-based benchmarks for performance testing
 
+## Feature Flags and Performance
+
+Telemetry can be controlled at compile time for optimal performance:
+
+### Feature Flags
+
+| Feature | Description | Use Case |
+|---------|-------------|----------|
+| `telemetry` (default) | Full tracing spans and metrics | Development, debugging |
+| `release-logs` | Strip debug/trace at compile time | Production with logging |
+| `max-perf` | Disable all tracing | Maximum performance |
+
+### Build Configurations
+
+```bash
+# Development (full telemetry)
+cargo build
+
+# Production with info-level logging only
+cargo build --release --features release-logs
+
+# Maximum performance (no tracing overhead)
+cargo build --release --no-default-features
+
+# Or with max-perf for explicit disable
+cargo build --release --features max-perf
+```
+
+### Performance Characteristics
+
+| Configuration | Span Overhead | Memory | Recommended For |
+|--------------|---------------|--------|-----------------|
+| `telemetry` | ~50-100ns | Allocations per span | Dev, testing |
+| `release-logs` | ~1-2ns | Near zero | Production |
+| `max-perf` | 0ns | Zero | Performance-critical |
+
+The `release-logs` feature uses `tracing`'s compile-time filtering to completely eliminate debug and trace macros from the binary, resulting in near-zero overhead while keeping info/warn/error logs.
+
 ## Architecture
 
 ```
@@ -47,16 +85,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Instrumenting Functions
 
-Use the `#[instrument]` attribute for automatic span creation:
+Use `cfg_attr` with `#[instrument]` to make instrumentation conditional:
 
 ```rust
+#[cfg(feature = "telemetry")]
 use tracing::{debug, instrument};
 
-#[instrument(skip(self, input), fields(path, result_size))]
+// Instrumentation only active when telemetry feature is enabled
+#[cfg_attr(feature = "telemetry", instrument(skip(self, input), fields(path, result_size)))]
 async fn my_function(&self, input: Input) -> Result<Output, Error> {
-    // Record span fields
-    let span = tracing::Span::current();
-    span.record("path", &input.path);
+    // Record span fields (only with telemetry)
+    #[cfg(feature = "telemetry")]
+    {
+        let span = tracing::Span::current();
+        span.record("path", &input.path);
+    }
 
     // Do work...
     let result = do_work().await?;

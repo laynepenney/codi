@@ -21,7 +21,19 @@ name = "codi"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["telemetry"]
+
+# Enable telemetry (tracing spans, metrics collection)
+# Disable with --no-default-features for minimal overhead
+telemetry = []
+
+# Release builds: strip debug/trace logs at compile time (near-zero cost)
+# Use: cargo build --release --features release-logs
+release-logs = ["tracing/release_max_level_info"]
+
+# Maximum performance: disable all tracing at compile time
+# Use: cargo build --release --features max-perf
+max-perf = ["tracing/max_level_off"]
 
 [dependencies]
 # Async runtime

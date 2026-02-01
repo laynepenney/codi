@@ -9,8 +9,10 @@ use async_trait::async_trait;
 use globset::{Glob, GlobSetBuilder};
 use serde::Deserialize;
 use std::path::PathBuf;
-use tracing::{debug, instrument};
 use walkdir::WalkDir;
+
+#[cfg(feature = "telemetry")]
+use tracing::{debug, instrument};
 
 use crate::error::ToolError;
 use crate::tools::parse_arguments;
@@ -67,15 +69,18 @@ impl ToolHandler for GlobHandler {
         false
     }
 
-    #[instrument(skip(self, input), fields(pattern, path, files_found))]
+    #[cfg_attr(feature = "telemetry", instrument(skip(self, input), fields(pattern, path, files_found)))]
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput, ToolError> {
         let args: GlobArgs = parse_arguments(&input)?;
 
-        // Record span fields
-        let span = tracing::Span::current();
-        span.record("pattern", args.pattern.as_str());
-        if let Some(ref p) = args.path {
-            span.record("path", p.as_str());
+        // Record span fields (only with telemetry)
+        #[cfg(feature = "telemetry")]
+        {
+            let span = tracing::Span::current();
+            span.record("pattern", args.pattern.as_str());
+            if let Some(ref p) = args.path {
+                span.record("path", p.as_str());
+            }
         }
 
         let pattern = args.pattern.trim();
@@ -111,9 +116,12 @@ impl ToolHandler for GlobHandler {
         // Walk directory and collect matches
         let matches = find_matching_files(&base_path, &glob_set, args.limit);
 
-        // Record files found
-        tracing::Span::current().record("files_found", matches.len());
-        debug!(pattern, files = matches.len(), "Glob search complete");
+        // Record files found (only with telemetry)
+        #[cfg(feature = "telemetry")]
+        {
+            tracing::Span::current().record("files_found", matches.len());
+            debug!(pattern, files = matches.len(), "Glob search complete");
+        }
 
         if matches.is_empty() {
             Ok(ToolOutput::success("No files found matching pattern."))

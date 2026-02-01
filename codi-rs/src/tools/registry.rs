@@ -12,9 +12,12 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, info_span, instrument, Instrument};
+
+#[cfg(feature = "telemetry")]
+use tracing::{debug, info_span, Instrument};
 
 use crate::error::ToolError;
+#[cfg(feature = "telemetry")]
 use crate::telemetry::metrics::GLOBAL_METRICS;
 use crate::types::ToolDefinition;
 
@@ -184,8 +187,9 @@ impl ToolRegistry {
 
     /// Dispatch a tool call and return the result.
     ///
-    /// This method is instrumented with tracing and records metrics.
-    #[instrument(skip(self, input), fields(tool = %tool_name, duration_ms, success))]
+    /// When the `telemetry` feature is enabled, this method is instrumented
+    /// with tracing spans and records metrics. Without the feature, it has
+    /// minimal overhead.
     pub async fn dispatch(
         &self,
         tool_name: &str,
@@ -195,25 +199,32 @@ impl ToolRegistry {
             .get(tool_name)
             .ok_or_else(|| ToolError::NotFound(tool_name.to_string()))?;
 
+        #[cfg(feature = "telemetry")]
         debug!(tool = %tool_name, "Executing tool");
 
         let start = Instant::now();
+
+        #[cfg(feature = "telemetry")]
         let result = handler
             .execute(input)
             .instrument(info_span!("tool_execute", tool = %tool_name))
             .await;
+
+        #[cfg(not(feature = "telemetry"))]
+        let result = handler.execute(input).await;
+
         let duration = start.elapsed();
 
-        // Record metrics
-        let success = result.is_ok();
-        GLOBAL_METRICS.record_tool(tool_name, duration, success);
-
-        // Record span fields
-        tracing::Span::current().record("duration_ms", duration.as_secs_f64() * 1000.0);
-        tracing::Span::current().record("success", success);
+        // Record metrics (only with telemetry feature)
+        #[cfg(feature = "telemetry")]
+        {
+            let success = result.is_ok();
+            GLOBAL_METRICS.record_tool(tool_name, duration, success);
+        }
 
         match result {
             Ok(output) => {
+                #[cfg(feature = "telemetry")]
                 debug!(
                     tool = %tool_name,
                     duration_ms = duration.as_secs_f64() * 1000.0,
@@ -227,6 +238,7 @@ impl ToolRegistry {
                 })
             }
             Err(err) => {
+                #[cfg(feature = "telemetry")]
                 debug!(
                     tool = %tool_name,
                     duration_ms = duration.as_secs_f64() * 1000.0,
