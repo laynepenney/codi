@@ -17,6 +17,11 @@ use crate::agent::{
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
 use crate::error::ToolError;
+use crate::completion::{complete_line, get_completion_matches};
+use crate::orchestrate::{
+    AsyncCommand, AsyncCommandResult, DelegationRequest, DelegationResult, Worker, WorkerResult,
+};
+use crate::error::ToolError;
 use crate::orchestrate::{
     Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo,
     ipc::PermissionResult,
@@ -206,6 +211,8 @@ pub struct App {
     pub current_session: Option<Session>,
     /// Project path for session creation.
     project_path: String,
+    /// Tab completion hint to display.
+    pub completion_hint: Option<String>,
 
     // Orchestration
     /// Commander for multi-agent orchestration.
@@ -250,6 +257,7 @@ impl App {
             current_session_id: None,
             current_session: None,
             project_path,
+            completion_hint: None,
             commander: None,
             pending_worker_permissions: Vec::new(),
         }
@@ -558,10 +566,73 @@ impl App {
             KeyCode::PageDown => {
                 self.scroll_offset = self.scroll_offset.saturating_add(10);
             }
-            KeyCode::Esc => {
-                self.should_quit = true;
+            KeyCode::Tab => {
+                // Handle tab completion for slash commands
+                if !self.input.is_empty() {
+                    self.handle_tab_completion();
+                }
             }
             _ => {}
+        }
+    }
+
+/// Get usage example for a completed command.
+fn get_usage_example(cmd: &str) -> Option<&'static str> {
+    match cmd {
+        "/help" => Some("Show available commands"),
+        "/exit" => Some("Exit the application"),
+        "/clear" => Some("Clear the conversation"),
+        "/status" => Some("Show current status"),
+        "/versions" => Some("Show version information"),
+        "/context" => Some("Show/compact conversation context"),
+        "/compact" => Some("Compress context to save tokens"),
+        "/save" => Some("Save current session"),
+        "/load" => Some("Load a session"),
+        "/sessions" => Some("List all sessions"),
+        "/models" => Some("List available AI models"),
+        "/models anthropic" => Some("Show Claude models"),
+        "/models openai" => Some("Show GPT models"),
+        "/models --local" => Some("Show local Ollama models"),
+        "/session label" => Some("Label current session"),
+        "/memory remember" => Some("Remember a fact"),
+        "/memory memories" => Some("Show stored memories"),
+        "/memory clear" => Some("Clear all memories"),
+        "/worktrees" => Some("Manage git worktrees"),
+        "/workers" => Some("Manage AI workers"),
+        "--local" => Some("Show only local models"),
+        "-f" => Some("Output format (json/text)"),
+        _ => None,
+    }
+}
+
+    /// Handle tab completion for input (slash commands only).
+    fn handle_tab_completion(&mut self) {
+        // Only provide completion for slash commands
+        let trimmed = self.input.trim();
+        if trimmed.starts_with('/') {
+            if let Some(completed) = complete_line(&self.input) {
+                if completed != self.input {
+                    self.input = completed;
+                    self.cursor_pos = self.input.len();
+                }
+            }
+            
+            // Show completion hints
+            let matches = get_completion_matches(&self.input);
+            if !matches.is_empty() {
+                if matches.len() > 1 {
+                    // Show first few matches as hint
+                    let hint = format!("  Commands: {}", matches.iter().take(3).cloned().collect::<Vec<_>>().join(" | "));
+                    self.status = Some(hint);
+                } else if matches.len() == 1 {
+                    // Show usage hint for single match
+                    let first = matches[0].clone();
+                    if let Some(example) = get_usage_example(&first) {
+                        self.completion_hint = Some(example.to_string());
+                        self.status = Some(format!("  {} - {}", first, example.trim()));
+                    }
+                }
+            }
         }
     }
 
