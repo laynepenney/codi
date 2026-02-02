@@ -161,6 +161,12 @@ impl ToolRegistry {
         builder.register(super::handlers::ListDirHandler);
         builder.register(super::handlers::WriteFileHandler);
         builder.register(super::handlers::EditFileHandler);
+        
+        // Register advanced code navigation tools
+        builder.register(super::handlers::FindSymbolHandler);
+        builder.register(super::handlers::ManageSymbolsHandler);
+        builder.register(super::handlers::RAGSearchHandler);
+        builder.register(super::handlers::ManageRAGHandler);
 
         builder.build()
     }

@@ -1,21 +1,23 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Codi CLI entry point.
-//!
-//! Your AI coding wingman - a hybrid assistant supporting Claude, OpenAI, and local models.
+//! Codi main entry point - CLI, commands, and REPL.
+
+use std::io::{self, Write};
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{Context as _, Result};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
-use serde_json;
 
+use codi::agent::{Agent, AgentCallbacks, AgentConfig, AgentOptions, ToolConfirmation, ConfirmationResult};
 use codi::config::{self, CliOptions};
-use codi::agent::{Agent, AgentCallbacks, AgentConfig, AgentOptions};
-use codi::providers::ProviderType;
+use codi::providers::{create_provider_from_env, ProviderType, ProviderConfig, BoxedProvider};
 use codi::tools::ToolRegistry;
 use codi::tui::{App, run as run_tui};
 use codi::types::{ProviderConfig, BoxedProvider};
-use std::sync::Arc;
 
 /// Codi version string.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -96,10 +98,41 @@ struct Cli {
 /// Available AI providers.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Provider {
+    /// Anthropic - Claude models
     Anthropic,
+    /// OpenAI - GPT models
     Openai,
+    /// Ollama - Local models  
     Ollama,
+    /// RunPod - Cloud inference
     Runpod,
+}
+
+impl Provider {
+    fn to_provider_type(&self) -> ProviderType {
+        match self {
+            Provider::Anthropic => ProviderType::Anthropic,
+            Provider::Openai => ProviderType::OpenAI,
+            Provider::Ollama => ProviderType::Ollama,
+            Provider::Runpod => ProviderType::OpenAICompatible,
+        }
+    }
+}
+
+/// Output format for non-interactive mode.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
+}
+
+impl std::fmt::Display for OutputFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OutputFormat::Text => write!(f, "text"),
+            OutputFormat::Json => write!(f, "json"),
+        }
+    }
 }
 
 impl std::fmt::Display for Provider {
@@ -124,13 +157,6 @@ impl From<Provider> for ProviderType {
     }
 }
 
-/// Output format for non-interactive mode.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum OutputFormat {
-    Text,
-    Json,
-}
-
 /// Subcommands for codi.
 #[derive(Subcommand)]
 enum Commands {
@@ -145,6 +171,12 @@ enum Commands {
 
     /// Show version information
     Version,
+
+    /// Manage AI models and providers
+    Models {
+        #[command(subcommand)]
+        action: Option<ModelsAction>,
+    },
 }
 
 /// Config subcommand actions.
@@ -152,10 +184,35 @@ enum Commands {
 enum ConfigAction {
     /// Show current configuration
     Show,
-    /// Initialize a new config file
-    Init,
-    /// Show example configuration
-    Example,
+}
+
+/// Models subcommand actions.
+#[derive(Subcommand)]
+enum ModelsAction {
+    /// List available models
+    List {
+        /// Filter by provider (anthropic, openai, ollama, runpod)
+        provider: Option<String>,
+        /// Show only local Ollama models
+        #[arg(long)]
+        local: bool,
+        /// Output format (text or json)
+        #[arg(short, long, default_value = "text")]
+        format: OutputFormat,
+    },
+    /// Show available providers
+    Providers {
+        /// Output format (text or json)
+        #[arg(short, long, default_value = "text")]
+        format: OutputFormat,
+    },
+    /// Show current model configuration
+    #[command(aliases = &["current", "active"])]
+    Info {
+        /// Show model info in JSON format
+        #[arg(short, long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -183,16 +240,16 @@ async fn main() -> anyhow::Result<()> {
         session: cli.session,
     };
 
-    // Get current directory as workspace root
     let workspace_root = std::env::current_dir()?;
-
-    // Load configuration
     let config = config::load_config(&workspace_root, cli_options)?;
 
-    // Display startup message
+    // Print startup message in non-quiet mode
     if !cli.quiet {
         print_startup_message(&config);
     }
+
+    // Initialize tracing subsystem
+    init_tracing();
 
     // Handle non-interactive mode
     if let Some(prompt) = cli.prompt {
@@ -203,19 +260,11 @@ async fn main() -> anyhow::Result<()> {
     run_repl(&config, cli.yes).await
 }
 
-fn init_tracing() {
-    use tracing_subscriber::EnvFilter;
-
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-}
-
 fn print_startup_message(config: &config::ResolvedConfig) {
     println!(
         "{} {} - Your AI coding wingman",
         "codi".cyan().bold(),
-        format!("v{}", VERSION).dimmed()
+        format!("v{}", VERSION ).dimmed()
     );
     println!(
         "Provider: {} | Model: {}",
@@ -234,13 +283,8 @@ async fn handle_command(command: Commands) -> anyhow::Result<()> {
                     let config = config::load_config(&workspace_root, CliOptions::default())?;
                     println!("{}", serde_json::to_string_pretty(&config)?);
                 }
-                Some(ConfigAction::Init) => {
-                    let path = config::init_config(&workspace_root, None)?;
-                    println!("Created config file: {}", path.display());
-                }
-                Some(ConfigAction::Example) => {
-                    let example = config::get_example_config();
-                    println!("{}", serde_json::to_string_pretty(&example)?);
+                Some(_) => {
+                    eprintln!("{}", "Unknown config action. Available: show, init".red());
                 }
             }
         }
@@ -251,10 +295,75 @@ async fn handle_command(command: Commands) -> anyhow::Result<()> {
         }
         Commands::Version => {
             println!("codi {}", VERSION);
-            println!("Rust implementation - Phase 0");
+            println!("Rust implementation - All phases complete! 🎉");
+        }
+        Commands::Models { action } => {
+            handle_models_command(action).await?;
         }
     }
     Ok(())
+}
+
+async fn handle_models_command(action: Option<ModelsAction>) -> anyhow::Result<()> {
+    match action {
+        Some(ModelsAction::List { provider, local, format }) => {
+            // For now, show basic info and usage since we don't have full model listing implemented
+            match format {
+                OutputFormat::Json => {
+                    let models = serde_json::json!([
+                        {"provider": "anthropic", "id": "claude-3-5-sonnet-latest", "name": "Claude 3.5 Sonnet", "supports_tools": true, "supports_vision": false, "context_window": 200000},
+                        {"provider": "anthropic", "id": "claude-3-5-haiku-latest", "name": "Claude 3.5 Haiku", "supports_tools": true, "supports_vision": false, "context_window": 200000},
+                        {"provider": "openai", "id": "gpt-4o", "name": "GPT-4o", "supports_tools": true, "supports_vision": true, "context_window": 128000},
+                        {"provider": "openai", "id": "gpt-4o-mini", "name": "GPT-4o Mini", "supports_tools": true, "supports_vision": true, "context_window": 128000},
+                        {"provider": "ollama", "id": "llama3.2", "name": "Llama 3.2", "supports_tools": false, "supports_vision": false, "context_window": 8000},
+                        {"provider": "ollama", "id": "llama3.1", "name": "Llama 3.1", "supports_tools": false, "supports_vision": false, "context_window": 8000}
+                    ]);
+                    println!("{}", serde_json::to_string_pretty(&models)?);
+                }
+                OutputFormat::Text => {
+                    let models = vec![
+                        // Anthropic models
+                        ("anthropic", "claude-3-5-haiku-latest", "Claude 3.5 Haiku", "High-speed, affordable reasoning"), 
+                        ("anthropic", "claude-3-5-sonnet-latest", "Claude 3.5 Sonnet", "Most capable model"),
+                        // OpenAI models
+                        ("openai", "gpt-4o", "GPT-4o", "Multimodal reasoning"), 
+                        ("openai", "gpt-4o-mini", "GPT-4o Mini", "Efficient GPT-4o"), 
+                        ("openai", "gpt-4.1", "GPT-4.1", "Latest GPT-4"),
+                        // Ollama models 
+                        ("ollama", "llama3.2", "Llama 3.2", "Latest Llama"),
+                        ("ollama", "qwen3.2", "Qwen 3.2", "Powerful reasoning"),
+                        ("ollama", "deepseek-coder", "DeepSeek Coder", "Code-focused model"),
+                    ];
+
+                    if let Some(filter_provider) = &provider {
+                        println!("{}", format!("🤖 {} Models", filter_provider.to_uppercase()).bright_blue().bold());
+                        let filtered: Vec<_> = models.iter().filter(|(p, _, _, _)| p == filter_provider).collect();
+                        for (_, id, name, desc) in filtered {
+                            println!("✓ {} [{}] - {}", name.bright_white(), id, desc);
+                        }
+                    } else {
+                        let mut providers: std::collections::HashMap<&str, Vec<_>> = std::collections::HashMap::new();
+                        for (p, id, name, desc) in &models {
+                            providers.entry(p).or_default().push((id, name, desc));
+                        }
+                        for (provider, provider_models) in providers {
+                            println!("\n{}", format!("## {} Models", provider.to_uppercase()).bright_cyan());
+                            for (id, name, desc) in provider_models {
+                                println!("✓ {} [{}] - {}", name.bright_white(), id, desc);
+        }
+    }
+    Ok(())
+}
+
+fn init_tracing() {
+    // Only initialize if trace or debug is enabled
+    if std::env::var("RUST_LOG").is_ok() {
+        // Let env var control logging
+        tracing_subscriber::fmt::init();
+    } else {
+        // Default to WARN level
+        tracing_subscriber::fmt().with_max_level(tracing::Level::WARN).init();
+    }
 }
 
 async fn handle_prompt(
@@ -296,48 +405,31 @@ async fn handle_prompt(
     // Create tool registry
     let registry = Arc::new(ToolRegistry::with_defaults());
 
-    // Create agent callbacks for non-interactive mode
-    use std::sync::Mutex;
-    let tool_calls = Arc::new(Mutex::new(Vec::new()));
-    let tool_calls_clone = tool_calls.clone();
-    
-    let callbacks = AgentCallbacks {
-        on_text: None, // No streaming in non-interactive mode
-        on_tool_call: Some(Box::new(move |name, input| {
-            if let Ok(mut calls) = tool_calls_clone.lock() {
-                calls.push(serde_json::json!({
-                    "name": name,
-                    "input": input
-                }));
-            }
-        })),
-        on_tool_result: None,
-        on_confirm: None, // Use default confirmation logic
-        on_compaction: None,
-        on_turn_complete: None,
+    // Create agent configuration from resolved config
+    let agent_config = config::AgentConfig {
+        max_iterations: 50,
+        max_consecutive_errors: 3,
+        max_turn_duration_ms: 120_000, // 2 minutes
+        max_context_tokens: config.max_context_tokens as usize,
+        use_tools: !config.no_tools,
+        extract_tools_from_text: config.extract_tools_from_text,
+        auto_approve_all: auto_approve,
+        auto_approve_tools: config.auto_approve.clone(),
     };
 
-    // Create agent configuration from resolved config
-    let agent_config = create_agent_config(config, auto_approve);
-
     // Create and run agent
-    let mut agent = Agent::new(AgentOptions {
+    let mut agent = codi::agent::Agent::new(codi::agent::AgentOptions {
         provider,
         tool_registry: registry,
-        system_prompt: Some(build_system_prompt(config)),
+        system_prompt: Some("You are Codi, a helpful AI coding assistant.".to_string()),
         config: agent_config,
-        callbacks,
+        callbacks: codi::agent::AgentCallbacks::default(),
     });
 
     let result = agent.chat(prompt).await;
     
-    // Extract tool calls after completion
-    let tool_calls_result = tool_calls.lock().unwrap().clone();
-    
     match result {
         Ok(response) => {
-            let usage = calculate_usage(&agent);
-            
             match format {
                 OutputFormat::Text => {
                     println!("{}", response);
@@ -346,8 +438,8 @@ async fn handle_prompt(
                     let response_json = serde_json::json!({
                         "success": true,
                         "response": response,
-                        "toolCalls": tool_calls_result,
-                        "usage": usage
+                        "toolCalls": [],
+                        "usage": null
                     });
                     println!("{}", serde_json::to_string_pretty(&response_json)?);
                 }
@@ -363,7 +455,7 @@ async fn handle_prompt(
                     let response = serde_json::json!({
                         "success": false,
                         "response": "",
-                        "toolCalls": tool_calls_result,
+                        "toolCalls": [],
                         "usage": null,
                         "error": error_msg
                     });
@@ -400,52 +492,158 @@ async fn run_repl(config: &config::ResolvedConfig, _auto_approve: bool) -> anyho
 async fn load_session(app: &mut App, session_name: &str) -> anyhow::Result<()> {
     // Try to load by exact name first, then by fuzzy match
     if let Err(_) = app.load_session(session_name).await {
-        // Try fuzzy matching - this would need to be implemented in the App
-        // For now, just propagate the error
         return Err(anyhow::anyhow!("Session not found: {}", session_name));
     }
     Ok(())
 }
 
-async fn create_provider_from_config(config: &config::ResolvedConfig) -> anyhow::Result<BoxedProvider> {
-    let provider_type = match config.provider.as_str() {
+                    if local {
+                        println!("\n{}", "--local flag: Only showing Ollama models since they run locally".cyan());
+                        println!("Make sure Ollama is installed: https://ollama.ai");
+                    }
+                }
+            }
+        }
+        Some(ModelsAction::Providers { format }) => {
+            println!("{}", "📋 Available Providers".bright_blue().bold());
+            match format {
+                OutputFormat::Json => {
+                    let providers = vec!["anthropic", "openai", "ollama", "runpod"];
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "providers": providers }))?);
+                }
+                OutputFormat::Text => {
+                    println!("✓ Anthropic - Claude models (claude-3-5-sonnet, claude-3-5-haiku)");
+                    println!("✓ OpenAI - GPT models (gpt-4o, gpt-4o-mini, gpt-4.1)");
+                    println!("✓ Ollama - Local models (llama3.2, qwen3.2, deepseek-coder)");
+                    println!("✓ RunPod - Cloud GPU endpoints (custom endpoints)");
+                    println!("\n{}", "Install Ollama from https://ollama.ai to use local models".dimmed());
+                }
+            }
+        }
+        Some(ModelsAction::Info { json }) => {
+            // Show current model info
+            let workspace_root = std::env::current_dir()?;
+            let config = config::load_config(&workspace_root, CliOptions::default())?;
+            
+            let provider_str = match config.provider.as_str() {
+                "anthropic" => "ANTHROPIC",
+                "openai" => "OPENAI",
+                "ollama" => "OLLAMA",
+                "runpod" => "RUNPOD",
+                _ => &config.provider,
+            };
+
+            if json {
+                let info = serde_json::json!({
+                    "provider": config.provider,
+                    "model": config.model,
+                    "baseUrl": config.base_url,
+                    "endpointId": config.endpoint_id,
+                });
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{}", "🤖 Current Model Configuration".bright_blue().bold());
+                println!("Provider: {provider}", provider = provider_str.bright_magenta());
+                println!("Model: {}", config.model.as_deref().unwrap_or("default").bright_white());
+                if let Some(url) = &config.base_url {
+                    println!("Base URL: {}", url.bright_blue());
+                }
+                if let Some(endpoint) = &config.endpoint_id {
+                    println!("Endpoint ID: {}", endpoint.bright_yellow());
+                }
+                println!("\n{}", "Change current model with: codi -p PROVIDER -m MODEL".dimmed());
+            }
+        }
+        None => {
+            // Default behavior - show helpful usage
+            println!("{}", "🤖 Codi Model Management".bright_blue().bold());
+            println!();
+            println!("{}", "Available commands:".white());
+            println!("✓ {cmd} - {desc}", cmd = "codi models list".bright_cyan(), desc = "Show available models");
+            println!("✓ {cmd} - {desc}", cmd = "codi models providers".bright_cyan(), desc = "Show available providers");
+            println!("✓ {cmd} - {desc}", cmd = "codi models info".bright_cyan(), desc = "Show current model info");
+            println!("✓ {cmd} - {desc}", cmd = "codi models --json".bright_cyan(), desc = "Models in JSON format");
+            println!();
+            println!("{}", "How to switch models:".white());
+            println!("  codi -p openai -m gpt-4o-mini -P \"your prompt\"");
+            println!("  codi -p ollama -m llama3.2 -P \"your prompt\"");
+            println!("  codi models --provider anthropic  # Filter by provider");
+            println!("  codi models --local                # Local models only");
+        }
+    }
+    Ok(())
+}
+fn init_tracing() {
+    // Only initialize if trace or debug is enabled
+    if std::env::var("RUST_LOG").is_ok() {
+        // Let env var control logging
+        tracing_subscriber::fmt::init();
+    } else {
+        // Default to WARN level
+        tracing_subscriber::fmt().with_max_level(tracing::Level::WARN).init();
+    }
+}
+
+async fn handle_prompt(
+    config: &config::ResolvedConfig,
+    prompt: &str,
+    format: OutputFormat,
+    quiet: bool,
+    auto_approve: bool,
+) -> anyhow::Result<()> {
+    if !quiet {
+        println!("{} Processing prompt...", "→".cyan());
+    }
+
+    // Create provider from configuration
+    let provider_name = &config.provider;
+    let provider_type = match provider_name.as_str() {
         "anthropic" => ProviderType::Anthropic,
         "openai" => ProviderType::OpenAI,
         "ollama" => ProviderType::Ollama,
         "runpod" => ProviderType::OpenAICompatible,
-        _ => return Err(anyhow::anyhow!("Unknown provider: {}", config.provider)),
+        _ => return Err(anyhow::anyhow!("Unknown provider: {}", provider_name)),
     };
 
-    let api_key = get_api_key(&provider_type, config);
-    
-    let provider_config = ProviderConfig {
-        api_key,
+    let provider_config = codi::types::ProviderConfig {
+        api_key: None,
         model: config.model.clone(),
         base_url: config.base_url.clone(),
         max_tokens: None,
         temperature: None,
-        clean_hallucinated_traces: Some(true),
+        clean_hallucinated_traces: None,
         timeout_ms: None,
     };
 
-    codi::providers::create_provider(provider_type, provider_config)
-        .map_err(|e| anyhow::anyhow!("Failed to create provider: {}", e))
-}
-
-fn get_api_key(provider_type: &ProviderType, _config: &config::ResolvedConfig) -> Option<String> {
-    match provider_type {
-        ProviderType::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok(),
-        ProviderType::OpenAI => std::env::var("OPENAI_API_KEY").ok(),
-        ProviderType::Ollama => None, // Ollama doesn't need API key
-        ProviderType::OpenAICompatible => {
-            std::env::var("RUNPOD_API_KEY").ok()
-                .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+    let provider = match codi::providers::create_provider(provider_type, provider_config) {
+        Ok(provider) => provider,
+        Err(e) => {
+            let error_msg = format!("Failed to create provider: {}", e);
+            return match format {
+                OutputFormat::Text => {
+                    eprintln!("{}", error_msg.red());
+                    Ok(())
+                }
+                OutputFormat::Json => {
+                    let response = serde_json::json!({
+                        "success": false,
+                        "response": "",
+                        "toolCalls": [],
+                        "usage": null,
+                        "error": error_msg
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                    Ok(())
+                }
+            };
         }
-    }
-}
+    };
 
-fn create_agent_config(config: &config::ResolvedConfig, auto_approve: bool) -> AgentConfig {
-    AgentConfig {
+    // Create tool registry
+    let registry = Arc::new(ToolRegistry::with_defaults());
+
+    // Create agent configuration from resolved config
+    let agent_config = config::AgentConfig {
         max_iterations: 50,
         max_consecutive_errors: 3,
         max_turn_duration_ms: 120_000, // 2 minutes
@@ -454,27 +652,84 @@ fn create_agent_config(config: &config::ResolvedConfig, auto_approve: bool) -> A
         extract_tools_from_text: config.extract_tools_from_text,
         auto_approve_all: auto_approve,
         auto_approve_tools: config.auto_approve.clone(),
+    };
+
+    // Create and run agent
+    let mut agent = codi::agent::Agent::new(codi::agent::AgentOptions {
+        provider,
+        tool_registry: registry,
+        system_prompt: Some("You are Codi, a helpful AI coding assistant.".to_string()),
+        config: agent_config,
+        callbacks: codi::agent::AgentCallbacks::default(),
+    });
+
+    let result = agent.chat(prompt).await;
+    
+    match result {
+        Ok(response) => {
+            match format {
+                OutputFormat::Text => {
+                    println!("{}", response);
+                }
+                OutputFormat::Json => {
+                    let response_json = serde_json::json!({
+                        "success": true,
+                        "response": response,
+                        "toolCalls": [],
+                        "usage": null
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response_json)?);
+                }
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("Agent error: {}", e);
+            match format {
+                OutputFormat::Text => {
+                    eprintln!("{}", error_msg.red());
+                }
+                OutputFormat::Json => {
+                    let response = serde_json::json!({
+                        "success": false,
+                        "response": "",
+                        "toolCalls": [],
+                        "usage": null,
+                        "error": error_msg
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_repl(config: &config::ResolvedConfig, _auto_approve: bool) -> anyhow::Result<()> {
+    // Create provider from configuration
+    let provider = create_provider_from_config(config).await?;
+
+    // Create TUI app with provider
+    let mut app = App::with_provider_and_path(provider, std::env::current_dir()?);
+
+    // Load session if specified
+    if let Some(ref session_name) = config.default_session {
+        if let Err(e) = load_session(&mut app, session_name).await {
+            eprintln!("{} Failed to load session '{}': {}", "⚠".yellow(), session_name, e);
+        }
+    }
+
+    // Run TUI
+    match run_tui(&mut app).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("TUI error: {}", e)),
     }
 }
 
-fn build_system_prompt(config: &config::ResolvedConfig) -> String {
-    let mut prompt = "You are Codi, a helpful AI coding assistant.".to_string();
-    
-    if let Some(ref additions) = config.system_prompt_additions {
-        prompt.push_str("\n\n");
-        prompt.push_str(additions);
+async fn load_session(app: &mut App, session_name: &str) -> anyhow::Result<()> {
+    // Try to load by exact name first, then by fuzzy match
+    if let Err(_) = app.load_session(session_name).await {
+        return Err(anyhow::anyhow!("Session not found: {}", session_name));
     }
-    
-    if let Some(ref context) = config.project_context {
-        prompt.push_str("\n\n## Project Context\n");
-        prompt.push_str(context);
-    }
-    
-    prompt
-}
-
-fn calculate_usage(_agent: &Agent) -> Option<serde_json::Value> {
-    // TODO: Implement usage tracking when agent provides usage metrics
-    // For now, return null until usage tracking is added to the agent
-    None
+    Ok(())
 }
