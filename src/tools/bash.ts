@@ -7,7 +7,7 @@ import type { ToolDefinition } from '../types.js';
 import type { ExecErrorWithOutput } from '../types/extended.js';
 import { getBlockingPatterns } from '../utils/index.js';
 
-const TIMEOUT_MS = 30000; // 30 second timeout
+const TIMEOUT_MS = 600000; // 10 minute timeout (600 seconds for E2E tests)
 const MAX_OUTPUT_LENGTH = 50000; // Truncate output if too long
 
 // Get blocking patterns from unified constants
