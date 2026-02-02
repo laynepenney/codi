@@ -20,6 +20,7 @@
 //! - [`agent`] - Core agentic orchestration loop
 //! - [`symbol_index`] - Tree-sitter based code navigation and symbol search
 //! - [`rag`] - RAG system for semantic code search with embeddings
+//! - [`session`] - Session persistence and context windowing
 //!
 //! # Migration Status
 //!
@@ -30,7 +31,8 @@
 //! - **Phase 2**: Provider layer - Anthropic, OpenAI, Ollama ✓
 //! - **Phase 3**: Agent loop - core agentic orchestration ✓
 //! - **Phase 4**: Symbol index - tree-sitter based code navigation ✓
-//! - **Phase 5** (Current): RAG system - semantic code search with embeddings
+//! - **Phase 5**: RAG system - semantic code search with embeddings ✓
+//! - **Phase 5.5** (Current): Session & context - persistence and windowing
 //! - **Phase 6**: Terminal UI - ratatui based interface
 //! - **Phase 7**: Multi-agent - IPC-based worker orchestration
 //!
@@ -52,6 +54,7 @@ pub mod config;
 pub mod error;
 pub mod providers;
 pub mod rag;
+pub mod session;
 pub mod symbol_index;
 pub mod telemetry;
 pub mod tools;
