@@ -4,6 +4,7 @@
 //! SQLite-based session storage.
 
 use std::path::{Path, PathBuf};
+#[cfg(feature = "telemetry")]
 use std::time::Instant;
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -28,6 +29,7 @@ pub struct SessionStorage {
 impl SessionStorage {
     /// Open or create a session database.
     pub fn open(project_root: &str) -> Result<Self, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let codi_dir = get_sessions_directory(project_root)?;
@@ -75,6 +77,7 @@ impl SessionStorage {
 
     /// Initialize the database schema.
     fn init_schema(&mut self) -> Result<(), ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         self.conn
@@ -153,6 +156,7 @@ impl SessionStorage {
 
     /// Create a new session.
     pub fn create_session(&self, session: &Session) -> Result<(), ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let todos_json = serde_json::to_string(&session.todos).unwrap_or_default();
@@ -195,6 +199,7 @@ impl SessionStorage {
 
     /// Update an existing session.
     pub fn update_session(&self, session: &Session) -> Result<(), ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let todos_json = serde_json::to_string(&session.todos).unwrap_or_default();
@@ -236,6 +241,7 @@ impl SessionStorage {
 
     /// Get a session by ID.
     pub fn get_session(&self, id: &str) -> Result<Option<Session>, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let result = self
@@ -284,6 +290,7 @@ impl SessionStorage {
 
     /// Delete a session and its messages.
     pub fn delete_session(&self, id: &str) -> Result<bool, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         // Messages are deleted via CASCADE
@@ -300,6 +307,7 @@ impl SessionStorage {
 
     /// List all sessions.
     pub fn list_sessions(&self) -> Result<Vec<SessionInfo>, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let mut stmt = self
@@ -403,6 +411,7 @@ impl SessionStorage {
 
     /// Add a message to a session.
     pub fn add_message(&self, message: &SessionMessage) -> Result<(), ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let content_json = serde_json::to_string(&message.content).map_err(|e| {
@@ -444,6 +453,7 @@ impl SessionStorage {
 
     /// Get all messages for a session.
     pub fn get_messages(&self, session_id: &str) -> Result<Vec<SessionMessage>, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let mut stmt = self
@@ -531,6 +541,7 @@ impl SessionStorage {
 
     /// Prune old sessions if we exceed the limit.
     pub fn prune_sessions(&self, max_sessions: usize) -> Result<u32, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         // Get count of sessions

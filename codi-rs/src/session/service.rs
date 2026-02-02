@@ -4,6 +4,7 @@
 //! Session service for managing conversation sessions.
 
 use std::sync::Arc;
+#[cfg(feature = "telemetry")]
 use std::time::Instant;
 
 use tokio::sync::Mutex;
@@ -40,6 +41,7 @@ impl SessionService {
         config: SessionConfig,
         context_config: ContextConfig,
     ) -> Result<Self, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let storage = SessionStorage::open(project_root)?;
@@ -65,6 +67,7 @@ impl SessionService {
 
     /// Create a new session.
     pub async fn create(&self, title: String, project_path: String) -> Result<Session, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let id = Session::generate_id();
@@ -101,6 +104,7 @@ impl SessionService {
 
     /// Get a session by ID.
     pub async fn get(&self, id: &str) -> Result<Option<Session>, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let storage = self.storage.lock().await;
@@ -114,6 +118,7 @@ impl SessionService {
 
     /// Save/update a session.
     pub async fn save(&self, session: &mut Session) -> Result<(), ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         session.touch();
@@ -129,6 +134,7 @@ impl SessionService {
 
     /// Delete a session.
     pub async fn delete(&self, id: &str) -> Result<bool, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let storage = self.storage.lock().await;
@@ -142,6 +148,7 @@ impl SessionService {
 
     /// List all sessions.
     pub async fn list(&self) -> Result<Vec<SessionInfo>, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let storage = self.storage.lock().await;
@@ -161,6 +168,7 @@ impl SessionService {
 
     /// Add a message to a session.
     pub async fn add_message(&self, session_id: &str, message: &Message) -> Result<SessionMessage, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let session_message = SessionMessage::from_message(session_id.to_string(), message);
@@ -176,6 +184,7 @@ impl SessionService {
 
     /// Get all messages for a session.
     pub async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, ToolError> {
+        #[cfg(feature = "telemetry")]
         let start = Instant::now();
 
         let storage = self.storage.lock().await;

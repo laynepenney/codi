@@ -10,6 +10,7 @@
 //! - Working set tracking for recently accessed files
 
 use std::collections::HashSet;
+#[cfg(feature = "telemetry")]
 use std::time::Instant;
 
 use crate::types::{ContentBlockType, Message};
@@ -180,6 +181,7 @@ impl ContextWindow {
 
 /// Estimate tokens for a single message.
 pub fn estimate_message_tokens(message: &Message) -> u64 {
+    #[cfg(feature = "telemetry")]
     let start = Instant::now();
 
     let text = get_message_text(message);
