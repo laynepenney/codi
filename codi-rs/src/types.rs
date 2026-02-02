@@ -438,7 +438,7 @@ impl<T> StructuredResult<T> {
 // ============================================================================
 
 /// Token usage information from a provider response.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenUsage {
     /// Number of tokens in the input/prompt
     pub input_tokens: u32,

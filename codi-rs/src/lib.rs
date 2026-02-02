@@ -22,6 +22,7 @@
 //! - [`rag`] - RAG system for semantic code search with embeddings
 //! - [`session`] - Session persistence and context windowing
 //! - [`lsp`] - Language Server Protocol integration for code intelligence
+//! - [`orchestrate`] - Multi-agent orchestration with IPC-based worker management
 //!
 //! # Migration Status
 //!
@@ -36,8 +37,8 @@
 //! - **Phase 5.5**: Session & context - persistence and windowing ✓
 //! - **Phase 6**: Terminal UI - ratatui based interface ✓
 //! - **Phase 6.5**: MCP Protocol - tool extensibility ✓
-//! - **Phase 6.6** (Current): LSP Integration - code intelligence
-//! - **Phase 7**: Multi-agent - IPC-based worker orchestration
+//! - **Phase 6.6**: LSP Integration - code intelligence
+//! - **Phase 7** (Current): Multi-agent - IPC-based worker orchestration ✓
 //!
 //! # Example
 //!
@@ -57,6 +58,7 @@ pub mod config;
 pub mod error;
 pub mod lsp;
 pub mod mcp;
+pub mod orchestrate;
 pub mod providers;
 pub mod rag;
 pub mod session;
@@ -87,7 +89,7 @@ pub use types::{
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Migration phase identifier.
-pub const MIGRATION_PHASE: u8 = 6;
+pub const MIGRATION_PHASE: u8 = 7;
 
 #[cfg(test)]
 mod tests {
@@ -100,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_migration_phase() {
-        assert_eq!(MIGRATION_PHASE, 6);
+        assert_eq!(MIGRATION_PHASE, 7);
     }
 
     #[test]
