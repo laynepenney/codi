@@ -116,6 +116,10 @@ harness = false
 name = "symbol_index"
 harness = false
 
+[[bench]]
+name = "rag"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
