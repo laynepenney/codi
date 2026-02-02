@@ -90,6 +90,9 @@ tree-sitter-go = "0.23"
 tree-sitter-json = "0.24"
 sha2 = "0.10"
 
+# MCP Protocol (Phase 6.5)
+rmcp = { version = "0.14", features = ["client", "transport-child-process", "transport-io", "transport-streamable-http-client-reqwest"] }
+
 [dev-dependencies]
 tempfile = "3"
 tokio-test = "0.4"
@@ -126,6 +129,10 @@ harness = false
 
 [[bench]]
 name = "tui"
+harness = false
+
+[[bench]]
+name = "mcp"
 harness = false
 
 [profile.release]
