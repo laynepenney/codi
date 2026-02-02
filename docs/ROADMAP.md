@@ -461,12 +461,255 @@ The Rust implementation of model_map (multi-model orchestration) was completed i
 
 ---
 
+## Phase 9: Skills System (from Codex)
+
+**Status: Planned**
+**Priority: P0 - Key Differentiator**
+
+Based on analysis of OpenAI Codex reference implementation, skills are modular, self-contained capabilities that transform Codi from a general-purpose agent into a specialized agent with procedural knowledge.
+
+### 9.1 Skill Architecture
+
+| Component | Description | Status |
+|-----------|-------------|--------|
+| `SKILL.md` format | YAML frontmatter + markdown instructions | TODO |
+| Skill metadata | name, description, interface, dependencies, scope | TODO |
+| Progressive loading | 3-level: metadata → body → resources | TODO |
+| Skill scopes | Repo → User → System (priority order) | TODO |
+
+**Skill File Structure:**
+```
+skill-name/
+├── SKILL.md (required)
+│   ├── YAML frontmatter (name, description ~100 words)
+│   └── Markdown instructions (<5k words)
+├── agents/
+│   └── config.yaml (UI metadata)
+└── resources/
+    ├── scripts/ (Python, Bash)
+    ├── references/ (docs loaded as needed)
+    └── assets/ (templates, icons)
+```
+
+### 9.2 Skill Loading & Injection
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Multi-root loading | Scan repo/.codi → ~/.codi/skills → system | TODO |
+| Explicit mentions | `$skill-name` syntax triggers injection | TODO |
+| Auto-selection | Detect when skill should trigger from description | TODO |
+| Dependency checking | Validate tool/connector requirements | TODO |
+
+### 9.3 Built-in Skills
+
+| Skill | Purpose | Status |
+|-------|---------|--------|
+| `skill-creator` | Create new skills from description | TODO |
+| `commit` | Git commit with conventional commits | TODO |
+| `review` | Code review workflow | TODO |
+| `test` | Test generation and running | TODO |
+
+---
+
+## Phase 10: Plan/Act Mode (from Cline)
+
+**Status: Planned**
+**Priority: P1 - UX Improvement**
+
+Based on Cline reference implementation, Plan/Act mode provides flexible execution with user approval workflows.
+
+### 10.1 Mode Architecture
+
+| Mode | Behavior | Status |
+|------|----------|--------|
+| **Plan Mode** | Gather context, create plan, present for approval | TODO |
+| **Act Mode** | Execute approved plan, non-blocking progress updates | TODO |
+| Mode switching | Manual toggle + auto-switch on approval | TODO |
+
+### 10.2 Plan Mode Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| `plan_mode_respond` tool | Present plans with predefined options | TODO |
+| Blocking approval | Wait for user to approve/modify plan | TODO |
+| Exploration flag | Request more context before planning | TODO |
+| Option tracking | Track selected vs ignored options | TODO |
+
+### 10.3 Act Mode Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| `act_mode_respond` tool | Non-blocking progress updates | TODO |
+| Task progress | Update focus chain/todo list | TODO |
+| Consecutive call prevention | Avoid infinite narration loops | TODO |
+
+---
+
+## Phase 11: Full MCP Integration (from Cline)
+
+**Status: Planned**
+**Priority: P0 - Industry Standard**
+
+Based on Cline reference implementation, full MCP (Model Context Protocol) support for extensibility.
+
+### 11.1 MCP Server Support
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Transport types | Stdio, SSE, Streamable HTTP | TODO |
+| Server management | Start, stop, restart MCP servers | TODO |
+| File watching | Auto-reload on settings changes | TODO |
+| Unique server keys | Avoid tool name conflicts | TODO |
+
+### 11.2 MCP Tool Execution
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| `use_mcp_tool` handler | Execute tools from MCP servers | TODO |
+| Per-tool auto-approve | Configure auto-approval per tool | TODO |
+| Partial streaming | Show in-progress tool invocation | TODO |
+| Resource access | MCP resources and templates | TODO |
+
+---
+
+## Phase 12: Enhanced Multi-Agent (from OpenHands)
+
+**Status: Planned**
+**Priority: P1 - Architecture**
+
+Based on OpenHands reference implementation, event-driven multi-agent patterns.
+
+### 12.1 Event-Driven Architecture
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| EventStream backbone | Central pub-sub for agent coordination | TODO |
+| State isolation | Per-agent state with shared metrics | TODO |
+| Delegate pattern | Parent-child agent spawning | TODO |
+| Event filtering | Parent forwards to active delegate | TODO |
+
+### 12.2 Agent Roles (from Codex)
+
+| Role | Description | Status |
+|------|-------------|--------|
+| Orchestrator | Coordination-only, delegates to workers | Exists (Commander) |
+| Worker | Task-executing with model override | Exists |
+| Explorer | Fast codebase search (cheap model) | TODO |
+| Planner | Read-only analysis and planning | TODO |
+
+### 12.3 Security Analyzer Framework
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Pluggable analyzers | Abstract security analysis interface | Partial |
+| LLM-based risk | Use LLM to assess action risk | TODO |
+| Invariant analyzer | Rule-based security policies | TODO |
+| Confirmation modes | Auto/manual based on risk level | Exists |
+
+---
+
+## Phase 13: Terminal UX Improvements (from Aider)
+
+**Status: Planned**
+**Priority: P2 - Polish**
+
+Based on Aider reference implementation, terminal AI coding patterns.
+
+### 13.1 Edit Format Strategies
+
+| Format | Description | Status |
+|--------|-------------|--------|
+| `whole` | Replace entire file | Exists |
+| `diff` | Search/replace blocks | Exists |
+| `patch` | Unified diff format | TODO |
+| `architect` | Two-stage planning + execution | TODO |
+
+### 13.2 Context Management
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Chat chunks | Organize messages into logical sections | Partial |
+| Prompt caching | Mark cacheable sections for efficiency | TODO |
+| Chat summarization | Compress old messages when context fills | Exists |
+| RepoMap | Tree-sitter based code map | TODO |
+
+### 13.3 Auto-Everything
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Auto-lint | Lint after edits | TODO |
+| Auto-test | Run tests after edits | TODO |
+| Auto-commit | Commit changes to git | Exists |
+
+---
+
+## Implementation Priority (Updated)
+
+| Phase | Feature | Effort | Impact | Priority | Status |
+|-------|---------|--------|--------|----------|--------|
+| 1-7 | Tool Improvements | - | - | - | **Complete** |
+| 8 | Rust Model Map | Medium | High | P1 | **In Progress** |
+| **9** | **Skills System** | High | **Critical** | **P0** | Planned |
+| **11** | **Full MCP** | Medium | **Critical** | **P0** | Planned |
+| **10** | **Plan/Act Mode** | Medium | High | **P1** | Planned |
+| **12** | **Enhanced Multi-Agent** | High | High | **P1** | Planned |
+| **13** | **Terminal UX** | Low | Medium | **P2** | Planned |
+
+### Recommended Implementation Order
+
+**Immediate (Next 4 weeks):**
+1. Fix Model Map issues (Phase 8.1-8.2)
+2. Skills System foundation (Phase 9.1-9.2)
+3. MCP Server support (Phase 11.1)
+
+**Short-term (Q1):**
+4. Plan/Act Mode (Phase 10)
+5. Built-in skills (Phase 9.3)
+6. MCP Tool execution (Phase 11.2)
+
+**Medium-term (Q2):**
+7. Enhanced Multi-Agent (Phase 12)
+8. Terminal UX (Phase 13)
+
+---
+
+## Architecture Insights from Reference Implementations
+
+### From Codex (OpenAI)
+- **Skills as progressive disclosure**: 3-level loading optimizes token usage
+- **Agent roles**: Orchestrator, Worker, Explorer with model overrides
+- **Sandbox-aware tools**: All execution considers sandbox constraints
+- **Config layer stack**: Project → User → System precedence
+
+### From OpenHands (65K★)
+- **Event-first design**: Everything is an event for replay/undo
+- **State separation**: Isolated state per agent, shared metrics
+- **Delegation pattern**: Opaque to parent, communicates via events
+- **Security as pluggable service**: LLM-based, invariant-based, or external
+
+### From Cline (35K★)
+- **Plan/Act duality**: Flexible execution with approval workflows
+- **MCP production-ready**: Auth flows, auto-approval, streaming
+- **Modular system prompts**: Model-specific optimizations
+- **Task state + mutex**: Prevent race conditions
+
+### From Aider (25K★)
+- **Edit format switching**: Multiple strategies for different use cases
+- **Context chunks**: Organized message sections for management
+- **RepoMap**: Tree-sitter AST for intelligent code maps
+- **Prompt caching**: Reduces costs and improves latency
+
+---
+
 ## Feedback Source
 
-This roadmap is based on feedback from GPT-OSS (120B) after using Codi's tools for a bracketed paste mode implementation task. The model identified specific friction points when:
-- Searching large TypeScript codebases
-- Making targeted edits across multiple locations
-- Understanding code structure and dependencies
-- Validating changes with tests
+This roadmap is based on:
+1. GPT-OSS (120B) feedback on tool friction points
+2. Code review of Phase 8 Model Map implementation
+3. **Reference implementation analysis** (Feb 2026):
+   - OpenAI Codex: Skills system, agent roles, sandboxing
+   - OpenHands: Event-driven multi-agent, Docker sandboxing
+   - Cline: Plan/Act mode, MCP integration, VS Code patterns
+   - Aider: Terminal AI patterns, edit formats, context management
 
-The suggestions prioritize making the AI assistant operate more like an IDE-level automation layer: finding the right code fast, making reliable changes, validating automatically, and keeping documentation in sync.
+The suggestions prioritize making Codi competitive with industry-leading open source agents while maintaining its unique differentiators (UDS IPC, human-in-the-loop, local-first).
