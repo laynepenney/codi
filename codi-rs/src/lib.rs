@@ -37,8 +37,9 @@
 //! - **Phase 5.5**: Session & context - persistence and windowing ✓
 //! - **Phase 6**: Terminal UI - ratatui based interface ✓
 //! - **Phase 6.5**: MCP Protocol - tool extensibility ✓
-//! - **Phase 6.6**: LSP Integration - code intelligence
-//! - **Phase 7** (Current): Multi-agent - IPC-based worker orchestration ✓
+//! - **Phase 6.6**: LSP Integration - code intelligence ✓
+//! - **Phase 7**: Multi-agent - IPC-based worker orchestration ✓
+//! - **Phase 8** (Current): Model Map - multi-model orchestration
 //!
 //! # Example
 //!
