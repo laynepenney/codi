@@ -159,6 +159,19 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the status bar.
 fn draw_status(f: &mut Frame, app: &App, area: Rect) {
+    let mut spans: Vec<Span> = Vec::new();
+    spans.push(Span::styled(" ", Style::default()));
+
+    // Show session info if available
+    if let Some(session_status) = app.session_status() {
+        spans.push(Span::styled(
+            session_status,
+            Style::default().fg(Color::Cyan),
+        ));
+        spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+    }
+
+    // Show status message or default
     let status_text = app.status.as_deref().unwrap_or_else(|| {
         if app.has_provider() {
             "Ready"
@@ -166,25 +179,25 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             "No provider configured"
         }
     });
+    spans.push(Span::styled(status_text, Style::default().fg(Color::Gray)));
 
-    // Show turn stats if available
-    let stats_text = if let Some(ref stats) = app.last_turn_stats {
-        format!(
-            " | {} tools, {} in, {} out",
-            stats.tool_call_count,
-            stats.input_tokens,
-            stats.output_tokens
-        )
-    } else {
-        String::new()
-    };
+    // Show turn stats if available and no custom status
+    if app.status.is_none() {
+        if let Some(ref stats) = app.last_turn_stats {
+            spans.push(Span::styled(
+                format!(
+                    " | {} tools, {} in, {} out",
+                    stats.tool_call_count,
+                    stats.input_tokens,
+                    stats.output_tokens
+                ),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    }
 
-    let status = Paragraph::new(Line::from(vec![
-        Span::styled(" ", Style::default()),
-        Span::styled(status_text, Style::default().fg(Color::Gray)),
-        Span::styled(stats_text, Style::default().fg(Color::DarkGray)),
-    ]))
-    .style(Style::default().bg(Color::DarkGray));
+    let status = Paragraph::new(Line::from(spans))
+        .style(Style::default().bg(Color::DarkGray));
 
     f.render_widget(status, area);
 }
