@@ -79,6 +79,17 @@ globset = "0.4"
 walkdir = "2"
 regex = "1"
 
+# Symbol index (Phase 4)
+rusqlite = { version = "0.32", features = ["bundled"] }
+tree-sitter = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-json = "0.24"
+sha2 = "0.10"
+
 [dev-dependencies]
 tempfile = "3"
 tokio-test = "0.4"
@@ -99,6 +110,10 @@ harness = false
 
 [[bench]]
 name = "agent"
+harness = false
+
+[[bench]]
+name = "symbol_index"
 harness = false
 
 [profile.release]
