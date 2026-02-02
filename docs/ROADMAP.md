@@ -6,6 +6,16 @@ This roadmap outlines planned improvements to Codi's tool suite based on real-wo
 
 ## Changelog
 
+### v0.7.0 (2026-02-02)
+
+**Phase 8 - Rust Model Map (Initial Implementation):**
+- `model_map` module added to codi-rs for multi-model orchestration
+- YAML-based configuration loading from global (`~/.codi/models.yaml`) and project (`codi-models.yaml`)
+- Provider pooling with lazy instantiation (needs fix - see Phase 8 roadmap items)
+- Task/command routing with role-based model resolution
+- Pipeline execution with variable substitution
+- 36 unit tests covering core functionality
+
 ### v0.6.0 (2026-01-14)
 
 **Quick Wins Completed:**
@@ -366,6 +376,7 @@ Helper functions:
 | Phase 5: Indexing & Performance | High | High | **P1** | **Complete** |
 | Phase 6: Standardization | Medium | Medium | **P2** | **Complete** |
 | Phase 7: Documentation & Config | Low | Low | **P2** | **Complete** |
+| Phase 8: Rust Model Map | Medium | High | **P1** | **In Progress** |
 
 ---
 
@@ -377,6 +388,76 @@ Helper functions:
 | Structured test output | Parse output into pass/fail/skip counts | Done |
 | Separate stdout/stderr | Enhanced bash output format | Done |
 | Group `find_references` | By type with per-file counts | Done |
+
+---
+
+## Phase 8: Rust Model Map Improvements
+
+**Status: In Progress**
+
+The Rust implementation of model_map (multi-model orchestration) was completed in PR #249. Code review identified the following improvements needed:
+
+### 8.1 Registry Provider Pooling Fix
+
+**Priority: High**
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| Pool is non-functional | Providers are recreated on every `get_provider()` call instead of being reused from the pool | TODO |
+| Deadlock risk | Nested lock acquisition (write lock on pool, then read lock on config) | TODO |
+| Race condition | No lock held between pool check and add operation | TODO |
+
+**Files:** `codi-rs/src/model_map/registry.rs`
+
+### 8.2 Executor Streaming & Variable Handling
+
+**Priority: High**
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| Streaming callbacks disconnected | `PipelineCallbacks::on_step_text` is never invoked during streaming | TODO |
+| Regex compiled per-call | Should use `lazy_static` or `once_cell` for performance | TODO |
+| Undefined variables silent | Returns success with literal `{varname}` instead of error | TODO |
+
+**Files:** `codi-rs/src/model_map/executor.rs`
+
+### 8.3 Config Validation Improvements
+
+**Priority: Medium**
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| Regex unwrap can panic | Line 539 uses `.unwrap()` on regex compilation | TODO |
+| Silent parse failures | Invalid YAML files are silently ignored | TODO |
+| No cycle detection | Circular pipeline references could cause infinite loops | TODO |
+| Cascading validation errors | No early exit on critical validation failures | TODO |
+
+**Files:** `codi-rs/src/model_map/config.rs`
+
+### 8.4 Type System Improvements
+
+**Priority: Medium**
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| Missing `PartialEq` derives | Config types lack `PartialEq` for easier testing | TODO |
+| Temperature range inconsistency | Documentation says 0.0-1.0 but validation allows 0.0-2.0 | TODO |
+| Empty string validation | `provider` and `model` fields accept empty strings | TODO |
+
+**Files:** `codi-rs/src/model_map/types.rs`, `codi-rs/src/model_map/config.rs`
+
+### 8.5 Test Coverage Expansion
+
+**Priority: Low**
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| Missing error path tests | Error handling paths largely untested | TODO |
+| No concurrent access tests | Pool/registry concurrency not tested | TODO |
+| No integration tests with callbacks | Callback invocation flow not tested | TODO |
+| No timeout tests | Streaming timeout behavior not tested | TODO |
+
+**Files:** All `codi-rs/src/model_map/*.rs` test modules
 
 ---
 

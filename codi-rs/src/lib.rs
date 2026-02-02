@@ -23,6 +23,7 @@
 //! - [`session`] - Session persistence and context windowing
 //! - [`lsp`] - Language Server Protocol integration for code intelligence
 //! - [`orchestrate`] - Multi-agent orchestration with IPC-based worker management
+//! - [`model_map`] - Multi-model orchestration with Docker-compose style configuration
 //!
 //! # Migration Status
 //!
@@ -39,7 +40,7 @@
 //! - **Phase 6.5**: MCP Protocol - tool extensibility ✓
 //! - **Phase 6.6**: LSP Integration - code intelligence ✓
 //! - **Phase 7**: Multi-agent - IPC-based worker orchestration ✓
-//! - **Phase 8** (Current): Model Map - multi-model orchestration
+//! - **Phase 8**: Model Map - multi-model orchestration ✓
 //!
 //! # Example
 //!
@@ -59,6 +60,7 @@ pub mod config;
 pub mod error;
 pub mod lsp;
 pub mod mcp;
+pub mod model_map;
 pub mod orchestrate;
 pub mod providers;
 pub mod rag;
@@ -90,7 +92,7 @@ pub use types::{
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Migration phase identifier.
-pub const MIGRATION_PHASE: u8 = 7;
+pub const MIGRATION_PHASE: u8 = 8;
 
 #[cfg(test)]
 mod tests {
@@ -103,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_migration_phase() {
-        assert_eq!(MIGRATION_PHASE, 7);
+        assert_eq!(MIGRATION_PHASE, 8);
     }
 
     #[test]
