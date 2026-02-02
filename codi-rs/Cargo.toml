@@ -135,6 +135,10 @@ harness = false
 name = "mcp"
 harness = false
 
+[[bench]]
+name = "lsp"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
