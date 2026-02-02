@@ -150,47 +150,46 @@ impl MarkdownStreamCollector {
             }
 
             // Handle different line types
-            let rendered_line = if line.starts_with("### ") {
+            let rendered_line = if let Some(content) = line.strip_prefix("### ") {
                 // H3
                 Line::from(Span::styled(
-                    line[4..].to_string(),
+                    content.to_string(),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ))
-            } else if line.starts_with("## ") {
+            } else if let Some(content) = line.strip_prefix("## ") {
                 // H2
                 Line::from(Span::styled(
-                    line[3..].to_string(),
+                    content.to_string(),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ))
-            } else if line.starts_with("# ") {
+            } else if let Some(content) = line.strip_prefix("# ") {
                 // H1
                 Line::from(Span::styled(
-                    line[2..].to_string(),
+                    content.to_string(),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                 ))
-            } else if line.starts_with("> ") {
+            } else if let Some(content) = line.strip_prefix("> ") {
                 // Blockquote
                 Line::from(vec![
                     Span::styled("│ ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
-                        line[2..].to_string(),
+                        content.to_string(),
                         Style::default().fg(Color::White).add_modifier(Modifier::ITALIC),
                     ),
                 ])
-            } else if line.starts_with("- ") || line.starts_with("* ") {
+            } else if let Some(content) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
                 // Unordered list
-                let content = &line[2..];
                 Line::from(vec![
                     Span::styled("• ", Style::default().fg(Color::Blue)),
                     Span::raw(self.render_inline_markdown(content)),
                 ])
-            } else if line.chars().next().map_or(false, |c| c.is_ascii_digit())
+            } else if line.chars().next().is_some_and(|c| c.is_ascii_digit())
                 && line.chars().nth(1) == Some('.')
             {
                 // Ordered list (simple: 1. 2. etc)
