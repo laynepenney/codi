@@ -17,6 +17,10 @@ use crate::agent::{
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
 use crate::error::ToolError;
+use crate::orchestrate::{
+    Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo,
+    ipc::PermissionResult,
+};
 use crate::session::{Session, SessionInfo, SessionService};
 use crate::tools::ToolRegistry;
 use crate::types::{BoxedProvider, MessageContent, Role};
@@ -202,6 +206,12 @@ pub struct App {
     pub current_session: Option<Session>,
     /// Project path for session creation.
     project_path: String,
+
+    // Orchestration
+    /// Commander for multi-agent orchestration.
+    commander: Option<Commander>,
+    /// Pending worker permission requests (worker_id, request_id, tool_name, input).
+    pending_worker_permissions: Vec<(String, String, String, serde_json::Value)>,
 }
 
 impl App {
@@ -240,6 +250,8 @@ impl App {
             current_session_id: None,
             current_session: None,
             project_path,
+            commander: None,
+            pending_worker_permissions: Vec::new(),
         }
     }
 
@@ -882,6 +894,176 @@ impl App {
                 format!("[{}] {} msgs | {} tokens", title, self.messages.len(), tokens)
             }
         })
+    }
+
+    // ========================================================================
+    // Orchestration (Multi-Agent)
+    // ========================================================================
+
+    /// Initialize the commander for multi-agent orchestration.
+    pub async fn init_commander(&mut self) -> Result<(), ToolError> {
+        if self.commander.is_some() {
+            return Ok(()); // Already initialized
+        }
+
+        let project_path = std::path::Path::new(&self.project_path);
+        let config = CommanderConfig::for_project(project_path);
+
+        match Commander::new(project_path, config).await {
+            Ok(commander) => {
+                self.commander = Some(commander);
+                Ok(())
+            }
+            Err(e) => Err(ToolError::ExecutionFailed(format!(
+                "Failed to initialize commander: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Delegate a task to a worker.
+    pub async fn delegate_task(&mut self, branch: &str, task: &str) -> Result<String, ToolError> {
+        // Initialize commander if needed
+        self.init_commander().await?;
+
+        let commander = self.commander.as_mut().ok_or_else(|| {
+            ToolError::ExecutionFailed("Commander not available".to_string())
+        })?;
+
+        // Generate worker ID from branch
+        let worker_id = branch.replace('/', "-");
+
+        let config = WorkerConfig::new(&worker_id, branch, task);
+
+        commander
+            .spawn_worker(config)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to spawn worker: {}", e)))
+    }
+
+    /// List all workers and their status.
+    pub async fn list_workers(&self) -> Result<Vec<(String, String)>, ToolError> {
+        let commander = self.commander.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("No commander initialized. Use /delegate first.".to_string())
+        })?;
+
+        let workers = commander.list_workers().await;
+        Ok(workers
+            .into_iter()
+            .map(|(id, status)| (id, format_worker_status(&status)))
+            .collect())
+    }
+
+    /// Cancel a worker.
+    pub async fn cancel_worker(&self, worker_id: &str) -> Result<(), ToolError> {
+        let commander = self.commander.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("No commander initialized".to_string())
+        })?;
+
+        commander
+            .cancel_worker(worker_id)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to cancel worker: {}", e)))
+    }
+
+    /// List managed worktrees.
+    pub async fn list_worktrees(&self) -> Result<Vec<WorkspaceInfo>, ToolError> {
+        let _commander = self.commander.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("No commander initialized".to_string())
+        })?;
+
+        // For now, we return an empty vec as we don't track worktrees separately
+        // The isolator tracks them internally
+        // TODO: Expose worktree listing from the Commander/Isolator
+        Ok(Vec::new())
+    }
+
+    /// Cleanup completed worktrees.
+    pub async fn cleanup_worktrees(&mut self) -> Result<usize, ToolError> {
+        let commander = self.commander.as_mut().ok_or_else(|| {
+            ToolError::ExecutionFailed("No commander initialized".to_string())
+        })?;
+
+        // Get completed workers
+        let workers = commander.list_workers().await;
+        let mut cleaned = 0;
+
+        for (worker_id, status) in workers {
+            if status.is_terminal() {
+                if let Err(e) = commander.cleanup_worker(&worker_id).await {
+                    tracing::warn!("Failed to cleanup worker {}: {}", worker_id, e);
+                } else {
+                    cleaned += 1;
+                }
+            }
+        }
+
+        Ok(cleaned)
+    }
+
+    /// Respond to a worker's permission request.
+    pub async fn respond_to_worker_permission(
+        &self,
+        worker_id: &str,
+        request_id: &str,
+        approved: bool,
+    ) -> Result<(), ToolError> {
+        let commander = self.commander.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("No commander initialized".to_string())
+        })?;
+
+        let result = if approved {
+            PermissionResult::Approve
+        } else {
+            PermissionResult::Deny {
+                reason: "User denied".to_string(),
+            }
+        };
+
+        commander
+            .respond_permission(worker_id, request_id, result)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to respond: {}", e)))
+    }
+
+    /// Process worker events (called from event loop).
+    pub async fn process_worker_events(&mut self) {
+        // This would need the event receiver from Commander
+        // For now, this is a placeholder for the event processing logic
+    }
+
+    /// Check if there are pending worker permission requests.
+    pub fn has_pending_worker_permissions(&self) -> bool {
+        !self.pending_worker_permissions.is_empty()
+    }
+
+    /// Get the next pending worker permission for UI.
+    pub fn next_worker_permission(&self) -> Option<&(String, String, String, serde_json::Value)> {
+        self.pending_worker_permissions.first()
+    }
+
+    /// Shutdown the commander.
+    pub async fn shutdown_commander(&mut self) {
+        if let Some(ref mut commander) = self.commander {
+            if let Err(e) = commander.shutdown().await {
+                tracing::warn!("Error shutting down commander: {}", e);
+            }
+        }
+        self.commander = None;
+    }
+}
+
+/// Format worker status for display.
+fn format_worker_status(status: &WorkerStatus) -> String {
+    match status {
+        WorkerStatus::Starting => "starting".to_string(),
+        WorkerStatus::Idle => "idle".to_string(),
+        WorkerStatus::Thinking => "thinking".to_string(),
+        WorkerStatus::ToolCall { tool } => format!("running {}", tool),
+        WorkerStatus::WaitingPermission { tool } => format!("awaiting permission for {}", tool),
+        WorkerStatus::Complete { .. } => "complete".to_string(),
+        WorkerStatus::Failed { error, .. } => format!("failed: {}", error),
+        WorkerStatus::Cancelled => "cancelled".to_string(),
     }
 }
 

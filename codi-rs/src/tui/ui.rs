@@ -276,6 +276,26 @@ fn draw_help(f: &mut Frame) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
+            " Orchestration (Multi-Agent) ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("/delegate", Style::default().fg(Color::Yellow)),
+            Span::raw("       - Spawn worker: /delegate <branch> <task>"),
+        ]),
+        Line::from(vec![
+            Span::styled("/workers", Style::default().fg(Color::Yellow)),
+            Span::raw("        - List workers, cancel: /workers [cancel <id>]"),
+        ]),
+        Line::from(vec![
+            Span::styled("/worktrees", Style::default().fg(Color::Yellow)),
+            Span::raw("      - List/cleanup: /worktrees [cleanup]"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
             " Keyboard Shortcuts ",
             Style::default()
                 .fg(Color::Cyan)

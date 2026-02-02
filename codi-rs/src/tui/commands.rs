@@ -35,6 +35,20 @@ pub enum AsyncCommand {
     SessionList,
     /// Delete a session by ID.
     SessionDelete(String),
+
+    // Orchestration commands
+    /// Delegate a task to a worker (branch, task).
+    Delegate(String, String),
+    /// List all workers.
+    WorkersList,
+    /// Cancel a worker by ID.
+    WorkersCancel(String),
+    /// List all worktrees.
+    WorktreesList,
+    /// Cleanup completed worktrees.
+    WorktreesCleanup,
+    /// Respond to a permission request (worker_id, request_id, approved).
+    PermissionRespond(String, String, bool),
 }
 
 /// Handle a slash command synchronously. Returns `CommandResult::Async` for
@@ -95,6 +109,17 @@ pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
         // Debug commands
         "/debug" => {
             handle_debug(app)
+        }
+
+        // Orchestration commands
+        "/delegate" | "/spawn" | "/worker" => {
+            handle_delegate(app, args)
+        }
+        "/workers" | "/wk" => {
+            handle_workers(app, args)
+        }
+        "/worktrees" | "/wt" => {
+            handle_worktrees(app, args)
         }
 
         // Unknown command
@@ -226,6 +251,98 @@ pub async fn execute_async_command(app: &mut App, cmd: AsyncCommand) -> CommandR
                 }
                 Err(e) => {
                     app.status = Some(format!("Failed to delete session: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        // Orchestration commands
+        AsyncCommand::Delegate(branch, task) => {
+            match app.delegate_task(&branch, &task).await {
+                Ok(worker_id) => {
+                    app.status = Some(format!("Spawned worker {} on {}", worker_id, branch));
+                    CommandResult::Ok
+                }
+                Err(e) => {
+                    app.status = Some(format!("Failed to spawn worker: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        AsyncCommand::WorkersList => {
+            match app.list_workers().await {
+                Ok(workers) => {
+                    if workers.is_empty() {
+                        app.status = Some("No active workers".to_string());
+                    } else {
+                        let list: Vec<String> = workers
+                            .iter()
+                            .map(|(id, status)| format!("{}: {}", id, status))
+                            .collect();
+                        app.status = Some(format!("Workers: {}", list.join(", ")));
+                    }
+                    CommandResult::Ok
+                }
+                Err(e) => {
+                    app.status = Some(format!("Failed to list workers: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        AsyncCommand::WorkersCancel(worker_id) => {
+            match app.cancel_worker(&worker_id).await {
+                Ok(()) => {
+                    app.status = Some(format!("Cancelled worker: {}", worker_id));
+                    CommandResult::Ok
+                }
+                Err(e) => {
+                    app.status = Some(format!("Failed to cancel worker: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        AsyncCommand::WorktreesList => {
+            match app.list_worktrees().await {
+                Ok(worktrees) => {
+                    if worktrees.is_empty() {
+                        app.status = Some("No managed worktrees".to_string());
+                    } else {
+                        let list: Vec<String> = worktrees
+                            .iter()
+                            .map(|wt| format!("{} ({})", wt.branch(), wt.path().display()))
+                            .collect();
+                        app.status = Some(format!("Worktrees: {}", list.join(", ")));
+                    }
+                    CommandResult::Ok
+                }
+                Err(e) => {
+                    app.status = Some(format!("Failed to list worktrees: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        AsyncCommand::WorktreesCleanup => {
+            match app.cleanup_worktrees().await {
+                Ok(count) => {
+                    app.status = Some(format!("Cleaned up {} worktrees", count));
+                    CommandResult::Ok
+                }
+                Err(e) => {
+                    app.status = Some(format!("Failed to cleanup worktrees: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        AsyncCommand::PermissionRespond(worker_id, request_id, approved) => {
+            match app.respond_to_worker_permission(&worker_id, &request_id, approved).await {
+                Ok(()) => CommandResult::Ok,
+                Err(e) => {
+                    app.status = Some(format!("Failed to respond to permission: {}", e));
                     CommandResult::Error(e.to_string())
                 }
             }
@@ -412,6 +529,72 @@ fn handle_debug(app: &mut App) -> CommandResult {
     CommandResult::Ok
 }
 
+// ============================================================================
+// Orchestration Commands
+// ============================================================================
+
+/// Handle /delegate command - spawn a worker.
+fn handle_delegate(app: &mut App, args: &str) -> CommandResult {
+    let parts: Vec<&str> = args.splitn(2, ' ').collect();
+
+    if parts.len() < 2 {
+        app.status = Some("Usage: /delegate <branch> <task>".to_string());
+        return CommandResult::Error("Missing branch or task".to_string());
+    }
+
+    let branch = parts[0].to_string();
+    let task = parts[1].to_string();
+
+    if branch.is_empty() || task.is_empty() {
+        app.status = Some("Usage: /delegate <branch> <task>".to_string());
+        return CommandResult::Error("Branch and task are required".to_string());
+    }
+
+    CommandResult::Async(AsyncCommand::Delegate(branch, task))
+}
+
+/// Handle /workers command - list or manage workers.
+fn handle_workers(app: &mut App, args: &str) -> CommandResult {
+    let parts: Vec<&str> = args.splitn(2, ' ').collect();
+    let subcommand = parts.first().copied().unwrap_or("");
+    let subargs = parts.get(1).copied().unwrap_or("");
+
+    match subcommand {
+        "" | "list" => {
+            CommandResult::Async(AsyncCommand::WorkersList)
+        }
+        "cancel" => {
+            if subargs.is_empty() {
+                app.status = Some("Usage: /workers cancel <id>".to_string());
+                return CommandResult::Error("Worker ID required".to_string());
+            }
+            CommandResult::Async(AsyncCommand::WorkersCancel(subargs.to_string()))
+        }
+        _ => {
+            app.status = Some("Usage: /workers [list|cancel <id>]".to_string());
+            CommandResult::Error(format!("Unknown workers subcommand: {}", subcommand))
+        }
+    }
+}
+
+/// Handle /worktrees command - list or manage worktrees.
+fn handle_worktrees(app: &mut App, args: &str) -> CommandResult {
+    let subcommand = args.trim();
+
+    match subcommand {
+        "" | "list" => {
+            CommandResult::Async(AsyncCommand::WorktreesList)
+        }
+        "cleanup" => {
+            CommandResult::Async(AsyncCommand::WorktreesCleanup)
+        }
+        _ => {
+            app.status = Some("Usage: /worktrees [list|cleanup]".to_string());
+            CommandResult::Error(format!("Unknown worktrees subcommand: {}", subcommand))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,5 +721,93 @@ mod tests {
 
         let result = handle_command(&mut app, "/session delete");
         assert!(matches!(result, CommandResult::Error(_)));
+    }
+
+    // Orchestration command tests
+    #[test]
+    fn test_delegate_requires_args() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/delegate");
+        assert!(matches!(result, CommandResult::Error(_)));
+        assert!(app.status.as_ref().unwrap().contains("Usage"));
+    }
+
+    #[test]
+    fn test_delegate_requires_both_args() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/delegate feat/test");
+        assert!(matches!(result, CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_delegate_returns_async() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/delegate feat/test implement feature");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::Delegate(_, _))));
+
+        if let CommandResult::Async(AsyncCommand::Delegate(branch, task)) = result {
+            assert_eq!(branch, "feat/test");
+            assert_eq!(task, "implement feature");
+        }
+    }
+
+    #[test]
+    fn test_workers_list_returns_async() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/workers");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::WorkersList)));
+    }
+
+    #[test]
+    fn test_workers_cancel_requires_id() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/workers cancel");
+        assert!(matches!(result, CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_workers_cancel_returns_async() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/workers cancel worker-1");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::WorkersCancel(_))));
+
+        if let CommandResult::Async(AsyncCommand::WorkersCancel(id)) = result {
+            assert_eq!(id, "worker-1");
+        }
+    }
+
+    #[test]
+    fn test_worktrees_list_returns_async() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/worktrees");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::WorktreesList)));
+    }
+
+    #[test]
+    fn test_worktrees_cleanup_returns_async() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/worktrees cleanup");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::WorktreesCleanup)));
+    }
+
+    #[test]
+    fn test_spawn_alias() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/spawn feat/test do something");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::Delegate(_, _))));
+    }
+
+    #[test]
+    fn test_wk_alias() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/wk");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::WorkersList)));
+    }
+
+    #[test]
+    fn test_wt_alias() {
+        let mut app = App::default();
+        let result = handle_command(&mut app, "/wt");
+        assert!(matches!(result, CommandResult::Async(AsyncCommand::WorktreesList)));
     }
 }
