@@ -32,8 +32,8 @@
 //! - **Phase 3**: Agent loop - core agentic orchestration ✓
 //! - **Phase 4**: Symbol index - tree-sitter based code navigation ✓
 //! - **Phase 5**: RAG system - semantic code search with embeddings ✓
-//! - **Phase 5.5** (Current): Session & context - persistence and windowing
-//! - **Phase 6**: Terminal UI - ratatui based interface
+//! - **Phase 5.5**: Session & context - persistence and windowing ✓
+//! - **Phase 6** (Current): Terminal UI - ratatui based interface
 //! - **Phase 7**: Multi-agent - IPC-based worker orchestration
 //!
 //! # Example
@@ -58,6 +58,7 @@ pub mod session;
 pub mod symbol_index;
 pub mod telemetry;
 pub mod tools;
+pub mod tui;
 pub mod types;
 
 // Re-export commonly used types at crate root

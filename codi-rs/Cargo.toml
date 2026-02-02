@@ -45,10 +45,10 @@ clap = { version = "4", features = ["derive", "env"] }
 colored = "2"
 indicatif = "0.17"
 
-# Terminal UI (for later phases)
-# ratatui = "0.29"
-# crossterm = "0.28"
-# rustyline = "14"
+# Terminal UI (Phase 6)
+ratatui = "0.29"
+crossterm = "0.28"
+rustyline = { version = "15", features = ["derive"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
