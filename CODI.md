@@ -1430,3 +1430,61 @@ Codi supports optional AI-powered security analysis for bash commands using a lo
 - `src/security-validator.ts` - Core SecurityValidator class
 - `scripts/test-security-model.ts` - Testing script for security models
 - See `docs/PLAN-security-model-validation.md` for full documentation
+
+## Gitgrip Related Work
+
+### Project Context
+There's ongoing work on `gitgrip` - a griptree (worktree-based parallel workspace) management tool:
+- **Location**: `/Users/layne/Development/codi-workspace/gitgrip/`
+- **Main Workspace**: `/Users/layne/Development/codi-workspace/`
+- **Active Griptree**: `/Users/layne/Development/codi-dev/`
+
+### Key Commands
+```bash
+# List all griptrees
+gr tree list
+
+# Create a new griptree
+cd main-workspace
+gr tree add branch-name
+
+# Remove a griptree (WARNING: Only for test/stale gripspaces!)
+gr tree remove --force test-branch-name
+
+# Check griptree status
+cd griptree-directory
+gr status
+```
+
+### ⚠️ CRITICAL: Testing Guidelines
+
+**ALWAYS USE TEMP DIRECTORIES FOR TESTING**
+
+```rust
+// ✅ CORRECT - Tests in temp directory
+let tempDir = tempfile::tempdir()?;
+let workspaceRoot = tempDir.path().join("workspace");
+
+// ❌ WRONG - Tests on real workspace
+let workspaceRoot = "/Users/layne/Development/codi-workspace";
+```
+
+**Never:**
+- Delete active gripspaces (e.g., `codi-dev`)
+- Run destructive commands on production workspaces
+- Use production branch names for testing (`main`, `dev`, `codi-dev`)
+
+**Always:**
+- Use unique test branch names: `test-feature-$(date +%s)`
+- Verify with `gr tree list` before running `gr tree remove`
+- Test in isolated temp directories
+
+### Recent Implementations
+**Griptree Repository Branch Tracking** (Feb 2, 2026):
+- Track original branch for each repo in griptree
+- Reference repos sync with upstream before worktree creation
+- Worktrees created on repo's current branch (not griptree branch)
+- Branch info stored in `.griptree` pointer file for merge back support
+
+See: `gitgrip/docs/PLAN-griptree-repo-branches.md`
+
