@@ -4,6 +4,7 @@
 //! Application state and main loop for the TUI.
 
 use std::io;
+use std::path::Path;
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -15,10 +16,12 @@ use crate::agent::{
     Agent, AgentCallbacks, AgentConfig, AgentOptions,
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
+use crate::error::ToolError;
+use crate::session::{Session, SessionInfo, SessionService};
 use crate::tools::ToolRegistry;
-use crate::types::{BoxedProvider, Role};
+use crate::types::{BoxedProvider, MessageContent, Role};
 
-use super::commands::handle_command;
+use super::commands::{execute_async_command, handle_command, CommandResult};
 use super::events::{Event, EventHandler};
 use super::streaming::{StreamController, StreamStatus};
 use super::ui;
@@ -101,6 +104,36 @@ impl Message {
     pub fn append_rendered_lines(&mut self, lines: Vec<Line<'static>>) {
         self.rendered_lines.extend(lines);
     }
+
+    /// Convert to a session message for persistence.
+    pub fn to_session_message(&self) -> crate::types::Message {
+        crate::types::Message {
+            role: self.role,
+            content: MessageContent::Text(self.content.clone()),
+        }
+    }
+
+    /// Create from a session message.
+    pub fn from_session_message(msg: &crate::types::Message) -> Self {
+        let content = match &msg.content {
+            MessageContent::Text(text) => text.clone(),
+            MessageContent::Blocks(blocks) => {
+                // Extract text from blocks
+                blocks
+                    .iter()
+                    .filter_map(|block| block.text.as_ref())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        };
+        Self {
+            role: msg.role,
+            content,
+            streaming: false,
+            rendered_lines: Vec::new(),
+        }
+    }
 }
 
 /// Event for internal communication between agent callbacks and the app.
@@ -161,12 +194,30 @@ pub struct App {
     history_index: Option<usize>,
     /// Current input (saved when navigating history).
     saved_input: String,
+    /// Session service for persistence.
+    pub session_service: Option<SessionService>,
+    /// Current session ID.
+    pub current_session_id: Option<String>,
+    /// Current session (cached for quick access).
+    pub current_session: Option<Session>,
+    /// Project path for session creation.
+    project_path: String,
 }
 
 impl App {
     /// Create a new application.
     pub fn new() -> Self {
+        Self::with_project_path(".")
+    }
+
+    /// Create a new application with a specific project path.
+    pub fn with_project_path(project_path: impl AsRef<Path>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
+        let project_path = project_path.as_ref().to_string_lossy().to_string();
+
+        // Try to initialize session service
+        let session_service = SessionService::new(&project_path).ok();
+
         Self {
             mode: AppMode::Normal,
             messages: Vec::new(),
@@ -185,12 +236,23 @@ impl App {
             input_history: Vec::new(),
             history_index: None,
             saved_input: String::new(),
+            session_service,
+            current_session_id: None,
+            current_session: None,
+            project_path,
         }
     }
 
     /// Create with a provider.
     pub fn with_provider(provider: BoxedProvider) -> Self {
         let mut app = Self::new();
+        app.set_provider(provider);
+        app
+    }
+
+    /// Create with a provider and project path.
+    pub fn with_provider_and_path(provider: BoxedProvider, project_path: impl AsRef<Path>) -> Self {
+        let mut app = Self::with_project_path(project_path);
         app.set_provider(provider);
         app
     }
@@ -591,7 +653,15 @@ impl App {
 
         // Check for commands
         if input.starts_with('/') {
-            handle_command(self, &input);
+            match handle_command(self, &input) {
+                CommandResult::Async(cmd) => {
+                    // Execute async command
+                    let _ = execute_async_command(self, cmd).await;
+                }
+                CommandResult::Ok | CommandResult::Error(_) | CommandResult::Prompt(_) => {
+                    // Already handled synchronously
+                }
+            }
             return;
         }
 
@@ -665,6 +735,153 @@ impl App {
             .as_ref()
             .map(|c| c.buffer_preview())
             .unwrap_or("")
+    }
+
+    // ========================================================================
+    // Session Management
+    // ========================================================================
+
+    /// Create a new session.
+    pub async fn create_session(&mut self, title: Option<String>) -> Result<(), ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        let title = title.unwrap_or_else(|| "New Session".to_string());
+        let session = service.create(title, self.project_path.clone()).await?;
+
+        self.current_session_id = Some(session.id.clone());
+        self.current_session = Some(session);
+        self.messages.clear();
+        self.scroll_offset = 0;
+
+        // Clear agent history too
+        if let Some(ref mut agent) = self.agent {
+            agent.clear();
+        }
+
+        Ok(())
+    }
+
+    /// Save the current message to the session.
+    pub async fn save_message_to_session(&self, message: &Message) -> Result<(), ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        let session_id = self.current_session_id.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("No active session".to_string())
+        })?;
+
+        let session_message = message.to_session_message();
+        service.add_message(session_id, &session_message).await?;
+
+        Ok(())
+    }
+
+    /// Update session usage stats from turn stats.
+    pub async fn update_session_usage(&self, stats: &TurnStats) -> Result<(), ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        let session_id = self.current_session_id.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("No active session".to_string())
+        })?;
+
+        service
+            .update_usage(
+                session_id,
+                stats.input_tokens,
+                stats.output_tokens,
+                stats.cost,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Load a session by ID.
+    pub async fn load_session(&mut self, id: &str) -> Result<(), ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        let session: Session = service.get(id).await?.ok_or_else(|| {
+            ToolError::ExecutionFailed(format!("Session not found: {}", id))
+        })?;
+
+        let session_messages: Vec<crate::types::Message> = service.get_messages(id).await?;
+
+        // Convert session messages to TUI messages
+        self.messages = session_messages.iter().map(Message::from_session_message).collect();
+        self.current_session_id = Some(session.id.clone());
+        self.current_session = Some(session);
+        self.scroll_offset = 0;
+
+        // Scroll to bottom to show most recent messages
+        self.scroll_to_bottom();
+
+        Ok(())
+    }
+
+    /// Save the current session (update timestamp).
+    pub async fn save_current_session(&mut self) -> Result<(), ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        if let Some(ref mut session) = self.current_session {
+            service.save(session).await?;
+        }
+
+        Ok(())
+    }
+
+    /// List all sessions.
+    pub async fn list_sessions(&self) -> Result<Vec<SessionInfo>, ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        service.list().await
+    }
+
+    /// Delete a session by ID.
+    pub async fn delete_session(&mut self, id: &str) -> Result<bool, ToolError> {
+        let service = self.session_service.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed("Session service not available".to_string())
+        })?;
+
+        let deleted = service.delete(id).await?;
+
+        // If we deleted the current session, clear it
+        if deleted && self.current_session_id.as_deref() == Some(id) {
+            self.current_session_id = None;
+            self.current_session = None;
+        }
+
+        Ok(deleted)
+    }
+
+    /// Get session info for status bar display.
+    pub fn session_status(&self) -> Option<String> {
+        self.current_session.as_ref().map(|session| {
+            let title = if session.title.len() > 20 {
+                format!("{}...", &session.title[..17])
+            } else {
+                session.title.clone()
+            };
+
+            let tokens = session.total_tokens();
+            let cost = session.cost;
+
+            if cost > 0.001 {
+                format!("[{}] {} msgs | {} tokens | ${:.2}", title, self.messages.len(), tokens, cost)
+            } else {
+                format!("[{}] {} msgs | {} tokens", title, self.messages.len(), tokens)
+            }
+        })
     }
 }
 
