@@ -4,14 +4,23 @@
 //! Application state and main loop for the TUI.
 
 use std::io;
+use std::sync::Arc;
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::*;
+use ratatui::text::Line;
+use tokio::sync::mpsc;
 
+use crate::agent::{
+    Agent, AgentCallbacks, AgentConfig, AgentOptions,
+    ConfirmationResult, ToolConfirmation, TurnStats,
+};
+use crate::tools::ToolRegistry;
 use crate::types::{BoxedProvider, Role};
 
 use super::commands::handle_command;
 use super::events::{Event, EventHandler};
+use super::streaming::{StreamController, StreamStatus};
 use super::ui;
 
 /// Application mode.
@@ -23,6 +32,8 @@ pub enum AppMode {
     Waiting,
     /// Showing help.
     Help,
+    /// Showing tool confirmation dialog.
+    ConfirmTool,
 }
 
 /// A message in the conversation.
@@ -34,24 +45,30 @@ pub struct Message {
     pub content: String,
     /// Whether this message is still being streamed.
     pub streaming: bool,
+    /// Rendered lines (cached for display).
+    pub rendered_lines: Vec<Line<'static>>,
 }
 
 impl Message {
     /// Create a user message.
     pub fn user(content: impl Into<String>) -> Self {
+        let content = content.into();
         Self {
             role: Role::User,
-            content: content.into(),
+            content,
             streaming: false,
+            rendered_lines: Vec::new(),
         }
     }
 
     /// Create an assistant message.
     pub fn assistant(content: impl Into<String>) -> Self {
+        let content = content.into();
         Self {
             role: Role::Assistant,
-            content: content.into(),
+            content,
             streaming: false,
+            rendered_lines: Vec::new(),
         }
     }
 
@@ -61,8 +78,51 @@ impl Message {
             role: Role::Assistant,
             content: String::new(),
             streaming: true,
+            rendered_lines: Vec::new(),
         }
     }
+
+    /// Mark the message as complete (no longer streaming).
+    pub fn complete(&mut self) {
+        self.streaming = false;
+    }
+
+    /// Append content to a streaming message.
+    pub fn append(&mut self, text: &str) {
+        self.content.push_str(text);
+    }
+
+    /// Set rendered lines from streaming.
+    pub fn set_rendered_lines(&mut self, lines: Vec<Line<'static>>) {
+        self.rendered_lines = lines;
+    }
+
+    /// Append rendered lines from streaming.
+    pub fn append_rendered_lines(&mut self, lines: Vec<Line<'static>>) {
+        self.rendered_lines.extend(lines);
+    }
+}
+
+/// Event for internal communication between agent callbacks and the app.
+#[derive(Debug, Clone)]
+pub enum AppEvent {
+    /// Text delta received from streaming.
+    TextDelta(String),
+    /// Tool call started.
+    ToolStart(String, serde_json::Value),
+    /// Tool call completed.
+    ToolResult(String, String, bool),
+    /// Turn completed with stats.
+    TurnComplete(TurnStats),
+    /// Confirmation request.
+    ConfirmRequest(ToolConfirmation),
+}
+
+/// Pending tool confirmation.
+#[derive(Debug)]
+pub struct PendingConfirmation {
+    pub confirmation: ToolConfirmation,
+    pub response_tx: Option<tokio::sync::oneshot::Sender<ConfirmationResult>>,
 }
 
 /// Application state.
@@ -81,13 +141,32 @@ pub struct App {
     pub should_quit: bool,
     /// Status message to display.
     pub status: Option<String>,
-    /// AI provider.
-    provider: Option<BoxedProvider>,
+    /// AI agent.
+    agent: Option<Agent>,
+    /// Terminal width for streaming.
+    terminal_width: Option<u16>,
+    /// Stream controller for current response.
+    stream_controller: Option<StreamController>,
+    /// Event channel for agent callbacks.
+    event_rx: Option<mpsc::UnboundedReceiver<AppEvent>>,
+    /// Event sender (held to keep channel alive).
+    event_tx: Option<mpsc::UnboundedSender<AppEvent>>,
+    /// Pending confirmation request.
+    pending_confirmation: Option<PendingConfirmation>,
+    /// Last turn stats.
+    pub last_turn_stats: Option<TurnStats>,
+    /// Input history.
+    pub input_history: Vec<String>,
+    /// Current position in input history.
+    history_index: Option<usize>,
+    /// Current input (saved when navigating history).
+    saved_input: String,
 }
 
 impl App {
     /// Create a new application.
     pub fn new() -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
         Self {
             mode: AppMode::Normal,
             messages: Vec::new(),
@@ -96,16 +175,67 @@ impl App {
             scroll_offset: 0,
             should_quit: false,
             status: None,
-            provider: None,
+            agent: None,
+            terminal_width: None,
+            stream_controller: None,
+            event_rx: Some(rx),
+            event_tx: Some(tx),
+            pending_confirmation: None,
+            last_turn_stats: None,
+            input_history: Vec::new(),
+            history_index: None,
+            saved_input: String::new(),
         }
     }
 
     /// Create with a provider.
     pub fn with_provider(provider: BoxedProvider) -> Self {
-        Self {
-            provider: Some(provider),
-            ..Self::new()
-        }
+        let mut app = Self::new();
+        app.set_provider(provider);
+        app
+    }
+
+    /// Set the AI provider and create an agent.
+    pub fn set_provider(&mut self, provider: BoxedProvider) {
+        let registry = Arc::new(ToolRegistry::with_defaults());
+        let event_tx = self.event_tx.clone().unwrap();
+
+        let callbacks = AgentCallbacks {
+            on_text: Some(Box::new({
+                let tx = event_tx.clone();
+                move |text: &str| {
+                    let _ = tx.send(AppEvent::TextDelta(text.to_string()));
+                }
+            })),
+            on_tool_call: Some(Box::new({
+                let tx = event_tx.clone();
+                move |name: &str, input: &serde_json::Value| {
+                    let _ = tx.send(AppEvent::ToolStart(name.to_string(), input.clone()));
+                }
+            })),
+            on_tool_result: Some(Box::new({
+                let tx = event_tx.clone();
+                move |name: &str, result: &str, is_error: bool| {
+                    let _ = tx.send(AppEvent::ToolResult(name.to_string(), result.to_string(), is_error));
+                }
+            })),
+            on_confirm: None, // Handled via channel-based approach
+            on_compaction: None,
+            on_turn_complete: Some(Box::new({
+                let tx = event_tx.clone();
+                move |stats: &TurnStats| {
+                    let _ = tx.send(AppEvent::TurnComplete(stats.clone()));
+                }
+            })),
+        };
+
+        self.agent = Some(Agent::new(AgentOptions {
+            provider,
+            tool_registry: registry,
+            system_prompt: Some("You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string()),
+            config: AgentConfig::default(),
+            callbacks,
+        }));
     }
 
     /// Run the main event loop.
@@ -114,49 +244,206 @@ impl App {
         terminal: &mut Terminal<B>,
         mut events: EventHandler,
     ) -> io::Result<()> {
+        // Get initial terminal size
+        let size = terminal.size()?;
+        self.terminal_width = Some(size.width);
+
         while !self.should_quit {
             // Draw UI
-            terminal.draw(|f| ui::draw(f, self))?;
+            terminal.draw(|f| {
+                self.terminal_width = Some(f.area().width);
+                ui::draw(f, self);
+            })?;
 
-            // Handle events
-            if let Some(event) = events.next().await {
-                self.handle_event(event).await;
+            // Process any pending app events (from agent callbacks)
+            self.process_app_events();
+
+            // Handle events with timeout for animation
+            tokio::select! {
+                Some(event) = events.next() => {
+                    self.handle_event(event).await;
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {
+                    // Tick for streaming animation
+                    self.tick_streaming();
+                }
             }
         }
 
         Ok(())
     }
 
+    /// Process any pending app events from agent callbacks.
+    fn process_app_events(&mut self) {
+        // Collect events first to avoid borrow issues
+        let mut events = Vec::new();
+        if let Some(ref mut rx) = self.event_rx {
+            while let Ok(event) = rx.try_recv() {
+                events.push(event);
+            }
+        }
+
+        // Process collected events
+        for event in events {
+            match event {
+                AppEvent::TextDelta(text) => {
+                    self.handle_text_delta(&text);
+                }
+                AppEvent::ToolStart(name, _input) => {
+                    self.status = Some(format!("Running: {} ...", name));
+                }
+                AppEvent::ToolResult(name, _result, is_error) => {
+                    if is_error {
+                        self.status = Some(format!("Tool {} failed", name));
+                    } else {
+                        self.status = Some(format!("Completed: {}", name));
+                    }
+                }
+                AppEvent::TurnComplete(stats) => {
+                    self.last_turn_stats = Some(stats);
+                    self.mode = AppMode::Normal;
+                    self.status = None;
+
+                    // Finalize streaming
+                    self.finalize_streaming();
+                }
+                AppEvent::ConfirmRequest(_) => {
+                    // Handled separately via channel
+                }
+            }
+        }
+    }
+
+    /// Handle text delta from streaming.
+    fn handle_text_delta(&mut self, text: &str) {
+        // Initialize stream controller if needed
+        if self.stream_controller.is_none() {
+            let width = self.terminal_width.map(|w| (w.saturating_sub(4)) as usize);
+            self.stream_controller = Some(StreamController::new(width));
+
+            // Add streaming message
+            self.messages.push(Message::streaming());
+        }
+
+        // Push delta to controller
+        if let Some(ref mut controller) = self.stream_controller {
+            controller.push(text);
+        }
+
+        // Update the current message content
+        if let Some(msg) = self.messages.last_mut() {
+            if msg.streaming {
+                msg.append(text);
+            }
+        }
+    }
+
+    /// Tick the streaming animation.
+    fn tick_streaming(&mut self) {
+        if let Some(ref mut controller) = self.stream_controller {
+            let (status, lines) = controller.step();
+
+            if !lines.is_empty() {
+                // Append lines to the current streaming message
+                if let Some(msg) = self.messages.last_mut() {
+                    if msg.streaming {
+                        msg.append_rendered_lines(lines);
+                    }
+                }
+            }
+
+            // Auto-scroll to bottom when new content arrives
+            if status == StreamStatus::HasContent {
+                self.scroll_to_bottom();
+            }
+        }
+    }
+
+    /// Finalize streaming and mark message as complete.
+    fn finalize_streaming(&mut self) {
+        if let Some(ref mut controller) = self.stream_controller {
+            controller.finalize();
+
+            // Drain remaining lines
+            let remaining = controller.drain_all();
+            if !remaining.is_empty() {
+                if let Some(msg) = self.messages.last_mut() {
+                    if msg.streaming {
+                        msg.append_rendered_lines(remaining);
+                    }
+                }
+            }
+        }
+
+        // Mark message as complete
+        if let Some(msg) = self.messages.last_mut() {
+            if msg.streaming {
+                msg.complete();
+            }
+        }
+
+        // Clear controller
+        self.stream_controller = None;
+    }
+
+    /// Scroll to the bottom of the message list.
+    fn scroll_to_bottom(&mut self) {
+        // This will be computed during rendering based on content height
+        self.scroll_offset = u16::MAX;
+    }
+
     /// Handle an input event.
     async fn handle_event(&mut self, event: Event) {
         match event {
             Event::Tick => {}
-            Event::Key(key) => self.handle_key(key.code).await,
+            Event::Key(key) => self.handle_key(key.code, key.modifiers).await,
             Event::Mouse(_) => {}
-            Event::Resize(_, _) => {}
+            Event::Resize(w, _h) => {
+                self.terminal_width = Some(w);
+            }
         }
     }
 
     /// Handle a key press.
-    async fn handle_key(&mut self, key: KeyCode) {
+    async fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
         match self.mode {
-            AppMode::Normal => self.handle_normal_key(key).await,
+            AppMode::Normal => self.handle_normal_key(key, modifiers).await,
             AppMode::Waiting => self.handle_waiting_key(key),
             AppMode::Help => self.handle_help_key(key),
+            AppMode::ConfirmTool => self.handle_confirm_key(key),
         }
     }
 
     /// Handle key in normal mode.
-    async fn handle_normal_key(&mut self, key: KeyCode) {
+    async fn handle_normal_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
         match key {
             KeyCode::Enter => {
                 if !self.input.is_empty() {
-                    self.submit_input().await;
+                    // Check for Shift+Enter for multi-line
+                    if modifiers.contains(KeyModifiers::SHIFT) {
+                        self.input.insert(self.cursor_pos, '\n');
+                        self.cursor_pos += 1;
+                    } else {
+                        self.submit_input().await;
+                    }
                 }
             }
             KeyCode::Char(c) => {
+                // Handle Ctrl+C
+                if c == 'c' && modifiers.contains(KeyModifiers::CONTROL) {
+                    self.should_quit = true;
+                    return;
+                }
+                // Handle Ctrl+D
+                if c == 'd' && modifiers.contains(KeyModifiers::CONTROL) {
+                    self.should_quit = true;
+                    return;
+                }
+
                 self.input.insert(self.cursor_pos, c);
                 self.cursor_pos += 1;
+                // Clear history navigation when typing
+                self.history_index = None;
             }
             KeyCode::Backspace => {
                 if self.cursor_pos > 0 {
@@ -186,23 +473,65 @@ impl App {
                 self.cursor_pos = self.input.len();
             }
             KeyCode::Up => {
-                if self.scroll_offset > 0 {
-                    self.scroll_offset -= 1;
-                }
+                self.navigate_history_back();
             }
             KeyCode::Down => {
-                self.scroll_offset += 1;
+                self.navigate_history_forward();
             }
             KeyCode::PageUp => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(10);
             }
             KeyCode::PageDown => {
-                self.scroll_offset += 10;
+                self.scroll_offset = self.scroll_offset.saturating_add(10);
             }
             KeyCode::Esc => {
                 self.should_quit = true;
             }
             _ => {}
+        }
+    }
+
+    /// Navigate back through input history.
+    fn navigate_history_back(&mut self) {
+        if self.input_history.is_empty() {
+            return;
+        }
+
+        match self.history_index {
+            None => {
+                // Save current input and go to most recent history
+                self.saved_input = self.input.clone();
+                self.history_index = Some(self.input_history.len() - 1);
+            }
+            Some(idx) if idx > 0 => {
+                self.history_index = Some(idx - 1);
+            }
+            _ => return, // Already at oldest
+        }
+
+        if let Some(idx) = self.history_index {
+            self.input = self.input_history[idx].clone();
+            self.cursor_pos = self.input.len();
+        }
+    }
+
+    /// Navigate forward through input history.
+    fn navigate_history_forward(&mut self) {
+        match self.history_index {
+            Some(idx) if idx + 1 < self.input_history.len() => {
+                self.history_index = Some(idx + 1);
+                self.input = self.input_history[idx + 1].clone();
+                self.cursor_pos = self.input.len();
+            }
+            Some(_) => {
+                // Return to saved input
+                self.history_index = None;
+                self.input = self.saved_input.clone();
+                self.cursor_pos = self.input.len();
+            }
+            None => {
+                // Already at current input
+            }
         }
     }
 
@@ -212,6 +541,7 @@ impl App {
             // Cancel request (TODO: actually cancel)
             self.mode = AppMode::Normal;
             self.status = Some("Cancelled".to_string());
+            self.finalize_streaming();
         }
     }
 
@@ -222,10 +552,42 @@ impl App {
         }
     }
 
+    /// Handle key in confirmation mode.
+    fn handle_confirm_key(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                self.respond_to_confirmation(ConfirmationResult::Approve);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.respond_to_confirmation(ConfirmationResult::Deny);
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Esc => {
+                self.respond_to_confirmation(ConfirmationResult::Abort);
+            }
+            _ => {}
+        }
+    }
+
+    /// Respond to a pending confirmation.
+    fn respond_to_confirmation(&mut self, result: ConfirmationResult) {
+        if let Some(mut pending) = self.pending_confirmation.take() {
+            if let Some(tx) = pending.response_tx.take() {
+                let _ = tx.send(result);
+            }
+        }
+        self.mode = AppMode::Waiting;
+    }
+
     /// Submit the current input.
     async fn submit_input(&mut self) {
         let input = std::mem::take(&mut self.input);
         self.cursor_pos = 0;
+        self.history_index = None;
+
+        // Add to history
+        if !input.is_empty() {
+            self.input_history.push(input.clone());
+        }
 
         // Check for commands
         if input.starts_with('/') {
@@ -235,37 +597,25 @@ impl App {
 
         // Add user message
         self.messages.push(Message::user(&input));
+        self.scroll_to_bottom();
 
         // Get AI response
-        if let Some(ref provider) = self.provider {
+        if let Some(ref mut agent) = self.agent {
             self.mode = AppMode::Waiting;
             self.status = Some("Thinking...".to_string());
 
-            // Convert messages to API format
-            let api_messages: Vec<crate::types::Message> = self
-                .messages
-                .iter()
-                .filter(|m| !m.streaming)
-                .map(|m| crate::types::Message {
-                    role: m.role,
-                    content: crate::types::MessageContent::Text(m.content.clone()),
-                })
-                .collect();
-
-            // Call the provider
-            match provider.chat(&api_messages, None, None).await {
-                Ok(response) => {
-                    self.messages.push(Message::assistant(&response.content));
-                    self.status = None;
+            // Call the agent
+            match agent.chat(&input).await {
+                Ok(_response) => {
+                    // Response is handled via callbacks
                 }
                 Err(e) => {
                     self.status = Some(format!("Error: {}", e));
+                    self.mode = AppMode::Normal;
                 }
             }
-
-            self.mode = AppMode::Normal;
         } else {
-            // No provider, just echo
+            // No agent, just echo
             self.messages.push(Message::assistant(
                 "No AI provider configured. Use --provider to specify one.",
             ));
@@ -277,18 +627,44 @@ impl App {
         self.messages.clear();
         self.scroll_offset = 0;
         self.status = Some("Conversation cleared".to_string());
+
+        // Also clear agent history
+        if let Some(ref mut agent) = self.agent {
+            agent.clear();
+        }
     }
 
     /// Show help.
     pub fn show_help(&mut self) {
         self.mode = AppMode::Help;
     }
-}
 
-impl App {
+    /// Get the pending confirmation for UI display.
+    pub fn get_pending_confirmation(&self) -> Option<&ToolConfirmation> {
+        self.pending_confirmation.as_ref().map(|p| &p.confirmation)
+    }
+
     /// Check if a provider is configured.
     pub fn has_provider(&self) -> bool {
-        self.provider.is_some()
+        self.agent.is_some()
+    }
+
+    /// Get model info string for status bar.
+    pub fn model_info(&self) -> String {
+        if self.agent.is_some() {
+            // TODO: Add method to get provider name and model from agent
+            String::new()
+        } else {
+            String::new()
+        }
+    }
+
+    /// Get streaming buffer preview (partial line being typed).
+    pub fn streaming_buffer(&self) -> &str {
+        self.stream_controller
+            .as_ref()
+            .map(|c| c.buffer_preview())
+            .unwrap_or("")
     }
 }
 
@@ -327,6 +703,19 @@ mod tests {
     }
 
     #[test]
+    fn test_message_streaming() {
+        let mut msg = Message::streaming();
+        assert!(msg.streaming);
+        assert!(msg.content.is_empty());
+
+        msg.append("Hello");
+        assert_eq!(msg.content, "Hello");
+
+        msg.complete();
+        assert!(!msg.streaming);
+    }
+
+    #[test]
     fn test_clear_messages() {
         let mut app = App::new();
         app.messages.push(Message::user("test"));
@@ -336,5 +725,33 @@ mod tests {
 
         assert!(app.messages.is_empty());
         assert!(app.status.is_some());
+    }
+
+    #[test]
+    fn test_input_history() {
+        let mut app = App::new();
+
+        // Add some history
+        app.input_history.push("first".to_string());
+        app.input_history.push("second".to_string());
+        app.input = "current".to_string();
+
+        // Navigate back
+        app.navigate_history_back();
+        assert_eq!(app.input, "second");
+        assert_eq!(app.history_index, Some(1));
+
+        app.navigate_history_back();
+        assert_eq!(app.input, "first");
+        assert_eq!(app.history_index, Some(0));
+
+        // Navigate forward
+        app.navigate_history_forward();
+        assert_eq!(app.input, "second");
+        assert_eq!(app.history_index, Some(1));
+
+        app.navigate_history_forward();
+        assert_eq!(app.input, "current");
+        assert_eq!(app.history_index, None);
     }
 }

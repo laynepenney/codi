@@ -38,10 +38,12 @@
 pub mod app;
 pub mod commands;
 pub mod events;
+pub mod streaming;
 pub mod ui;
 
 pub use app::{App, AppMode, Message as ChatMessage};
 pub use events::{Event, EventHandler};
+pub use streaming::{MarkdownStreamCollector, StreamController, StreamState, StreamStatus};
 
 use std::io;
 use crossterm::{
