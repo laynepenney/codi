@@ -5,16 +5,16 @@
 Migrate Codi CLI (~58,000 lines TypeScript, 188 files) to Rust using an **incremental hybrid approach**. A Rust core is developed alongside TypeScript with JSON-RPC interoperability, enabling gradual migration while maintaining a working product.
 
 **Estimated Timeline**: 12-14 months (with 2 developers)
-**Effort**: ~70 person-weeks
+**Effort**: ~90 person-weeks
 
 ---
 
-## Architectural Review (2026-02-01)
+## Architectural Review (Updated 2026-02-02)
 
 ### Current Rust Implementation Status
 
 ```
-codi-rs: ~18,300 lines | 45 files | Phases 0-5 complete
+codi-rs: ~22,000 lines | 55 files | Phases 0-6.5 complete
 ```
 
 ### Reference Implementation Comparison
@@ -26,20 +26,32 @@ codi-rs: ~18,300 lines | 45 files | Phases 0-5 complete
 | Tools | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Symbol Index | ✅ | ❌ | ❌ | ❌ | ✅ |
 | RAG System | ✅ | ❌ | ❌ | ❌ | ✅ |
-| MCP Protocol | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Session Mgmt | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Context Windowing | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Terminal UI | 🔄 | ✅ | ✅ | ❌ | ✅ |
+| MCP Protocol | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Multi-Agent | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Sandboxing | ❌ | ✅ | ❌ | ✅ | ❌ |
-| Terminal UI | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Session Mgmt | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Context Windowing | ❌ | ✅ | ✅ | ✅ | ✅ |
-| LSP Integration | ❌ | ❌ | ✅ | ✅ | ❌ |
-| OAuth/Auth | ❌ | ✅ | ✅ | ✅ | ❌ |
+| Keyring/OAuth | ❌ | ✅ | ✅ | ✅ | ❌ |
 | Worktrees | ❌ | ❌ | ❌ | ✅ | ✅ |
+| LSP Integration | ❌ | ❌ | ✅ | ✅ | ❌ |
+| Exec Policy Engine | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Session Snapshots | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Session Sharing | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Diff Tracker | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Todo/Task Tool | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Desktop App | ❌ | ❌ | ❌ | ✅ | ❌ |
+| VSCode Extension | ❌ | ❌ | ❌ | ✅ | ❌ |
+
+**Legend**: ✅ Complete | 🔄 In Progress | ❌ Not Started
 
 ### Key Insights from Reference Implementations
 
 **Codex-RS (OpenAI)** - ~30 crates, very modular:
 - Separate crates for `mcp-types`, `mcp-server`, `rmcp-client`
 - Strong security focus: `linux-sandbox`, `windows-sandbox`, `network-proxy`, `execpolicy`
+- **Execution Policy Engine**: Rule-based bash approval with learning/amendment
+- **Diff Tracker**: Git blob SHA tracking for accurate file change monitoring
 - `keyring-store` for credential management
 - Massive TUI (~240KB `chatwidget.rs`, streaming markdown)
 - OpenTelemetry via `otel` crate
@@ -49,47 +61,19 @@ codi-rs: ~18,300 lines | 45 files | Phases 0-5 complete
 - Auto-summarization when context window fills (largeContextWindowThreshold = 200K)
 - Message queuing for busy sessions
 - Title generation using small model
-- Todo tracking built into agent
-- LSP integration for diagnostics
+- **Todo/Task Tracking**: Built-in task tool with visual progress
+- **LSP Integration**: Full LSP client with diagnostic caching
 - Provider-specific workarounds (media in tool results for non-Anthropic)
 
 **OpenCode** - Go/TypeScript hybrid:
-- LSP integration for language features
+- **LSP Integration**: Language server features
 - PTY handling for proper terminal emulation
 - Scheduler for background tasks
 - Skill system (extensible commands)
-- Session sharing capabilities
-- Snapshot/restore for checkpoints
-- VSCode extension (`sdks/vscode`)
-
-### Missing Features (Priority Order)
-
-**Critical (Phase 6-7 blockers):**
-1. **Session Management** - Persistence, resume, history listing
-2. **Context Windowing** - Token counting, auto-summarization
-3. **Streaming Output** - Real-time callbacks for TUI integration
-
-**High Priority (Feature parity):**
-4. **MCP Protocol** - Client/server for extensibility
-5. **Slash Commands** - User command system
-6. **File Watching** - notify crate for incremental updates
-
-**Medium Priority (Polish):**
-7. **OAuth/Auth** - Keyring integration, provider auth
-8. **Title Generation** - Session naming from first message
-9. **Message Queuing** - Handle concurrent requests
-
-**Low Priority (Advanced):**
-10. **Sandboxing** - Process isolation (complex, OS-specific)
-11. **LSP Integration** - Language server features
-12. **Worktrees** - Git worktree management
-
-### Recommended Changes
-
-1. **Add Session Module (Phase 5.1)** - Before TUI, we need session persistence
-2. **Add Context Windowing (Phase 5.2)** - Critical for long conversations
-3. **Split MCP into Phase 6.5** - Between TUI and Multi-Agent
-4. **Consider Modular Crates** - Follow Codex-RS pattern for large modules
+- **Session Snapshots**: Git-based checkpoint/restore
+- **Session Sharing**: Collaborative session features
+- **Desktop App**: Tauri-based application
+- **VSCode Extension**: IDE integration (`sdks/vscode`)
 
 ---
 
@@ -122,7 +106,7 @@ codi-rs: ~18,300 lines | 45 files | Phases 0-5 complete
 | `commander` | `clap` (derive) |
 | `ink` + `react` | `ratatui` + `crossterm` |
 | `ts-morph` | `tree-sitter` |
-| `vectra` | `lance` (embedded vector DB) |
+| `vectra` | SQLite + cosine similarity |
 | `better-sqlite3` | `rusqlite` |
 | `chalk` | `colored` |
 | `ora` | `indicatif` |
@@ -176,17 +160,6 @@ codi-rs: ~18,300 lines | 45 files | Phases 0-5 complete
 ### Phase 2: Provider Layer (Weeks 13-20) ✅ COMPLETE
 **Goal**: Migrate AI provider integrations
 
-```rust
-#[async_trait]
-pub trait Provider: Send + Sync {
-    async fn chat(&self, request: ChatRequest) -> Result<ProviderResponse, ProviderError>;
-    async fn stream_chat(&self, request: ChatRequest) -> Result<StreamHandle, ProviderError>;
-    fn supports_tool_use(&self) -> bool;
-    fn supports_vision(&self) -> bool;
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError>;
-}
-```
-
 | Provider | Status | Notes |
 |----------|--------|-------|
 | Anthropic | ✅ Done | Full streaming SSE, tool use, vision, extended thinking |
@@ -195,12 +168,6 @@ pub trait Provider: Send + Sync {
 | Smart defaults | ✅ Done | Auto-detect from env vars, local-first fallback |
 | Telemetry | ✅ Done | Operation timing, token tracking |
 | Benchmarks | ✅ Done | Provider creation, serialization, parsing |
-
-**Key Features Implemented**:
-- `create_provider_from_env()` - Auto-detects provider from environment
-- Convenience functions: `anthropic()`, `openai()`, `ollama()`, `ollama_at()`
-- Provider auto-detection from base URL
-- Feature-gated telemetry integration
 
 **Deliverable**: Rust providers with streaming, callable from TypeScript ✅
 
@@ -215,17 +182,6 @@ pub trait Provider: Send + Sync {
 | Turn stats | ✅ Done | Token/cost/duration tracking |
 | Telemetry | ✅ Done | GLOBAL_METRICS integration |
 | Benchmarks | ✅ Done | Criterion-based agent benchmarks |
-| Context windowing | 🔜 Planned | Token management |
-| Compression | 🔜 Planned | Entity normalization |
-| Parallel execution | 🔜 Planned | Batch tool calls |
-| Streaming | 🔜 Planned | Real-time output via callbacks |
-
-**Implemented Features**:
-- `Agent.chat()` - Main agentic loop
-- `AgentConfig` - Iteration limits, timeouts, auto-approval
-- `AgentCallbacks` - Event hooks for UI integration
-- `TurnStats` - Usage tracking per turn
-- Tool confirmation for destructive operations
 
 **Deliverable**: Rust agent loop for full conversations ✅
 
@@ -241,19 +197,6 @@ pub trait Provider: Send + Sync {
 | High-level service | ✅ Done | SymbolIndexService API |
 | Telemetry | ✅ Done | All operations record metrics |
 | Benchmarks | ✅ Done | Parser, database, service benchmarks |
-
-**Tracked for Phase 4.1** (Issue #229):
-- File watcher with `notify` crate
-- Deep indexing with usage detection
-- Additional language support
-
-**Implemented Features**:
-- `SymbolParser` - Tree-sitter based multi-language parsing
-- `SymbolDatabase` - SQLite storage with fuzzy search
-- `Indexer` - Parallel file indexing with progress tracking
-- `SymbolIndexService` - High-level API for build, search, stats
-- Incremental updates (only re-index changed files)
-- 35 unit tests passing
 
 **Deliverable**: PR #228 merged ✅
 
@@ -273,84 +216,181 @@ pub trait Provider: Send + Sync {
 | Telemetry | ✅ Done | All operations record metrics |
 | Benchmarks | ✅ Done | Criterion-based |
 
-**Files Created** (~3,100 lines):
-- `src/rag/types.rs` - Type definitions
-- `src/rag/embeddings/` - Embedding providers (OpenAI, Ollama, cache)
-- `src/rag/chunker.rs` - Semantic code chunking
-- `src/rag/vector_store.rs` - SQLite-based vector storage
-- `src/rag/indexer.rs` - Background file indexer
-- `src/rag/retriever.rs` - Query interface
-- `src/rag/mod.rs` - Module exports + RAGService
-- `benches/rag.rs` - Benchmarks
+**Deliverable**: PR #230 merged ✅
 
-**Deliverable**: PR #230 (pending review)
-
-### Phase 5.5: Session & Context (NEW - Weeks 43-46)
-**Goal**: Add session persistence and context management (required before TUI)
+### Phase 5.5: Session & Context (Weeks 43-46) ✅ COMPLETE
+**Goal**: Add session persistence and context management
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Session types | 🔜 Planned | Session, Message, history types |
-| Session storage | 🔜 Planned | SQLite persistence |
-| Session service | 🔜 Planned | Create, resume, list, delete |
-| Context windowing | 🔜 Planned | Token counting, truncation |
-| Auto-summarization | 🔜 Planned | Compress context when full (see Crush) |
-| Title generation | 🔜 Planned | Generate titles from first message |
-| Message queuing | 🔜 Planned | Queue requests for busy sessions |
+| Session types | ✅ Done | Session, SessionMessage, SessionInfo, Todo |
+| Session storage | ✅ Done | SQLite persistence with WAL mode |
+| Session service | ✅ Done | Create, get, save, delete, list, search |
+| Context windowing | ✅ Done | Token estimation, working set, selection |
+| Context config | ✅ Done | Model-specific thresholds, message limits |
+| Telemetry | ✅ Done | Feature-gated Instant::now() |
+| Benchmarks | ✅ Done | 17 benchmarks for session operations |
+| Tests | ✅ Done | 29 tests passing |
 
-**Reference**: Crush `internal/session/`, `internal/agent/agent.go` (lines 560-671)
+**Deliverable**: PR #237, #238 merged ✅
 
-### Phase 6: Terminal UI (Weeks 47-52)
-**Goal**: Replace ink/React with ratatui
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Core TUI framework | 🔜 Planned | ratatui + crossterm |
-| Input handling | 🔜 Planned | rustyline for readline |
-| Streaming markdown | 🔜 Planned | Real-time rendering (see Codex chatwidget.rs) |
-| Diff rendering | 🔜 Planned | Syntax-highlighted diffs |
-| Spinners/progress | 🔜 Planned | indicatif |
-| Session picker | 🔜 Planned | Resume previous sessions |
-| Slash commands | 🔜 Planned | /help, /clear, /model, etc. |
-
-**Reference**: Codex `tui/src/` (~1MB of TUI code)
-
-### Phase 6.5: MCP Protocol (NEW - Weeks 53-56)
-**Goal**: Model Context Protocol for extensibility
+### Phase 6: Terminal UI (Weeks 47-52) 🔄 IN PROGRESS
+**Goal**: Production-grade terminal UI with streaming and session support
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| MCP types | 🔜 Planned | Separate crate like Codex |
-| MCP client | 🔜 Planned | Connect to MCP servers |
-| MCP server | 🔜 Planned | Expose tools as MCP |
-| Tool wrapping | 🔜 Planned | Wrap external tools |
+| Core TUI framework | ✅ Done | Terminal init/restore, event loop |
+| Application state | ✅ Done | Mode enum, message history, input buffer |
+| Basic layout | ✅ Done | 3-pane: messages, input, status |
+| Streaming output | ✅ Done | MarkdownStreamCollector with incremental parsing |
+| Slash commands | ✅ Done | /help, /clear, /exit, /model, /session, /compact, /status |
+| Session integration | 🔜 Planned | Load/save sessions from TUI |
+| Advanced input | 🔜 Planned | Paste detection, history navigation |
+| Snapshot tests | 🔜 Planned | Test UI rendering with insta |
 
-**Reference**: Codex `mcp-types/`, `mcp-server/`, `rmcp-client/`
+**Files Created** (~1,900 lines):
+- `src/tui/mod.rs` - Terminal lifecycle
+- `src/tui/app.rs` - Application state and event loop
+- `src/tui/ui.rs` - Ratatui rendering
+- `src/tui/events.rs` - Event polling
+- `src/tui/commands.rs` - Slash command routing
+- `src/tui/streaming/` - Markdown stream collector
+- `benches/tui.rs` - Benchmarks
 
-### Phase 7: Multi-Agent (Weeks 57-60)
-**Goal**: Port IPC-based worker orchestration
+**Deliverable**: PR #239 merged ✅
+
+### Phase 6.5: MCP Protocol (Weeks 53-56) ✅ COMPLETE
+**Goal**: Model Context Protocol for tool extensibility
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Child agent | 🔜 Planned | Spawn sub-agents |
-| IPC protocol | 🔜 Planned | Unix sockets with tokio |
-| Commander | 🔜 Planned | Orchestrate multiple agents |
-| Worktrees | 🔜 Planned | Git worktree management |
+| MCP types | ✅ Done | McpToolInfo, McpToolResult, McpContent, etc. |
+| MCP config | ✅ Done | ServerConfig with stdio/http/sse transports |
+| MCP client | ✅ Done | JSON-RPC over stdio, ConnectionManager |
+| Tool wrapper | ✅ Done | McpToolWrapper implements ToolHandler |
+| Error handling | ✅ Done | Comprehensive McpError enum |
+| Telemetry | ✅ Done | Feature-gated operation timing |
+| Benchmarks | ✅ Done | 12 benchmarks for config, serialization |
+| Tests | ✅ Done | 29 tests passing |
+
+**Files Created** (~2,200 lines):
+- `src/mcp/mod.rs` - Module exports
+- `src/mcp/types.rs` - Core MCP types
+- `src/mcp/config.rs` - Server configuration
+- `src/mcp/client.rs` - Client and ConnectionManager
+- `src/mcp/tools.rs` - ToolHandler wrapper
+- `src/mcp/error.rs` - Error types
+- `benches/mcp.rs` - Benchmarks
+
+**Remaining Work**:
+- HTTP/SSE transport implementations (stubs only)
+- MCP Server mode (`codi --mcp-server`)
+
+**Deliverable**: PR #240 merged ✅
+
+### Phase 6.6: LSP Integration (Weeks 57-58) 📋 NEW
+**Goal**: Language server integration for code intelligence
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| LSP client trait | 📋 Planned | Abstract LSP client interface |
+| Language configs | 📋 Planned | Per-language LSP configurations |
+| Diagnostic cache | 📋 Planned | Version-tracked diagnostic storage |
+| File scoping | 📋 Planned | LSP by file extension |
+| Symbol index integration | 📋 Planned | Enrich symbols with LSP data |
+
+**Reference**: Crush `internal/lsp/client.go`
+
+### Phase 7: Multi-Agent (Weeks 59-62) 📋 PLANNED
+**Goal**: Parallel agent execution with IPC-based permission bubbling
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| IPC protocol | 📋 Planned | Newline-delimited JSON over Unix sockets |
+| IPC server | 📋 Planned | Tokio UnixListener, client tracking |
+| IPC client | 📋 Planned | Permission requests, status reporting |
+| Git worktrees | 📋 Planned | Create isolated workspaces |
+| Commander | 📋 Planned | Spawn/manage workers, aggregate results |
+| Child agent | 📋 Planned | Agent wrapper with IPC onConfirm |
+| Commands | 📋 Planned | /delegate, /workers, /worktrees |
 
 **Reference**: Codi-TS `orchestrate/`
 
-### Phase 8: Security & Polish (NEW - Weeks 61-64)
-**Goal**: Production hardening
+### Phase 8: Security & Polish (Weeks 63-68) 📋 PLANNED
+**Goal**: Production hardening, credential management, and sandboxing
+
+#### 8.1 Execution Policy Engine (Week 63)
+| Task | Notes |
+|------|-------|
+| Dangerous command detection | Pattern-based with risk scoring |
+| Rule learning | Learn from user approvals |
+| Prefix rules | Safe command patterns |
+| Rule persistence | ~/.codi/exec-rules.json |
+| Amendment workflow | Add new patterns dynamically |
+
+**Reference**: Codex-RS `execpolicy/`
+
+#### 8.2 Credential Storage (Week 64)
+| Task | Notes |
+|------|-------|
+| Keyring abstraction | Cross-platform secret storage |
+| Provider credentials | API keys for providers |
+| Token management | OAuth token storage |
+| Fallback storage | Encrypted file fallback |
+
+**Dependencies**:
+```toml
+keyring = "3"           # System keyring (Windows, macOS, Linux)
+chacha20poly1305 = "0.10"  # Fallback encryption
+argon2 = "0.5"          # Key derivation
+```
+
+#### 8.3 OAuth Flows (Week 65)
+| Task | Notes |
+|------|-------|
+| OAuth client | PKCE flow implementation |
+| Token refresh | Auto-refresh expired tokens |
+| Provider configs | GitHub, Google, etc. |
+| Callback server | Local HTTP for redirect |
+
+#### 8.4 Process Sandboxing (Week 66) [Optional/Feature-Gated]
+| Task | Notes |
+|------|-------|
+| Sandbox trait | Abstract sandbox interface |
+| Linux sandbox | Landlock + seccomp |
+| macOS sandbox | Seatbelt (sandbox-exec) |
+| Windows sandbox | Job objects + restricted tokens |
+
+**Reference**: Codex-RS `linux-sandbox/`, `seatbelt.rs`
+
+#### 8.5 Session Enhancements (Week 67)
+| Task | Notes |
+|------|-------|
+| Session snapshots | Git-based checkpoint system |
+| Snapshot restore | Restore session state |
+| Session sharing | Collaborative sessions (future) |
+| Advanced compaction | Protected message pruning |
+
+**Reference**: OpenCode `snapshot/index.ts`
+
+#### 8.6 Error Recovery & Polish (Week 68)
+| Task | Notes |
+|------|-------|
+| Graceful degradation | Handle missing features |
+| Retry logic | Exponential backoff |
+| Circuit breaker | Prevent cascade failures |
+| Recovery hints | User-actionable suggestions |
+
+### Phase 9: Platform Expansion (Future) 📋 OPTIONAL
+**Goal**: Broader accessibility beyond CLI
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Command safety | 🔜 Planned | Dangerous command detection |
-| Process sandboxing | 🔜 Planned | Optional isolation (OS-specific) |
-| Credential storage | 🔜 Planned | Keyring integration |
-| OAuth flows | 🔜 Planned | Provider authentication |
-| Error recovery | 🔜 Planned | Graceful degradation |
-
-**Reference**: Codex `execpolicy/`, `linux-sandbox/`, `keyring-store/`
+| MCP Server mode | 📋 Planned | Expose Codi tools via MCP |
+| Desktop App | 📋 Future | Tauri-based application |
+| VSCode Extension | 📋 Future | IDE integration |
+| Todo/Task Tool | 📋 Future | Built-in task tracking |
+| Diff Tracker | 📋 Future | Git blob-based change tracking |
 
 ---
 
@@ -384,6 +424,13 @@ tree-sitter-rust = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-go = "0.23"
 
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# MCP
+rmcp = { version = "0.14", features = ["client", "transport-child-process"] }
+
 # Utilities
 globset = "0.4"
 grep = "0.3"
@@ -400,29 +447,23 @@ tracing = "0.1"
 criterion = "0.5"
 ```
 
-## Planned Dependencies (Phase 5.5+)
+## Planned Dependencies (Phase 7+)
 
 ```toml
-# Terminal UI (Phase 6)
-ratatui = "0.29"
-crossterm = "0.28"
-rustyline = "14"
-indicatif = "0.17"
-
-# Token counting (Phase 5.5)
-tiktoken-rs = "0.6"
-
-# File watching (Phase 4.1/5.5)
-notify = "7"
-
-# MCP (Phase 6.5)
-jsonrpsee = "0.24"
+# LSP (Phase 6.6)
+tower-lsp = "0.20"      # LSP client/server
 
 # Git (Phase 7)
 git2 = "0.19"
 
-# Keyring (Phase 8)
+# Security (Phase 8)
 keyring = "3"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+oauth2 = "4"
+
+# Sandbox (Phase 8, optional)
+libseccomp = { version = "0.3", optional = true }  # Linux only
 ```
 
 ---
@@ -433,54 +474,60 @@ keyring = "3"
 1. **Modular crate structure** - Large modules (MCP, sandbox) as separate crates
 2. **Snapshot testing** - TUI has extensive snapshot tests (`tui/src/snapshots/`)
 3. **Protocol separation** - `codex-protocol` crate for wire types
-4. **Deny stdout/stderr** - Library code must use proper abstractions
+4. **Execution policy learning** - Rules learn from user approvals
+5. **Diff tracking** - Git blob SHAs for accurate file change monitoring
 
 ### From Crush (Charm)
 1. **Auto-summarization** - Trigger at 20% remaining context or 20K tokens for large windows
 2. **Message queuing** - Queue prompts when session is busy, process after completion
 3. **Title generation** - Use small model for efficiency, fall back to large model
-4. **Provider workarounds** - Handle provider-specific limitations (e.g., media in tool results)
-5. **Cache control** - Add Anthropic cache control to last messages for efficiency
+4. **LSP integration** - Real-time diagnostics with version tracking
+5. **Todo tracking** - Built-in task tool with visual progress
 
 ### From OpenCode
 1. **Event bus** - Central event system for component communication
 2. **Scheduler** - Background task management
 3. **Skill system** - Extensible command/behavior plugins
+4. **Session snapshots** - Git-based checkpoint/restore
+5. **Session sharing** - Collaborative session infrastructure
 
 ### Patterns to Adopt
 1. **Session-first design** - All operations should be session-aware
 2. **Streaming callbacks** - TUI integration requires streaming from day 1
 3. **Graceful degradation** - Handle missing providers, network issues
 4. **Token awareness** - Track tokens throughout for context management
+5. **Rule learning** - Security policies that adapt to user behavior
 
 ---
 
-## Risk Assessment (Updated)
+## Risk Assessment
 
 ### High Risk
 | Component | Risk | Mitigation |
 |-----------|------|------------|
 | ~~tree-sitter TS parsing~~ | ~~Grammar accuracy~~ | ✅ Resolved - tests passing |
+| ~~Context windowing~~ | ~~Token counting accuracy~~ | ✅ Resolved - implemented |
+| ~~MCP protocol~~ | ~~Spec compliance~~ | ✅ Resolved - tests passing |
 | Terminal UI | UX parity with ink | Reference Codex TUI patterns |
-| Context windowing | Token counting accuracy | Use tiktoken-rs, test with API |
-| MCP protocol | Spec compliance | Integration tests with real servers |
+| LSP integration | Cross-platform complexity | Use tower-lsp crate |
 
 ### Medium Risk
 | Component | Risk | Mitigation |
 |-----------|------|------------|
 | ~~RAG embeddings~~ | ~~Format compatibility~~ | ✅ Resolved - tested |
-| Session migration | Data format changes | Version schema, migration scripts |
+| ~~Session migration~~ | ~~Data format changes~~ | ✅ Resolved - versioned schema |
 | Multi-agent IPC | Cross-platform sockets | Abstract transport layer |
+| Sandboxing | OS-specific complexity | Feature-gate, optional |
 
 ### Low Risk
 | Component | Risk | Mitigation |
 |-----------|------|------------|
-| Sandboxing | OS-specific complexity | Feature-gate, optional |
 | OAuth | Provider API changes | Abstraction layer |
+| Desktop app | Tauri complexity | Follow OpenCode patterns |
 
 ---
 
-## Effort Summary (Updated)
+## Effort Summary (Updated 2026-02-02)
 
 | Phase | Duration | Person-Weeks | Status |
 |-------|----------|--------------|--------|
@@ -490,15 +537,17 @@ keyring = "3"
 | 3: Agent Loop | 8 weeks | 12 | ✅ Done |
 | 4: Symbol Index | 8 weeks | 12 | ✅ Done |
 | 5: RAG | 6 weeks | 8 | ✅ Done |
-| 5.5: Session & Context | 4 weeks | 6 | 🔜 Next |
-| 6: Terminal UI | 6 weeks | 10 | 🔜 Planned |
-| 6.5: MCP Protocol | 4 weeks | 6 | 🔜 Planned |
-| 7: Multi-Agent | 4 weeks | 6 | 🔜 Planned |
-| 8: Security & Polish | 4 weeks | 6 | 🔜 Planned |
-| **Total** | **64 weeks** | **90** | |
+| 5.5: Session & Context | 4 weeks | 6 | ✅ Done |
+| 6: Terminal UI | 6 weeks | 10 | 🔄 In Progress |
+| 6.5: MCP Protocol | 4 weeks | 6 | ✅ Done |
+| 6.6: LSP Integration | 2 weeks | 4 | 📋 Planned |
+| 7: Multi-Agent | 4 weeks | 6 | 📋 Planned |
+| 8: Security & Polish | 6 weeks | 10 | 📋 Planned |
+| 9: Platform Expansion | TBD | TBD | 📋 Future |
+| **Total** | **68 weeks** | **98** | |
 
-**Progress**: Phases 0-5 complete (~18,300 lines, 45 files, 219 tests)
-**Remaining**: ~26 weeks (~35% done by lines, ~55% done by phases)
+**Progress**: Phases 0-6.5 complete (~22,000 lines, ~55 files, 310 tests)
+**Remaining**: ~18 weeks (~70% done by lines, ~75% done by phases)
 
 ---
 
@@ -508,16 +557,6 @@ keyring = "3"
 2. **Integration**: Nightly runs against live APIs
 3. **Performance**: Criterion benchmarks
 4. **Compatibility**: Same prompts through TS and Rust, compare outputs
-
----
-
-## Quick Wins (Week 1)
-
-1. Create `codi-rs` Cargo workspace
-2. Copy gitgrip patterns (error handling, CLI, config)
-3. Implement core types (Message, ToolDefinition, etc.)
-4. Implement grep tool with `ripgrep` - immediate 10x speedup
-5. Set up GitHub Actions CI
 
 ---
 
@@ -540,7 +579,9 @@ keyring = "3"
 | `ref/codex/codex-rs/tui/src/chatwidget.rs` | Chat UI (240KB) |
 | `ref/codex/codex-rs/tui/src/markdown_stream.rs` | Streaming markdown |
 | `ref/codex/codex-rs/mcp-types/src/lib.rs` | MCP types (62KB) |
-| `ref/codex/codex-rs/execpolicy/` | Command safety |
+| `ref/codex/codex-rs/execpolicy/` | Execution policy engine |
+| `ref/codex/codex-rs/core/src/seatbelt.rs` | macOS sandbox |
+| `ref/codex/codex-rs/keyring-store/` | Credential storage |
 
 ### Reference: Crush
 | File | Purpose |
@@ -548,7 +589,8 @@ keyring = "3"
 | `ref/crush/internal/agent/agent.go` | Agent with auto-summarize |
 | `ref/crush/internal/session/` | Session persistence |
 | `ref/crush/internal/ui/chat/` | Chat UI components |
-| `ref/crush/internal/lsp/` | LSP integration |
+| `ref/crush/internal/lsp/client.go` | LSP client |
+| `ref/crush/internal/ui/chat/todos.go` | Task tracking |
 
 ### Reference: OpenCode
 | File | Purpose |
@@ -556,25 +598,28 @@ keyring = "3"
 | `ref/opencode/packages/opencode/src/` | Main CLI |
 | `ref/opencode/packages/opencode/src/session/` | Session management |
 | `ref/opencode/packages/opencode/src/mcp/` | MCP implementation |
+| `ref/opencode/packages/opencode/src/snapshot/` | Session snapshots |
+| `ref/opencode/sdks/vscode/` | VSCode extension |
 
 ---
 
 ## Next Steps
 
 ### Immediate (This Week)
-1. ✅ Review and merge PR #230 (Phase 5 RAG)
-2. Create tracking issue for Phase 5.5 Session & Context
-3. Begin session types and storage design
+1. Complete Phase 6 TUI polish (session integration, tests)
+2. Begin Phase 6.6 LSP integration research
 
 ### Short Term (Next 2 Weeks)
-1. Implement session persistence
-2. Add token counting with tiktoken-rs
-3. Implement context windowing
+1. Phase 6.6 LSP client implementation
+2. Phase 7 Multi-agent IPC protocol design
 
 ### Medium Term (Next Month)
-1. Phase 6 TUI scaffolding
-2. Streaming markdown rendering
-3. Basic slash commands
+1. Complete Phase 7 Multi-agent orchestration
+2. Begin Phase 8 Security features
+
+### Long Term (Next 2 Months)
+1. Complete Phase 8 Security & Polish
+2. Evaluate Phase 9 Platform Expansion priorities
 
 ---
 
@@ -584,4 +629,19 @@ keyring = "3"
 |----|-------|--------|
 | #228 | Phase 4 Symbol Index | ✅ Merged |
 | #229 | Phase 4.1 Tracking Issue | ✅ Created |
-| #230 | Phase 5 RAG System | 🔄 Pending Review |
+| #230 | Phase 5 RAG System | ✅ Merged |
+| #237 | Phase 5.5 Session & Context | ✅ Merged |
+| #238 | Fix: Session telemetry cfg | ✅ Merged |
+| #239 | Phase 6 TUI Streaming | ✅ Merged |
+| #240 | Phase 6.5 MCP Protocol | ✅ Merged |
+
+---
+
+## Tracking Issues
+
+| Issue | Phase | Description |
+|-------|-------|-------------|
+| #229 | Phase 4.1 | File watcher, deep indexing, more languages |
+| TBD | Phase 6.6 | LSP Integration |
+| TBD | Phase 8.1 | Execution Policy Engine |
+| TBD | Phase 9 | Platform Expansion priorities |
