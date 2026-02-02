@@ -21,6 +21,7 @@
 //! - [`symbol_index`] - Tree-sitter based code navigation and symbol search
 //! - [`rag`] - RAG system for semantic code search with embeddings
 //! - [`session`] - Session persistence and context windowing
+//! - [`lsp`] - Language Server Protocol integration for code intelligence
 //!
 //! # Migration Status
 //!
@@ -34,7 +35,8 @@
 //! - **Phase 5**: RAG system - semantic code search with embeddings ✓
 //! - **Phase 5.5**: Session & context - persistence and windowing ✓
 //! - **Phase 6**: Terminal UI - ratatui based interface ✓
-//! - **Phase 6.5** (Current): MCP Protocol - tool extensibility
+//! - **Phase 6.5**: MCP Protocol - tool extensibility ✓
+//! - **Phase 6.6** (Current): LSP Integration - code intelligence
 //! - **Phase 7**: Multi-agent - IPC-based worker orchestration
 //!
 //! # Example
@@ -53,6 +55,7 @@
 pub mod agent;
 pub mod config;
 pub mod error;
+pub mod lsp;
 pub mod mcp;
 pub mod providers;
 pub mod rag;
