@@ -60,9 +60,10 @@ pub mod types;
 
 // Re-export commonly used types
 pub use context::{
-    apply_selection, estimate_message_tokens, estimate_messages_tokens, find_safe_start_index,
-    get_message_text, has_tool_result_blocks, has_tool_use_blocks, select_messages_to_keep,
-    ContextConfig, ContextWindow, SelectionResult, SelectionStats, WorkingSet,
+    apply_selection, estimate_message_tokens, estimate_messages_tokens, estimate_text_tokens,
+    find_safe_start_index, get_message_text, has_tool_result_blocks, has_tool_use_blocks,
+    select_messages_to_keep, ContextConfig, ContextWindow, SelectionResult, SelectionStats,
+    WorkingSet,
 };
 pub use service::SessionService;
 pub use storage::{SessionStorage, SCHEMA_VERSION};
