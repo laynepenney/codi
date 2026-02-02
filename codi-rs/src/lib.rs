@@ -33,7 +33,8 @@
 //! - **Phase 4**: Symbol index - tree-sitter based code navigation ✓
 //! - **Phase 5**: RAG system - semantic code search with embeddings ✓
 //! - **Phase 5.5**: Session & context - persistence and windowing ✓
-//! - **Phase 6** (Current): Terminal UI - ratatui based interface
+//! - **Phase 6**: Terminal UI - ratatui based interface ✓
+//! - **Phase 6.5** (Current): MCP Protocol - tool extensibility
 //! - **Phase 7**: Multi-agent - IPC-based worker orchestration
 //!
 //! # Example
@@ -52,6 +53,7 @@
 pub mod agent;
 pub mod config;
 pub mod error;
+pub mod mcp;
 pub mod providers;
 pub mod rag;
 pub mod session;
@@ -82,7 +84,7 @@ pub use types::{
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Migration phase identifier.
-pub const MIGRATION_PHASE: u8 = 5;
+pub const MIGRATION_PHASE: u8 = 6;
 
 #[cfg(test)]
 mod tests {
@@ -95,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_migration_phase() {
-        assert_eq!(MIGRATION_PHASE, 5);
+        assert_eq!(MIGRATION_PHASE, 6);
     }
 
     #[test]
