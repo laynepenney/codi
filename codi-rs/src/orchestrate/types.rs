@@ -7,7 +7,7 @@
 //! workspace isolation, and IPC communication.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -356,10 +356,13 @@ pub struct CommanderConfig {
     pub max_restarts: u32,
 }
 
-impl Default for CommanderConfig {
-    fn default() -> Self {
+impl CommanderConfig {
+    /// Create configuration for a specific project.
+    ///
+    /// The socket will be created at `<project_root>/.codi/orchestrator.sock`.
+    pub fn for_project(project_root: &Path) -> Self {
         Self {
-            socket_path: default_socket_path(),
+            socket_path: socket_path_for_project(project_root),
             max_workers: 4,
             base_branch: "main".to_string(),
             cleanup_on_exit: true,
@@ -369,12 +372,25 @@ impl Default for CommanderConfig {
     }
 }
 
-/// Get the default socket path.
-pub fn default_socket_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".codi")
-        .join("orchestrator.sock")
+impl Default for CommanderConfig {
+    fn default() -> Self {
+        // Default uses a temp directory for tests
+        Self {
+            socket_path: PathBuf::from("/tmp/codi-orchestrator.sock"),
+            max_workers: 4,
+            base_branch: "main".to_string(),
+            cleanup_on_exit: true,
+            worktree_dir: None,
+            max_restarts: 2,
+        }
+    }
+}
+
+/// Get the socket path for a project.
+///
+/// Returns `<project_root>/.codi/orchestrator.sock`.
+pub fn socket_path_for_project(project_root: &Path) -> PathBuf {
+    project_root.join(".codi").join("orchestrator.sock")
 }
 
 // ============================================================================
@@ -560,6 +576,22 @@ mod tests {
         assert_eq!(config.max_workers, 4);
         assert_eq!(config.base_branch, "main");
         assert!(config.cleanup_on_exit);
+    }
+
+    #[test]
+    fn test_commander_config_for_project() {
+        let config = CommanderConfig::for_project(Path::new("/workspace/my-project"));
+        assert_eq!(
+            config.socket_path,
+            PathBuf::from("/workspace/my-project/.codi/orchestrator.sock")
+        );
+        assert_eq!(config.max_workers, 4);
+    }
+
+    #[test]
+    fn test_socket_path_for_project() {
+        let path = socket_path_for_project(Path::new("/home/user/project"));
+        assert_eq!(path, PathBuf::from("/home/user/project/.codi/orchestrator.sock"));
     }
 
     #[test]

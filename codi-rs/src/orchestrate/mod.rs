@@ -120,6 +120,6 @@ pub use ipc::{
 pub use types::{
     CommanderConfig, GriptreePointer, GriptreeRepoInfo, GriptreeRepoPointer,
     WorkerConfig, WorkerResult, WorkerState, WorkerStatus, WorkspaceInfo,
-    READER_ALLOWED_TOOLS, is_reader_tool, reader_tools_set,
+    READER_ALLOWED_TOOLS, is_reader_tool, reader_tools_set, socket_path_for_project,
 };
 pub use worktree::GitWorktreeIsolator;
