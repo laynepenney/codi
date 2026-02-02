@@ -9,10 +9,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
 use tokio::sync::RwLock;
 
 use crate::providers::{create_provider, ProviderType};
-use crate::types::{BoxedProvider, ProviderConfig};
+use crate::types::{BoxedProvider, ProviderConfig, SharedProvider};
 
 use super::config::{ModelMapConfig, ModelMapError};
 use super::types::{ModelDefinition, PoolStats, PooledProviderStats, ResolvedModel};
@@ -33,8 +34,8 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Pooled provider entry with usage tracking.
 struct PooledProvider {
-    #[allow(dead_code)]
-    provider: BoxedProvider,
+    /// The shared provider instance (Arc for cloning).
+    provider: SharedProvider,
     model_name: String,
     last_used: Instant,
     use_count: u64,
@@ -109,41 +110,48 @@ impl ModelRegistry {
 
     /// Get a provider for a named model.
     ///
-    /// Creates the provider lazily if not in pool.
-    pub async fn get_provider(&self, model_name: &str) -> Result<BoxedProvider, ModelMapError> {
-        // Check pool first
-        {
-            let mut pool = self.pool.write().await;
-            if let Some(pooled) = pool.get_mut(model_name) {
-                pooled.last_used = Instant::now();
-                pooled.use_count += 1;
+    /// Returns a shared provider from the pool, creating it lazily if needed.
+    /// The returned `SharedProvider` (Arc) can be cloned cheaply.
+    pub async fn get_provider(&self, model_name: &str) -> Result<SharedProvider, ModelMapError> {
+        // First, get the model definition (no pool lock held to avoid deadlock)
+        let definition = {
+            let config = self.config.read().await;
+            config
+                .models
+                .get(model_name)
+                .ok_or_else(|| ModelMapError::ModelNotFound(model_name.to_string()))?
+                .clone()
+        };
 
-                // Clone the provider configuration to create a new instance
-                // (providers are not Clone, so we need to recreate)
-                let config = self.config.read().await;
-                let definition = config
-                    .models
-                    .get(model_name)
-                    .ok_or_else(|| ModelMapError::ModelNotFound(model_name.to_string()))?;
+        // Now acquire pool lock and check/add atomically
+        let mut pool = self.pool.write().await;
 
-                return self.create_provider_from_definition(model_name, definition);
-            }
+        // If already in pool, return clone of the Arc
+        if let Some(pooled) = pool.get_mut(model_name) {
+            pooled.last_used = Instant::now();
+            pooled.use_count += 1;
+            return Ok(pooled.provider.clone());
         }
 
-        // Get model definition
-        let config = self.config.read().await;
-        let definition = config
-            .models
-            .get(model_name)
-            .ok_or_else(|| ModelMapError::ModelNotFound(model_name.to_string()))?
-            .clone();
-        drop(config);
+        // Not in pool - create provider
+        let boxed = self.create_provider_from_definition(model_name, &definition)?;
+        let provider: SharedProvider = Arc::from(boxed);
 
-        // Create provider
-        let provider = self.create_provider_from_definition(model_name, &definition)?;
+        // Evict oldest if at capacity (before inserting)
+        if pool.len() >= self.options.max_pool_size {
+            self.evict_oldest_from_pool(&mut pool);
+        }
 
-        // Add to pool (evict if necessary)
-        self.add_to_pool(model_name.to_string(), &definition).await;
+        // Insert into pool
+        pool.insert(
+            model_name.to_string(),
+            PooledProvider {
+                provider: provider.clone(),
+                model_name: model_name.to_string(),
+                last_used: Instant::now(),
+                use_count: 1,
+            },
+        );
 
         Ok(provider)
     }
@@ -154,7 +162,7 @@ impl ModelRegistry {
     pub async fn get_provider_with_fallback(
         &self,
         chain_name: &str,
-    ) -> Result<BoxedProvider, ModelMapError> {
+    ) -> Result<SharedProvider, ModelMapError> {
         let config = self.config.read().await;
         let chain = config
             .fallbacks
@@ -314,29 +322,6 @@ impl ModelRegistry {
                 message: format!("Failed to create provider: {}", e),
             }
         })
-    }
-
-    async fn add_to_pool(&self, model_name: String, definition: &ModelDefinition) {
-        let mut pool = self.pool.write().await;
-
-        // Evict oldest if at capacity
-        if pool.len() >= self.options.max_pool_size {
-            self.evict_oldest_from_pool(&mut pool);
-        }
-
-        // Create a dummy provider for tracking
-        // (actual provider is created on each get_provider call)
-        if let Ok(provider) = self.create_provider_from_definition(&model_name, definition) {
-            pool.insert(
-                model_name.clone(),
-                PooledProvider {
-                    provider,
-                    model_name,
-                    last_used: Instant::now(),
-                    use_count: 1,
-                },
-            );
-        }
     }
 
     fn evict_oldest_from_pool(&self, pool: &mut HashMap<String, PooledProvider>) {
