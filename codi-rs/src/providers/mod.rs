@@ -51,6 +51,7 @@ pub mod openai;
 pub use anthropic::AnthropicProvider;
 pub use openai::OpenAIProvider;
 
+use crate::config::ResolvedConfig;
 use crate::error::ProviderError;
 use crate::types::{BoxedProvider, ProviderConfig};
 
@@ -413,6 +414,41 @@ pub fn ollama_at(base_url: impl Into<String>, model: impl Into<String>) -> Resul
         ..Default::default()
     };
     create_provider(ProviderType::Ollama, config)
+}
+
+/// Create a provider from a resolved configuration.
+///
+/// This is the main entry point for creating providers from CLI/config file settings.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let config = codi::config::resolve_config(&cli_options)?;
+/// let provider = create_provider_from_config(&config)?;
+/// ```
+pub fn create_provider_from_config(config: &ResolvedConfig) -> Result<BoxedProvider, ProviderError> {
+    let provider_type: ProviderType = config.provider.parse().map_err(|_| {
+        ProviderError::NotConfigured(format!("Unknown provider: {}", config.provider))
+    })?;
+
+    let mut provider_config = ProviderConfig::default();
+    provider_config.model = config.model.clone();
+    provider_config.base_url = config.base_url.clone();
+
+    // Get API key from environment based on provider type
+    match provider_type {
+        ProviderType::Anthropic => {
+            provider_config.api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+        }
+        ProviderType::OpenAI => {
+            provider_config.api_key = std::env::var("OPENAI_API_KEY").ok();
+        }
+        ProviderType::Ollama | ProviderType::OpenAICompatible => {
+            // These don't require API keys (or use env vars differently)
+        }
+    }
+
+    create_provider(provider_type, provider_config)
 }
 
 #[cfg(test)]
