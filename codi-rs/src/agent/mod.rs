@@ -133,6 +133,131 @@ impl Agent {
         context
     }
 
+    /// Estimate the current token count of all messages.
+    /// Uses the standard approximation of ~4 characters per token.
+    fn estimate_tokens(&self) -> usize {
+        let mut total_chars: usize = 0;
+
+        // Count system prompt
+        total_chars += self.system_prompt.len();
+        if let Some(ref summary) = self.state.conversation_summary {
+            total_chars += summary.len();
+        }
+
+        // Count all messages
+        for msg in &self.state.messages {
+            total_chars += self.message_char_count(msg);
+        }
+
+        total_chars / 4
+    }
+
+    /// Count the characters in a message's content.
+    fn message_char_count(&self, msg: &Message) -> usize {
+        match &msg.content {
+            crate::types::MessageContent::Text(s) => s.len(),
+            crate::types::MessageContent::Blocks(blocks) => {
+                blocks.iter().map(|b| {
+                    let mut n = 0;
+                    if let Some(ref t) = b.text { n += t.len(); }
+                    if let Some(ref name) = b.name { n += name.len(); }
+                    if let Some(ref input) = b.input {
+                        n += input.to_string().len();
+                    }
+                    if let Some(ref content) = b.content { n += content.len(); }
+                    n
+                }).sum()
+            }
+        }
+    }
+
+    /// Compact the conversation context when it exceeds the token limit.
+    /// Keeps the system prompt and recent messages, summarizes older ones.
+    fn compact_context(&mut self) {
+        // Notify that compaction is starting
+        if let Some(ref on_compaction) = self.callbacks.on_compaction {
+            on_compaction(true);
+        }
+
+        let keep_recent = 10; // Keep the last N messages intact
+        let msg_count = self.state.messages.len();
+
+        if msg_count <= keep_recent {
+            // Not enough messages to compact
+            if let Some(ref on_compaction) = self.callbacks.on_compaction {
+                on_compaction(false);
+            }
+            return;
+        }
+
+        // Split messages: older ones to summarize, recent ones to keep
+        let split_at = msg_count - keep_recent;
+        let older_messages: Vec<Message> = self.state.messages.drain(..split_at).collect();
+
+        // Build a simple summary from older messages by extracting text content
+        let mut summary_parts: Vec<String> = Vec::new();
+        for msg in &older_messages {
+            let role = match msg.role {
+                Role::User => "User",
+                Role::Assistant => "Assistant",
+                Role::System => "System",
+            };
+            let text = match &msg.content {
+                crate::types::MessageContent::Text(s) => s.clone(),
+                crate::types::MessageContent::Blocks(blocks) => {
+                    blocks.iter()
+                        .filter_map(|b| b.text.as_ref())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                }
+            };
+            if !text.is_empty() {
+                // Truncate individual messages in the summary
+                let truncated = if text.len() > 200 {
+                    format!("{}...", &text[..200])
+                } else {
+                    text
+                };
+                summary_parts.push(format!("{}: {}", role, truncated));
+            }
+        }
+
+        // Build combined summary, truncating to ~2000 chars
+        let mut new_summary = summary_parts.join("\n");
+        if new_summary.len() > 2000 {
+            new_summary.truncate(2000);
+            new_summary.push_str("...");
+        }
+
+        // Prepend existing summary if there is one
+        if let Some(ref existing) = self.state.conversation_summary {
+            let combined = format!("{}\n\n{}", existing, new_summary);
+            // Keep combined summary under 4000 chars
+            self.state.conversation_summary = Some(if combined.len() > 4000 {
+                let mut truncated = combined;
+                truncated.truncate(4000);
+                truncated.push_str("...");
+                truncated
+            } else {
+                combined
+            });
+        } else {
+            self.state.conversation_summary = Some(new_summary);
+        }
+
+        tracing::info!(
+            "Context compacted: removed {} messages, {} remaining",
+            split_at,
+            self.state.messages.len()
+        );
+
+        // Notify that compaction is complete
+        if let Some(ref on_compaction) = self.callbacks.on_compaction {
+            on_compaction(false);
+        }
+    }
+
     /// Check if a tool call should be confirmed.
     fn should_confirm(&self, tool_name: &str) -> bool {
         self.config.requires_confirmation(tool_name) && self.callbacks.on_confirm.is_some()
@@ -309,6 +434,11 @@ impl Agent {
             if start_time.elapsed() > max_duration {
                 final_response.push_str("\n\n(Reached time limit, stopping)");
                 break;
+            }
+
+            // Check if context needs compaction
+            if self.estimate_tokens() > self.config.max_context_tokens {
+                self.compact_context();
             }
 
             // Build request parameters

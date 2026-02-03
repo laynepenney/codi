@@ -60,6 +60,11 @@ fn has_help_flag(args: &str) -> bool {
 /// Handle a slash command synchronously. Returns `CommandResult::Async` for
 /// commands that need async execution.
 pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
+    // Check for command aliases from config before parsing
+    if let Some(expanded) = app.resolve_command_alias(input) {
+        return handle_command(app, &expanded);
+    }
+
     let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
     let command = parts[0].to_lowercase();
     let args = parts.get(1).copied().unwrap_or("");
