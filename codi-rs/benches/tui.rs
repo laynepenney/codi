@@ -8,9 +8,17 @@
 //! - Markdown rendering speed
 //! - Command parsing
 //! - Message rendering
+//! - Tab completion system performance
+//! - Command help system performance
+//! - Enhanced UI interactions
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
+use codi::completion::{
+    complete_line, get_command_names, get_common_prefix, get_completion_matches,
+};
+use codi::completion::{complete_line, get_completion_matches};
+use codi::symbol_index::{symbol_index as SymbolIndexService, IndexBuildOptions};
 use codi::tui::streaming::{MarkdownStreamCollector, StreamController};
 
 /// Generate test markdown content of varying sizes.
@@ -47,6 +55,76 @@ fn bench_collector_push(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
+        });
+    });
+
+    group.finish();
+}
+
 /// Benchmark incremental streaming (simulating actual usage).
 fn bench_collector_incremental(c: &mut Criterion) {
     let mut group = c.benchmark_group("collector_incremental");
@@ -73,6 +151,76 @@ fn bench_collector_incremental(c: &mut Criterion) {
                 total_lines += collector.commit_complete_lines().len();
             }
             total_lines
+        });
+    });
+
+    group.finish();
+}
+
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
         });
     });
 
@@ -113,6 +261,76 @@ fn bench_controller_step(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
+        });
+    });
+
+    group.finish();
+}
+
 /// Benchmark word delta streaming (character-by-character).
 fn bench_word_delta_streaming(c: &mut Criterion) {
     let mut group = c.benchmark_group("word_delta");
@@ -140,6 +358,76 @@ fn bench_word_delta_streaming(c: &mut Criterion) {
                 collector.push_delta(black_box(&c.to_string()));
             }
             collector.commit_complete_lines()
+        });
+    });
+
+    group.finish();
+}
+
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
         });
     });
 
@@ -203,6 +491,76 @@ fn bench_markdown_elements(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
+        });
+    });
+
+    group.finish();
+}
+
 /// Benchmark different terminal widths.
 fn bench_width_variations(c: &mut Criterion) {
     let mut group = c.benchmark_group("width_variations");
@@ -225,6 +583,76 @@ fn bench_width_variations(c: &mut Criterion) {
             let mut collector = MarkdownStreamCollector::new(None);
             collector.push_delta(black_box(&content));
             collector.commit_complete_lines()
+        });
+    });
+
+    group.finish();
+}
+
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
         });
     });
 
@@ -263,6 +691,76 @@ fn bench_finalization(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark the tab completion system.
+fn bench_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("completion");
+
+    // Test various completion scenarios
+    let test_inputs = vec!["/h", "/branch", "/commit", "/"];
+
+    group.bench_function("get_command_names", |b| {
+        b.iter(|| black_box(get_command_names()));
+    });
+
+    group.bench_with_input("basic_completion", &test_inputs, |b, inputs| {
+        b.iter(|| {
+            for input in inputs {
+                black_box(get_completion_matches(input));
+            }
+        });
+    });
+
+    // Test completion performance with different input complexities
+    let complex_inputs = vec![];
+    for i in 0..100 {
+        let line = format!(
+            "{}{}",
+            "/",
+            get_command_names()[i % get_command_names().len()]
+        )
+        .chars()
+        .take(5)
+        .collect::<String>();
+        complex_inputs.push(line);
+    }
+
+    group.bench_with_input("complex_completion", &complex_inputs, |b, inputs| {
+        b.iter(|| {
+            let start = std::time::Instant::now();
+            let mut results = Vec::new();
+            for input in inputs {
+                results.push(black_box(complete_line(input)));
+            }
+            black_box(results)
+        });
+    });
+
+    // Test LCP calculation performance
+    let lcp_test_sets = vec![
+        ("branch", "branching", "branch"),
+        ("code", "coding", "cod"),
+        ("commit", "comm", "commits"),
+        // Large set test
+        (
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.as_str(),
+            get_command_names().random()?.random()?.as_str(),
+        ),
+    ];
+
+    group.bench_with_input("lcp_calculation", &lcp_test_sets, |b, test_sets| {
+        b.iter(|| {
+            for items in test_sets {
+                let input_vec = items.to_vec();
+                let strings = input_vec.iter().collect::<Vec<_>>();
+                black_box(get_common_prefix(strings.as_slice()));
+            }
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_collector_push,
@@ -274,4 +772,12 @@ criterion_group!(
     bench_finalization,
 );
 
+criterion_group!(
+    completion,
+    bench_command_names,
+    bench_completion_speed,
+    bench_completion_matches,
+    bench_common_prefix,
+    bench_completion_stress
+);
 criterion_main!(benches);

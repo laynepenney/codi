@@ -10,6 +10,8 @@
 //! - Static argument completion (/models an<TAB> -> /models anthropic)
 //! - Flag completion (/models --<TAB> -> /models --local)
 
+use std::time::Instant;
+
 /// Get all available commands for completion based on current Rust implementation.
 pub fn get_command_names() -> Vec<String> {
     vec![
@@ -99,6 +101,8 @@ const COMMAND_FLAGS: &[(&str, &[&str])] = &[
 
 /// Complete a slash command line and return the completed value or None
 pub fn complete_line(line: &str) -> Option<String> {
+    let start_time = Instant::now();
+
     if line.is_empty() {
         return None;
     }
@@ -107,10 +111,14 @@ pub fn complete_line(line: &str) -> Option<String> {
         return None; // Only complete slash commands
     }
 
+    // Record telemetry for completion attempt
+    #[cfg(feature = "telemetry")]
+    crate::telemetry::metrics::record_operation("completion.attempt", start_time.elapsed());
+
     let trimmed = line.trim();
     let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
-    let cmd_name = if parts.is_empty() {
+    let _cmd_name = if parts.is_empty() {
         line.trim_start_matches('/')
     } else {
         parts[0].trim_start_matches('/')
@@ -119,22 +127,47 @@ pub fn complete_line(line: &str) -> Option<String> {
     let matches = get_completion_matches(line);
 
     if matches.is_empty() {
+        // Record telemetry for no completion found
+        #[cfg(feature = "telemetry")]
+        crate::telemetry::metrics::record_operation("completion.no_match", start_time.elapsed());
         return None;
     }
 
     if matches.len() == 1 {
-        return Some(matches[0].trim()); // Return single match
+        // Single match completion - best case
+        #[cfg(feature = "telemetry")]
+        crate::telemetry::metrics::record_operation(
+            "completion.single_match",
+            start_time.elapsed(),
+        );
+        return Some(matches[0].trim().to_string());
+    }
+
+    // Multiple matches - record common prefix completion
+    #[cfg(feature = "telemetry")]
+    {
+        crate::telemetry::metrics::record_operation(
+            "completion.multiple_matches",
+            start_time.elapsed(),
+        );
+        crate::telemetry::metrics::record_operation("completion.lcp", start_time.elapsed());
     }
 
     // Return common prefix for multiple matches
-    Some(get_common_prefix(&matches).trim())
+    Some(get_common_prefix(&matches).trim().to_string())
 }
 
 /// Get all completion matches for a line with current Rust command structure.
 pub fn get_completion_matches(line: &str) -> Vec<String> {
+    let start_time = Instant::now();
+
     if line.is_empty() || !line.starts_with('/') {
         return vec![];
     }
+
+    // Record telemetry for match finding
+    #[cfg(feature = "telemetry")]
+    crate::telemetry::metrics::record_operation("completion.matches_lookup", start_time.elapsed());
 
     let mut completions = vec![];
 
@@ -147,20 +180,31 @@ pub fn get_completion_matches(line: &str) -> Vec<String> {
         }
     }
 
+    // Record number of matches found
+    #[cfg(feature = "telemetry")]
+    crate::telemetry::metrics::record_operation("completion.matches_lookup", start_time.elapsed());
+
     // Filter completions based on current word
     completions.sort();
     completions.dedup();
     completions
 }
 
-/// Get the common prefix of multiple completion strings.
+/// Get the common prefix of multiple completion strings with full telemetry instrumentation.
 pub fn get_common_prefix(matches: &[String]) -> String {
     if matches.is_empty() {
         return String::new();
     }
     if matches.len() == 1 {
+        #[cfg(feature = "telemetry")]
+        crate::telemetry::metrics::record_operation(
+            "completion.lcp_single",
+            std::time::Instant::now().elapsed(),
+        );
         return matches[0].clone();
     }
+
+    let start_time = Instant::now();
 
     // Find longest common prefix
     let common = matches[0].as_str();
@@ -177,7 +221,33 @@ pub fn get_common_prefix(matches: &[String]) -> String {
         }
         end_char = i;
         if end_char == 0 {
+            // No common prefix found
+            #[cfg(feature = "telemetry")]
+            crate::telemetry::metrics::record_operation(
+                "completion.lcp_zero",
+                start_time.elapsed(),
+            );
             return String::new();
+        }
+    }
+
+    // Record telemetry for common prefix calculation
+    #[cfg(feature = "telemetry")]
+    {
+        crate::telemetry::metrics::record_operation(
+            "completion.lcp_calculated",
+            start_time.elapsed(),
+        );
+        crate::telemetry::metrics::record_operation(
+            "completion.lcp_calculation",
+            start_time.elapsed(),
+        );
+
+        if end_char < common.len() {
+            crate::telemetry::metrics::record_operation(
+                "completion.lcp_truncated",
+                start_time.elapsed(),
+            );
         }
     }
 
