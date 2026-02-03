@@ -243,9 +243,6 @@ async fn main() -> anyhow::Result<()> {
         print_startup_message(&config);
     }
 
-    // Initialize tracing subsystem
-    init_tracing();
-
     // Handle non-interactive mode
     if let Some(prompt) = cli.prompt {
         return handle_prompt(&config, &prompt, cli.output_format, cli.quiet, cli.yes).await;
