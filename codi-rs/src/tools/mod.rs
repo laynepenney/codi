@@ -162,6 +162,7 @@ mod tests {
     #[test]
     fn test_parse_arguments_invalid() {
         #[derive(Deserialize)]
+        #[allow(dead_code)]
         struct TestArgs {
             required_field: String,
         }

@@ -45,8 +45,8 @@ pub enum IpcError {
 struct ConnectedWorker {
     /// Write half of the socket.
     writer: tokio::io::WriteHalf<UnixStream>,
-    /// Worker ID.
-    worker_id: String,
+    /// Worker ID (stored for logging/diagnostics).
+    _worker_id: String,
 }
 
 /// IPC server for commander-worker communication.
@@ -149,7 +149,7 @@ impl IpcServer {
             // Store the worker
             let worker = ConnectedWorker {
                 writer: write_half,
-                worker_id: worker_id.clone(),
+                _worker_id: worker_id.clone(),
             };
 
             {

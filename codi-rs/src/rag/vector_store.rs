@@ -45,7 +45,7 @@ pub struct VectorStore {
     conn: Connection,
     index_dir: PathBuf,
     db_path: PathBuf,
-    project_root: String,
+    _project_root: String,
     embedding_dimensions: usize,
 }
 
@@ -81,7 +81,7 @@ impl VectorStore {
             conn,
             index_dir,
             db_path,
-            project_root: project_root.to_string(),
+            _project_root: project_root.to_string(),
             embedding_dimensions,
         };
 
