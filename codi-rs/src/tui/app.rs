@@ -1364,6 +1364,104 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_command_alias_no_config() {
+        let app = App::new();
+        // No config set, should return None
+        assert!(app.resolve_command_alias("/t").is_none());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_basic() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("t".to_string(), "/test src/".to_string());
+        config.command_aliases.insert("b".to_string(), "/build".to_string());
+        app.set_config(config);
+
+        // Basic alias
+        assert_eq!(app.resolve_command_alias("/t"), Some("/test src/".to_string()));
+        assert_eq!(app.resolve_command_alias("/b"), Some("/build".to_string()));
+
+        // Non-matching command
+        assert!(app.resolve_command_alias("/help").is_none());
+
+        // Non-slash input
+        assert!(app.resolve_command_alias("hello").is_none());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_with_extra_args() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("t".to_string(), "/test src/".to_string());
+        app.set_config(config);
+
+        // Extra args appended
+        assert_eq!(
+            app.resolve_command_alias("/t --verbose"),
+            Some("/test src/ --verbose".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_command_alias_bare_expansion() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        // Alias without leading /
+        config.command_aliases.insert("x".to_string(), "exit".to_string());
+        app.set_config(config);
+
+        // Should auto-prepend /
+        assert_eq!(app.resolve_command_alias("/x"), Some("/exit".to_string()));
+    }
+
+    #[test]
+    fn test_build_system_prompt_no_config() {
+        let app = App::new();
+        let prompt = app.build_system_prompt();
+        assert!(prompt.contains("Codi"));
+        assert!(!prompt.contains("Project Context"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_additions() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.system_prompt_additions = Some("Always use strict mode.".to_string());
+        config.project_context = Some("This is a React app.".to_string());
+        app.set_config(config);
+
+        let prompt = app.build_system_prompt();
+        assert!(prompt.contains("Always use strict mode."));
+        assert!(prompt.contains("## Project Context"));
+        assert!(prompt.contains("This is a React app."));
+    }
+
+    #[test]
+    fn test_build_agent_config_defaults() {
+        let app = App::new();
+        let config = app.build_agent_config();
+        assert!(config.use_tools);
+        assert!(!config.auto_approve_all);
+        assert!(config.auto_approve_tools.is_empty());
+    }
+
+    #[test]
+    fn test_build_agent_config_from_resolved() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.no_tools = true;
+        config.auto_approve = vec!["read_file".to_string()];
+        app.set_config(config);
+        app.set_auto_approve(true);
+
+        let agent_config = app.build_agent_config();
+        assert!(!agent_config.use_tools);
+        assert!(agent_config.auto_approve_all);
+        assert_eq!(agent_config.auto_approve_tools, vec!["read_file".to_string()]);
+    }
+
+    #[test]
     fn test_input_history() {
         let mut app = App::new();
 

@@ -60,9 +60,16 @@ fn has_help_flag(args: &str) -> bool {
 /// Handle a slash command synchronously. Returns `CommandResult::Async` for
 /// commands that need async execution.
 pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
-    // Check for command aliases from config before parsing
-    if let Some(expanded) = app.resolve_command_alias(input) {
-        return handle_command(app, &expanded);
+    handle_command_inner(app, input, 0)
+}
+
+/// Inner handler with recursion depth limit for alias expansion.
+fn handle_command_inner(app: &mut App, input: &str, depth: usize) -> CommandResult {
+    // Check for command aliases from config before parsing (with recursion guard)
+    if depth < 5 {
+        if let Some(expanded) = app.resolve_command_alias(input) {
+            return handle_command_inner(app, &expanded, depth + 1);
+        }
     }
 
     let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
@@ -1248,5 +1255,44 @@ mod tests {
         let mut app = App::default();
         let result = handle_command(&mut app, "/wt");
         assert!(matches!(result, CommandResult::Async(AsyncCommand::WorktreesList)));
+    }
+
+    #[test]
+    fn test_command_alias_expansion() {
+        let mut app = App::default();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("h".to_string(), "/help".to_string());
+        app.set_config(config);
+
+        // /h should expand to /help and show help mode
+        let _result = handle_command(&mut app, "/h");
+        assert_eq!(app.mode, super::super::app::AppMode::Help);
+    }
+
+    #[test]
+    fn test_command_alias_self_reference_no_stackoverflow() {
+        let mut app = App::default();
+        let mut config = crate::config::default_config();
+        // Self-referencing alias: /x -> /x (would recurse infinitely without guard)
+        config.command_aliases.insert("x".to_string(), "/x".to_string());
+        app.set_config(config);
+
+        // Should NOT stack overflow — recursion guard limits depth to 5
+        // After max depth, /x is treated as unknown command
+        let result = handle_command(&mut app, "/x");
+        assert!(matches!(result, CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_command_alias_cycle_no_stackoverflow() {
+        let mut app = App::default();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("a".to_string(), "/b".to_string());
+        config.command_aliases.insert("b".to_string(), "/a".to_string());
+        app.set_config(config);
+
+        // Cycle: /a -> /b -> /a -> /b -> /a -> /b (depth 5, stops expanding)
+        let result = handle_command(&mut app, "/a");
+        assert!(matches!(result, CommandResult::Error(_)));
     }
 }

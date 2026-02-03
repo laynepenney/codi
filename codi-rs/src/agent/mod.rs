@@ -171,6 +171,17 @@ impl Agent {
         }
     }
 
+    /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+    /// Safe for multi-byte UTF-8 (truncates at char boundary).
+    fn truncate_str(s: &str, max_chars: usize) -> String {
+        if s.chars().count() <= max_chars {
+            s.to_string()
+        } else {
+            let truncated: String = s.chars().take(max_chars).collect();
+            format!("{}...", truncated)
+        }
+    }
+
     /// Compact the conversation context when it exceeds the token limit.
     /// Keeps the system prompt and recent messages, summarizes older ones.
     fn compact_context(&mut self) {
@@ -213,35 +224,17 @@ impl Agent {
                 }
             };
             if !text.is_empty() {
-                // Truncate individual messages in the summary
-                let truncated = if text.len() > 200 {
-                    format!("{}...", &text[..200])
-                } else {
-                    text
-                };
-                summary_parts.push(format!("{}: {}", role, truncated));
+                summary_parts.push(format!("{}: {}", role, Self::truncate_str(&text, 200)));
             }
         }
 
         // Build combined summary, truncating to ~2000 chars
-        let mut new_summary = summary_parts.join("\n");
-        if new_summary.len() > 2000 {
-            new_summary.truncate(2000);
-            new_summary.push_str("...");
-        }
+        let new_summary = Self::truncate_str(&summary_parts.join("\n"), 2000);
 
         // Prepend existing summary if there is one
         if let Some(ref existing) = self.state.conversation_summary {
             let combined = format!("{}\n\n{}", existing, new_summary);
-            // Keep combined summary under 4000 chars
-            self.state.conversation_summary = Some(if combined.len() > 4000 {
-                let mut truncated = combined;
-                truncated.truncate(4000);
-                truncated.push_str("...");
-                truncated
-            } else {
-                combined
-            });
+            self.state.conversation_summary = Some(Self::truncate_str(&combined, 4000));
         } else {
             self.state.conversation_summary = Some(new_summary);
         }
@@ -611,5 +604,37 @@ mod tests {
     fn test_confirmation_result() {
         assert_eq!(ConfirmationResult::Approve, ConfirmationResult::Approve);
         assert_ne!(ConfirmationResult::Approve, ConfirmationResult::Deny);
+    }
+
+    #[test]
+    fn test_truncate_str_short() {
+        assert_eq!(Agent::truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_exact() {
+        assert_eq!(Agent::truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_long() {
+        let result = Agent::truncate_str("hello world", 5);
+        assert_eq!(result, "hello...");
+    }
+
+    #[test]
+    fn test_truncate_str_multibyte() {
+        // "café" is 5 bytes but 4 chars — should not panic
+        let result = Agent::truncate_str("café!", 4);
+        assert_eq!(result, "café...");
+    }
+
+    #[test]
+    fn test_truncate_str_emoji() {
+        // Emoji are multi-byte — slicing at byte boundary would panic
+        let input = "hello 🌍 world";
+        let result = Agent::truncate_str(input, 7);
+        assert!(result.ends_with("..."));
+        assert!(!result.contains("world"));
     }
 }
