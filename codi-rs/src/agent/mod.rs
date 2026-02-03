@@ -133,6 +133,124 @@ impl Agent {
         context
     }
 
+    /// Estimate the current token count of all messages.
+    /// Uses the standard approximation of ~4 characters per token.
+    fn estimate_tokens(&self) -> usize {
+        let mut total_chars: usize = 0;
+
+        // Count system prompt
+        total_chars += self.system_prompt.len();
+        if let Some(ref summary) = self.state.conversation_summary {
+            total_chars += summary.len();
+        }
+
+        // Count all messages
+        for msg in &self.state.messages {
+            total_chars += self.message_char_count(msg);
+        }
+
+        total_chars / 4
+    }
+
+    /// Count the characters in a message's content.
+    fn message_char_count(&self, msg: &Message) -> usize {
+        match &msg.content {
+            crate::types::MessageContent::Text(s) => s.len(),
+            crate::types::MessageContent::Blocks(blocks) => {
+                blocks.iter().map(|b| {
+                    let mut n = 0;
+                    if let Some(ref t) = b.text { n += t.len(); }
+                    if let Some(ref name) = b.name { n += name.len(); }
+                    if let Some(ref input) = b.input {
+                        n += input.to_string().len();
+                    }
+                    if let Some(ref content) = b.content { n += content.len(); }
+                    n
+                }).sum()
+            }
+        }
+    }
+
+    /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+    /// Safe for multi-byte UTF-8 (truncates at char boundary).
+    fn truncate_str(s: &str, max_chars: usize) -> String {
+        if s.chars().count() <= max_chars {
+            s.to_string()
+        } else {
+            let truncated: String = s.chars().take(max_chars).collect();
+            format!("{}...", truncated)
+        }
+    }
+
+    /// Compact the conversation context when it exceeds the token limit.
+    /// Keeps the system prompt and recent messages, summarizes older ones.
+    fn compact_context(&mut self) {
+        // Notify that compaction is starting
+        if let Some(ref on_compaction) = self.callbacks.on_compaction {
+            on_compaction(true);
+        }
+
+        let keep_recent = 10; // Keep the last N messages intact
+        let msg_count = self.state.messages.len();
+
+        if msg_count <= keep_recent {
+            // Not enough messages to compact
+            if let Some(ref on_compaction) = self.callbacks.on_compaction {
+                on_compaction(false);
+            }
+            return;
+        }
+
+        // Split messages: older ones to summarize, recent ones to keep
+        let split_at = msg_count - keep_recent;
+        let older_messages: Vec<Message> = self.state.messages.drain(..split_at).collect();
+
+        // Build a simple summary from older messages by extracting text content
+        let mut summary_parts: Vec<String> = Vec::new();
+        for msg in &older_messages {
+            let role = match msg.role {
+                Role::User => "User",
+                Role::Assistant => "Assistant",
+                Role::System => "System",
+            };
+            let text = match &msg.content {
+                crate::types::MessageContent::Text(s) => s.clone(),
+                crate::types::MessageContent::Blocks(blocks) => {
+                    blocks.iter()
+                        .filter_map(|b| b.text.as_ref())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                }
+            };
+            if !text.is_empty() {
+                summary_parts.push(format!("{}: {}", role, Self::truncate_str(&text, 200)));
+            }
+        }
+
+        // Build combined summary, truncating to ~2000 chars
+        let new_summary = Self::truncate_str(&summary_parts.join("\n"), 2000);
+
+        // Prepend existing summary if there is one
+        if let Some(ref existing) = self.state.conversation_summary {
+            let combined = format!("{}\n\n{}", existing, new_summary);
+            self.state.conversation_summary = Some(Self::truncate_str(&combined, 4000));
+        } else {
+            self.state.conversation_summary = Some(new_summary);
+        }
+
+        tracing::info!(
+            "Context compacted: removed {} messages, {} remaining",
+            split_at,
+            self.state.messages.len()
+        );
+
+        // Notify that compaction is complete
+        if let Some(ref on_compaction) = self.callbacks.on_compaction {
+            on_compaction(false);
+        }
+    }
+
     /// Check if a tool call should be confirmed.
     fn should_confirm(&self, tool_name: &str) -> bool {
         self.config.requires_confirmation(tool_name) && self.callbacks.on_confirm.is_some()
@@ -311,6 +429,11 @@ impl Agent {
                 break;
             }
 
+            // Check if context needs compaction
+            if self.estimate_tokens() > self.config.max_context_tokens {
+                self.compact_context();
+            }
+
             // Build request parameters
             let tools = self.get_tool_definitions();
             let system_context = self.build_system_context();
@@ -481,5 +604,37 @@ mod tests {
     fn test_confirmation_result() {
         assert_eq!(ConfirmationResult::Approve, ConfirmationResult::Approve);
         assert_ne!(ConfirmationResult::Approve, ConfirmationResult::Deny);
+    }
+
+    #[test]
+    fn test_truncate_str_short() {
+        assert_eq!(Agent::truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_exact() {
+        assert_eq!(Agent::truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_long() {
+        let result = Agent::truncate_str("hello world", 5);
+        assert_eq!(result, "hello...");
+    }
+
+    #[test]
+    fn test_truncate_str_multibyte() {
+        // "café" is 5 bytes but 4 chars — should not panic
+        let result = Agent::truncate_str("café!", 4);
+        assert_eq!(result, "café...");
+    }
+
+    #[test]
+    fn test_truncate_str_emoji() {
+        // Emoji are multi-byte — slicing at byte boundary would panic
+        let input = "hello 🌍 world";
+        let result = Agent::truncate_str(input, 7);
+        assert!(result.ends_with("..."));
+        assert!(!result.contains("world"));
     }
 }

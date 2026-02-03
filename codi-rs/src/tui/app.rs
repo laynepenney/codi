@@ -16,6 +16,7 @@ use crate::agent::{
     Agent, AgentCallbacks, AgentConfig, AgentOptions,
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
+use crate::config::ResolvedConfig;
 use crate::error::{Result as CodiResult, ToolError};
 use crate::completion::{complete_line, get_completion_matches};
 use crate::orchestrate::{Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo, PermissionResult};
@@ -207,6 +208,11 @@ pub struct App {
     /// Tab completion hint to display.
     pub completion_hint: Option<String>,
 
+    /// Resolved configuration from config files and CLI.
+    config: Option<ResolvedConfig>,
+    /// Auto-approve all tool operations (from --yes CLI flag).
+    auto_approve_all: bool,
+
     // Background agent task
     /// Receiver for agent returning from a background chat task.
     pending_agent: Option<tokio::sync::oneshot::Receiver<(Agent, CodiResult<String>)>>,
@@ -255,6 +261,8 @@ impl App {
             current_session: None,
             project_path,
             completion_hint: None,
+            config: None,
+            auto_approve_all: false,
             pending_agent: None,
             commander: None,
             pending_worker_permissions: Vec::new(),
@@ -273,6 +281,55 @@ impl App {
         let mut app = Self::with_project_path(project_path);
         app.set_provider(provider);
         app
+    }
+
+    /// Set the resolved configuration. Call before `set_provider` to apply config values.
+    pub fn set_config(&mut self, config: ResolvedConfig) {
+        self.config = Some(config);
+    }
+
+    /// Set auto-approve-all flag (from --yes CLI flag). Call before `set_provider`.
+    pub fn set_auto_approve(&mut self, auto_approve: bool) {
+        self.auto_approve_all = auto_approve;
+    }
+
+    /// Build an `AgentConfig` from the stored `ResolvedConfig`, or use defaults.
+    fn build_agent_config(&self) -> AgentConfig {
+        if let Some(ref config) = self.config {
+            AgentConfig {
+                max_iterations: 50,
+                max_consecutive_errors: 3,
+                max_turn_duration_ms: 120_000,
+                max_context_tokens: config.max_context_tokens as usize,
+                use_tools: !config.no_tools,
+                extract_tools_from_text: config.extract_tools_from_text,
+                auto_approve_all: self.auto_approve_all,
+                auto_approve_tools: config.auto_approve.clone(),
+            }
+        } else {
+            let mut default_config = AgentConfig::default();
+            default_config.auto_approve_all = self.auto_approve_all;
+            default_config
+        }
+    }
+
+    /// Build the system prompt, incorporating config additions and project context.
+    fn build_system_prompt(&self) -> String {
+        let mut prompt = "You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string();
+
+        if let Some(ref config) = self.config {
+            if let Some(ref additions) = config.system_prompt_additions {
+                prompt.push_str("\n\n");
+                prompt.push_str(additions);
+            }
+
+            if let Some(ref project_context) = config.project_context {
+                prompt.push_str("\n\n## Project Context\n");
+                prompt.push_str(project_context);
+            }
+        }
+
+        prompt
     }
 
     /// Set the AI provider and create an agent.
@@ -313,8 +370,8 @@ impl App {
         self.agent = Some(Agent::new(AgentOptions {
             provider,
             tool_registry: registry,
-            system_prompt: Some("You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string()),
-            config: AgentConfig::default(),
+            system_prompt: Some(self.build_system_prompt()),
+            config: self.build_agent_config(),
             callbacks,
         }));
     }
@@ -867,6 +924,45 @@ impl App {
         self.pending_confirmation.as_ref().map(|p| &p.confirmation)
     }
 
+    /// Resolve a command alias from config. Returns the expanded command if an alias matches,
+    /// or `None` if no alias applies. Aliases are checked against the command portion after `/`.
+    pub fn resolve_command_alias(&self, input: &str) -> Option<String> {
+        let config = self.config.as_ref()?;
+        if config.command_aliases.is_empty() {
+            return None;
+        }
+
+        let trimmed = input.trim();
+        if !trimmed.starts_with('/') {
+            return None;
+        }
+
+        // Extract the command name (without /) and any trailing args
+        let without_slash = &trimmed[1..];
+        let (cmd, extra_args) = match without_slash.split_once(' ') {
+            Some((c, a)) => (c, Some(a)),
+            None => (without_slash, None),
+        };
+
+        // Check if this command matches an alias
+        if let Some(expansion) = config.command_aliases.get(cmd) {
+            let expanded = if let Some(args) = extra_args {
+                format!("{} {}", expansion, args)
+            } else {
+                expansion.clone()
+            };
+            // Ensure the expansion starts with /
+            let result = if expanded.starts_with('/') {
+                expanded
+            } else {
+                format!("/{}", expanded)
+            };
+            Some(result)
+        } else {
+            None
+        }
+    }
+
     /// Check if a provider is configured.
     pub fn has_provider(&self) -> bool {
         self.agent.is_some()
@@ -1265,6 +1361,104 @@ mod tests {
 
         assert!(app.messages.is_empty());
         assert!(app.status.is_some());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_no_config() {
+        let app = App::new();
+        // No config set, should return None
+        assert!(app.resolve_command_alias("/t").is_none());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_basic() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("t".to_string(), "/test src/".to_string());
+        config.command_aliases.insert("b".to_string(), "/build".to_string());
+        app.set_config(config);
+
+        // Basic alias
+        assert_eq!(app.resolve_command_alias("/t"), Some("/test src/".to_string()));
+        assert_eq!(app.resolve_command_alias("/b"), Some("/build".to_string()));
+
+        // Non-matching command
+        assert!(app.resolve_command_alias("/help").is_none());
+
+        // Non-slash input
+        assert!(app.resolve_command_alias("hello").is_none());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_with_extra_args() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("t".to_string(), "/test src/".to_string());
+        app.set_config(config);
+
+        // Extra args appended
+        assert_eq!(
+            app.resolve_command_alias("/t --verbose"),
+            Some("/test src/ --verbose".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_command_alias_bare_expansion() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        // Alias without leading /
+        config.command_aliases.insert("x".to_string(), "exit".to_string());
+        app.set_config(config);
+
+        // Should auto-prepend /
+        assert_eq!(app.resolve_command_alias("/x"), Some("/exit".to_string()));
+    }
+
+    #[test]
+    fn test_build_system_prompt_no_config() {
+        let app = App::new();
+        let prompt = app.build_system_prompt();
+        assert!(prompt.contains("Codi"));
+        assert!(!prompt.contains("Project Context"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_additions() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.system_prompt_additions = Some("Always use strict mode.".to_string());
+        config.project_context = Some("This is a React app.".to_string());
+        app.set_config(config);
+
+        let prompt = app.build_system_prompt();
+        assert!(prompt.contains("Always use strict mode."));
+        assert!(prompt.contains("## Project Context"));
+        assert!(prompt.contains("This is a React app."));
+    }
+
+    #[test]
+    fn test_build_agent_config_defaults() {
+        let app = App::new();
+        let config = app.build_agent_config();
+        assert!(config.use_tools);
+        assert!(!config.auto_approve_all);
+        assert!(config.auto_approve_tools.is_empty());
+    }
+
+    #[test]
+    fn test_build_agent_config_from_resolved() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.no_tools = true;
+        config.auto_approve = vec!["read_file".to_string()];
+        app.set_config(config);
+        app.set_auto_approve(true);
+
+        let agent_config = app.build_agent_config();
+        assert!(!agent_config.use_tools);
+        assert!(agent_config.auto_approve_all);
+        assert_eq!(agent_config.auto_approve_tools, vec!["read_file".to_string()]);
     }
 
     #[test]
