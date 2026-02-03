@@ -12,7 +12,7 @@ use codi::agent::AgentConfig;
 use codi::config::{self, CliOptions};
 use codi::providers::{create_provider_from_config, ProviderType};
 use codi::tools::ToolRegistry;
-use codi::tui::{App, run as run_tui};
+use codi::tui::{App, build_system_prompt_from_config, run as run_tui};
 
 /// Codi version string.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -459,13 +459,14 @@ async fn handle_prompt(
         extract_tools_from_text: config.extract_tools_from_text,
         auto_approve_all: auto_approve,
         auto_approve_tools: config.auto_approve.clone(),
+        dangerous_patterns: config.dangerous_patterns.clone(),
     };
 
     // Create and run agent
     let mut agent = codi::agent::Agent::new(codi::agent::AgentOptions {
         provider,
         tool_registry: registry,
-        system_prompt: Some("You are Codi, a helpful AI coding assistant.".to_string()),
+        system_prompt: Some(build_system_prompt_from_config(Some(config))),
         config: agent_config,
         callbacks: codi::agent::AgentCallbacks::default(),
     });

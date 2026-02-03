@@ -41,7 +41,7 @@ pub mod events;
 pub mod streaming;
 pub mod ui;
 
-pub use app::{App, AppMode, Message as ChatMessage};
+pub use app::{App, AppMode, Message as ChatMessage, build_system_prompt_from_config};
 pub use events::{Event, EventHandler};
 pub use streaming::{MarkdownStreamCollector, StreamController, StreamState, StreamStatus};
 

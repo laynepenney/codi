@@ -241,6 +241,7 @@ impl ChildAgent {
             extract_tools_from_text: true,
             auto_approve_all: false,
             auto_approve_tools: self.auto_approve.clone(),
+            dangerous_patterns: Vec::new(),
         };
 
         let mut agent = Agent::new(AgentOptions {
