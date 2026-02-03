@@ -30,6 +30,7 @@ struct EmbeddingRequest {
 #[derive(Debug, Deserialize)]
 struct EmbeddingResponse {
     data: Vec<EmbeddingData>,
+    #[allow(dead_code)]
     usage: Option<EmbeddingUsage>,
 }
 
@@ -39,6 +40,7 @@ struct EmbeddingData {
     index: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct EmbeddingUsage {
     prompt_tokens: u32,
@@ -55,6 +57,7 @@ struct ErrorResponse {
 struct ErrorDetail {
     message: String,
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     error_type: Option<String>,
 }
 

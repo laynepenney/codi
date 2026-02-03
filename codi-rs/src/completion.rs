@@ -62,6 +62,7 @@ pub fn get_command_names() -> Vec<String> {
 }
 
 /// Subcommands for each slash command based on current Rust implementation.
+#[allow(dead_code)]
 const COMMAND_SUBCOMMANDS: &[(&str, &[&str])] = &[
     // Main commands from Rust TUI
     (
@@ -82,6 +83,7 @@ const COMMAND_SUBCOMMANDS: &[(&str, &[&str])] = &[
 ];
 
 /// Static arguments for commands in Rust implementation.
+#[allow(dead_code)]
 const COMMAND_STATIC_ARGS: &[(&str, &[&str])] = &[
     ("models", &["anthropic", "openai", "ollama", "runpod"]),
     (
@@ -93,6 +95,7 @@ const COMMAND_STATIC_ARGS: &[(&str, &[&str])] = &[
 ];
 
 /// Command-specific flags.
+#[allow(dead_code)]
 const COMMAND_FLAGS: &[(&str, &[&str])] = &[
     ("models", &["--local", "-f", "--format"]),
     ("symbols", &[]),

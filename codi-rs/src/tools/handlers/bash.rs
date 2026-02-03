@@ -41,6 +41,7 @@ struct BashArgs {
 
     /// Optional description of what the command does.
     #[serde(default)]
+    #[allow(dead_code)]
     description: Option<String>,
 }
 

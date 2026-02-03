@@ -60,7 +60,6 @@ impl ToolHandler for RAGSearchHandler {
         let mut results: Vec<_> = service.search(&args.query).await?;
         
         // Apply limit if specified
-        let take = args.limit.unwrap_or(10);
         if let Some(limit) = args.limit {
             results = results.into_iter().take(limit).collect();
         }

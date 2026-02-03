@@ -185,13 +185,6 @@ pub fn init_telemetry(config: &TelemetryConfig) -> io::Result<TelemetryGuard> {
     Ok(TelemetryGuard { _private: () })
 }
 
-/// Initialize telemetry with default settings.
-///
-/// Convenience function for quick setup.
-pub fn init_default_telemetry() -> io::Result<TelemetryGuard> {
-    init_telemetry(&TelemetryConfig::default())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

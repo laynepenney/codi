@@ -26,6 +26,7 @@ enum RAGAction {
 struct ManageRAGArgs {
     action: RAGAction,
     #[serde(default)]
+    #[allow(dead_code)]
     force: Option<bool>,
 }
 

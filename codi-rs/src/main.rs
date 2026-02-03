@@ -8,7 +8,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
 
-use codi::agent::{Agent, AgentCallbacks, AgentConfig, AgentOptions, ToolConfirmation, ConfirmationResult};
+use codi::agent::AgentConfig;
 use codi::config::{self, CliOptions};
 use codi::providers::{create_provider_from_config, ProviderType};
 use codi::tools::ToolRegistry;
@@ -103,13 +103,13 @@ enum Provider {
     Runpod,
 }
 
-impl Provider {
-    fn to_provider_type(&self) -> ProviderType {
+impl std::fmt::Display for Provider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Provider::Anthropic => ProviderType::Anthropic,
-            Provider::Openai => ProviderType::OpenAI,
-            Provider::Ollama => ProviderType::Ollama,
-            Provider::Runpod => ProviderType::OpenAICompatible,
+            Provider::Anthropic => write!(f, "anthropic"),
+            Provider::Openai => write!(f, "openai"),
+            Provider::Ollama => write!(f, "ollama"),
+            Provider::Runpod => write!(f, "runpod"),
         }
     }
 }
@@ -126,17 +126,6 @@ impl std::fmt::Display for OutputFormat {
         match self {
             OutputFormat::Text => write!(f, "text"),
             OutputFormat::Json => write!(f, "json"),
-        }
-    }
-}
-
-impl std::fmt::Display for Provider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Provider::Anthropic => write!(f, "anthropic"),
-            Provider::Openai => write!(f, "openai"),
-            Provider::Ollama => write!(f, "ollama"),
-            Provider::Runpod => write!(f, "runpod"),
         }
     }
 }
@@ -274,9 +263,6 @@ async fn handle_command(command: Commands) -> anyhow::Result<()> {
                 Some(ConfigAction::Show) | None => {
                     let config = config::load_config(&workspace_root, CliOptions::default())?;
                     println!("{}", serde_json::to_string_pretty(&config)?);
-                }
-                Some(_) => {
-                    eprintln!("{}", "Unknown config action. Available: show, init".red());
                 }
             }
         }

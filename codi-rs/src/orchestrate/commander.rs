@@ -548,7 +548,6 @@ impl Commander {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_commander_config_default() {

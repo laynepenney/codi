@@ -572,9 +572,9 @@ impl Indexer {
 
 /// Watch for file changes and trigger incremental indexing.
 pub struct FileWatcher {
-    project_root: PathBuf,
-    indexer: Arc<Indexer>,
-    db: Arc<Mutex<SymbolDatabase>>,
+    _project_root: PathBuf,
+    _indexer: Arc<Indexer>,
+    _db: Arc<Mutex<SymbolDatabase>>,
     is_running: Arc<AtomicBool>,
 }
 
@@ -586,9 +586,9 @@ impl FileWatcher {
         db: Arc<Mutex<SymbolDatabase>>,
     ) -> Self {
         Self {
-            project_root,
-            indexer,
-            db,
+            _project_root: project_root,
+            _indexer: indexer,
+            _db: db,
             is_running: Arc::new(AtomicBool::new(false)),
         }
     }

@@ -107,12 +107,14 @@ impl ToolSpan {
 /// RAII guard for timing any operation.
 ///
 /// Records the operation name and duration to metrics.
+#[allow(dead_code)]
 pub struct TimedOperation {
     name: String,
     start: Instant,
     span: Span,
 }
 
+#[allow(dead_code)]
 impl TimedOperation {
     /// Start a new timed operation.
     pub fn start(name: &str) -> Self {

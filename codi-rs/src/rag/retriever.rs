@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_format_for_context_empty() {
-        let config = RAGConfig::default();
+        let _config = RAGConfig::default();
         // We can't easily create a Retriever in tests without mocking,
         // so we test the formatting logic directly
         let results: Vec<RetrievalResult> = vec![];
