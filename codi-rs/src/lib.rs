@@ -70,6 +70,7 @@ pub mod telemetry;
 pub mod tools;
 pub mod tui;
 pub mod types;
+pub mod completion;
 
 // Re-export commonly used types at crate root
 pub use error::{AgentError, ConfigError, ProviderError, Result, ToolError};

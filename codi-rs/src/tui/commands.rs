@@ -51,12 +51,23 @@ pub enum AsyncCommand {
     PermissionRespond(String, String, bool),
 }
 
+/// Check if arguments contain a help flag (-h, --help, ?)
+fn has_help_flag(args: &str) -> bool {
+    let trimmed = args.trim();
+    trimmed == "-h" || trimmed == "--help" || trimmed == "?" || trimmed == "help"
+}
+
 /// Handle a slash command synchronously. Returns `CommandResult::Async` for
 /// commands that need async execution.
 pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
     let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
     let command = parts[0].to_lowercase();
     let args = parts.get(1).copied().unwrap_or("");
+
+    // Check if this is a help request
+    if has_help_flag(args) {
+        return handle_command_help(app, &command, &args);
+    }
 
     match command.as_str() {
         // Help commands
@@ -158,8 +169,143 @@ pub async fn execute_async_command(app: &mut App, cmd: AsyncCommand) -> CommandR
                     Err(e) => {
                         app.status = Some(format!("Failed to create session: {}", e));
                         return CommandResult::Error(e.to_string());
-                    }
-                }
+    }
+}
+
+/// Handle help requests for commands - show command usage and examples.
+fn handle_command_help(app: &mut App, command: &str, _args: &str) -> CommandResult {
+    let help_text = match command {
+        "/help" | "/h" => {
+            "
+Usage: /help [command]
+
+Show available commands and their usage. Type a command name for specific help.
+
+Categories:
+  Info:        status, version
+  Navigation:  compact, models, sessions  
+  Git:         branch, diff, pr, stash, undo
+  Code:        refactor, fix, test, optimize
+  Memory:      memory
+
+Try: /help models
+Try: /help git/branch
+            "
+        }
+        "/status" => {
+            "
+Usage: /status
+
+Get detailed information about current session including:
+- Current provider and model  
+- Session name, duration, message count
+- Context usage statistics
+- Active conversations and workers
+
+Example: /status
+            "
+        }
+        "/models" => {
+            "
+Usage: /models [provider] [--local]
+
+List available AI models with capability details:
+- Model names and identifiers
+- Context window sizes  
+- Pricing information
+- Vision and tool support
+
+Options:
+  provider    Filter by provider: anthropic, openai, ollama, runpod
+  --local     Show only local Ollama models
+
+Examples:
+  /models                    List all models
+  /models anthropic          Show Claude models only
+  /models --local            List local Ollama models
+            "
+        }
+        "/profile" | "/me" => {
+            "
+Usage: /profile set <key> <value>
+
+Configure your coding wingman profile for personalized responses
+
+Keys:
+  set name <name>          Set your name
+  set preferences.language <lang>    Primary programming language
+  set preferences.style <style>      Coding style preference (functional, OOP, procedural)
+  set preferences.verbosity level    Response detail level (concise, normal, detailed)
+  set expertise <area>     Add expertise area
+  set avoid <pattern>      Pattern to avoid in responses
+
+Example: /profile set name Alice
+            "
+        }
+        "/memory" => {
+            "
+Usage: /memory <note>
+Usage: /memory clear
+Usage: /memory memories
+
+Personal knowledge management system.
+
+Commands:
+  <note>          Store a fact for future sessions
+  clear           Delete all memories  
+  memories/mem    List stored memories
+
+Examples:
+  /memory I prefer functional programming style
+  /memory This project uses React + TypeScript
+  /memory I'm learning Rust async/await patterns
+            "
+        }
+        "/sessions" | "/session" => {
+            "
+Usage: /sessions [info|info <name>|clear]
+Usage: /session label [text]
+
+Manage conversation sessions with SQLite persistence.
+
+Commands:
+  save                    Save current conversation
+  load <name>            Load a session  
+  label [text]           Set current session label/name
+  sessions               List all sessions
+  sessions info [name]   Show session details
+
+Options:
+  label <text>           Set session name/description
+
+Example: /sessions
+            "
+        }
+        "/git/branch" => {
+            "
+Usage: /git/branch [action] [name]
+
+Git branch management actions.
+
+Actions:
+  list                List all branches
+  create <name>      Create a new branch  
+  switch <name>      Switch to existing branch
+  delete <name>      Delete a branch (safety checks)
+  rename <old> <new> Rename a branch
+  cleanup            Delete merged branches
+
+Example: /git/branch list
+            "
+        }
+        _ => {
+            return CommandResult::Error(format!("No help available for {}. Type /help for all commands.", command));
+        }
+    };
+
+    app.status = Some(format!("\n{}\n", help_text.trim()));
+    CommandResult::Ok
+}
             }
 
             // Save all current messages to the session
