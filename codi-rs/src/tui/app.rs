@@ -18,14 +18,7 @@ use crate::agent::{
 };
 use crate::error::ToolError;
 use crate::completion::{complete_line, get_completion_matches};
-use crate::orchestrate::{
-    AsyncCommand, AsyncCommandResult, DelegationRequest, DelegationResult, Worker, WorkerResult,
-};
-use crate::error::ToolError;
-use crate::orchestrate::{
-    Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo,
-    ipc::PermissionResult,
-};
+use crate::orchestrate::{Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo, PermissionResult};
 use crate::session::{Session, SessionInfo, SessionService};
 use crate::tools::ToolRegistry;
 use crate::types::{BoxedProvider, MessageContent, Role};
@@ -576,8 +569,8 @@ impl App {
         }
     }
 
-/// Get usage example for a completed command.
-fn get_usage_example(cmd: &str) -> Option<&'static str> {
+    /// Get usage example for a completed command.
+    pub fn get_usage_example(cmd: &str) -> Option<&'static str> {
     match cmd {
         "/help" => Some("Show available commands"),
         "/exit" => Some("Exit the application"),
@@ -605,16 +598,33 @@ fn get_usage_example(cmd: &str) -> Option<&'static str> {
     }
 }
 
-    /// Handle tab completion for input (slash commands only).
+    /// Handle tab completion for input (slash commands only) with full telemetry.
     fn handle_tab_completion(&mut self) {
+        let start_time = std::time::Instant::now();
+        
         // Only provide completion for slash commands
         let trimmed = self.input.trim();
         if trimmed.starts_with('/') {
-            if let Some(completed) = complete_line(&self.input) {
+            // Record telemetry for tab completion attempt in UI
+            #[cfg(feature = "telemetry")]
+            crate::telemetry::metrics::record_operation("tui.completion.attempt", start_time.elapsed());
+            
+            // Attempt completion
+            let completed = complete_line(&self.input);
+            
+            if let Some(completed) = completed {
                 if completed != self.input {
+                    // Successful completion
+                    #[cfg(feature = "telemetry")]
+                    crate::telemetry::metrics::record_operation("tui.completion.success", start_time.elapsed());
+                    
                     self.input = completed;
                     self.cursor_pos = self.input.len();
                 }
+            } else {
+                // No completion found
+                #[cfg(feature = "telemetry")]
+                crate::telemetry::metrics::record_operation("tui.completion.no_match", start_time.elapsed());
             }
             
             // Show completion hints
@@ -624,12 +634,18 @@ fn get_usage_example(cmd: &str) -> Option<&'static str> {
                     // Show first few matches as hint
                     let hint = format!("  Commands: {}", matches.iter().take(3).cloned().collect::<Vec<_>>().join(" | "));
                     self.status = Some(hint);
+                    
+                    #[cfg(feature = "telemetry")]
+                    crate::telemetry::metrics::record_operation("tui.completion.multi_hints", start_time.elapsed());
                 } else if matches.len() == 1 {
                     // Show usage hint for single match
                     let first = matches[0].clone();
-                    if let Some(example) = get_usage_example(&first) {
-                        self.completion_hint = Some(example.to_string());
+                    if let Some(example) = Self::get_usage_example(&first) {
+                        self.completion_hint = Some(example.to_string()); // example is &str
                         self.status = Some(format!("  {} - {}", first, example.trim()));
+                        
+                        #[cfg(feature = "telemetry")]
+                        crate::telemetry::metrics::record_operation("tui.completion.single_hint", start_time.elapsed());
                     }
                 }
             }

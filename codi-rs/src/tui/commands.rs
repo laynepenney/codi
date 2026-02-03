@@ -66,7 +66,7 @@ pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
 
     // Check if this is a help request
     if has_help_flag(args) {
-        return handle_command_help(app, &command, &args);
+        return handle_command_help(app, &command, args);
     }
 
     match command.as_str() {
@@ -141,39 +141,8 @@ pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
     }
 }
 
-/// Execute an async command. Call this from the main event loop when
-/// `handle_command` returns `CommandResult::Async`.
-pub async fn execute_async_command(app: &mut App, cmd: AsyncCommand) -> CommandResult {
-    match cmd {
-        AsyncCommand::SessionNew(title) => {
-            match app.create_session(title).await {
-                Ok(()) => {
-                    let session_name = app.current_session.as_ref()
-                        .map(|s| s.title.as_str())
-                        .unwrap_or("New Session");
-                    app.status = Some(format!("Created session: {}", session_name));
-                    CommandResult::Ok
-                }
-                Err(e) => {
-                    app.status = Some(format!("Failed to create session: {}", e));
-                    CommandResult::Error(e.to_string())
-                }
-            }
-        }
-
-        AsyncCommand::SessionSave => {
-            if app.current_session_id.is_none() {
-                // Create a new session first
-                match app.create_session(None).await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        app.status = Some(format!("Failed to create session: {}", e));
-                        return CommandResult::Error(e.to_string());
-    }
-}
-
 /// Handle help requests for commands - show command usage and examples.
-fn handle_command_help(app: &mut App, command: &str, _args: &str) -> CommandResult {
+pub fn handle_command_help(app: &mut App, command: &str, _args: &str) -> CommandResult {
     let help_text = match command {
         "/help" | "/h" => {
             "
@@ -306,6 +275,37 @@ Example: /git/branch list
     app.status = Some(format!("\n{}\n", help_text.trim()));
     CommandResult::Ok
 }
+
+/// Execute an async command. Call this from the main event loop when
+/// `handle_command` returns `CommandResult::Async`.
+pub async fn execute_async_command(app: &mut App, cmd: AsyncCommand) -> CommandResult {
+    match cmd {
+        AsyncCommand::SessionNew(title) => {
+            match app.create_session(title).await {
+                Ok(()) => {
+                    let session_name = app.current_session.as_ref()
+                        .map(|s| s.title.as_str())
+                        .unwrap_or("New Session");
+                    app.status = Some(format!("Created session: {}", session_name));
+                    CommandResult::Ok
+                }
+                Err(e) => {
+                    app.status = Some(format!("Failed to create session: {}", e));
+                    CommandResult::Error(e.to_string())
+                }
+            }
+        }
+
+        AsyncCommand::SessionSave => {
+            if app.current_session_id.is_none() {
+                // Create a new session first
+                match app.create_session(None).await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        app.status = Some(format!("Failed to create session: {}", e));
+                        return CommandResult::Error(e.to_string());
+                    }
+                }
             }
 
             // Save all current messages to the session

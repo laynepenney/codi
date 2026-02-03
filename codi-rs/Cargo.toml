@@ -139,6 +139,10 @@ harness = false
 name = "lsp"
 harness = false
 
+[[bench]]
+name = "completion"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
