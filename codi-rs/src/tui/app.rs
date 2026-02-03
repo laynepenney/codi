@@ -16,7 +16,7 @@ use crate::agent::{
     Agent, AgentCallbacks, AgentConfig, AgentOptions,
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
-use crate::error::ToolError;
+use crate::error::{Result as CodiResult, ToolError};
 use crate::completion::{complete_line, get_completion_matches};
 use crate::orchestrate::{Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo, PermissionResult};
 use crate::session::{Session, SessionInfo, SessionService};
@@ -207,6 +207,10 @@ pub struct App {
     /// Tab completion hint to display.
     pub completion_hint: Option<String>,
 
+    // Background agent task
+    /// Receiver for agent returning from a background chat task.
+    pending_agent: Option<tokio::sync::oneshot::Receiver<(Agent, CodiResult<String>)>>,
+
     // Orchestration
     /// Commander for multi-agent orchestration.
     commander: Option<Commander>,
@@ -251,6 +255,7 @@ impl App {
             current_session: None,
             project_path,
             completion_hint: None,
+            pending_agent: None,
             commander: None,
             pending_worker_permissions: Vec::new(),
         }
@@ -276,19 +281,19 @@ impl App {
         let event_tx = self.event_tx.clone().unwrap();
 
         let callbacks = AgentCallbacks {
-            on_text: Some(Box::new({
+            on_text: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |text: &str| {
                     let _ = tx.send(AppEvent::TextDelta(text.to_string()));
                 }
             })),
-            on_tool_call: Some(Box::new({
+            on_tool_call: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |name: &str, input: &serde_json::Value| {
                     let _ = tx.send(AppEvent::ToolStart(name.to_string(), input.clone()));
                 }
             })),
-            on_tool_result: Some(Box::new({
+            on_tool_result: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |name: &str, result: &str, is_error: bool| {
                     let _ = tx.send(AppEvent::ToolResult(name.to_string(), result.to_string(), is_error));
@@ -296,12 +301,13 @@ impl App {
             })),
             on_confirm: None, // Handled via channel-based approach
             on_compaction: None,
-            on_turn_complete: Some(Box::new({
+            on_turn_complete: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |stats: &TurnStats| {
                     let _ = tx.send(AppEvent::TurnComplete(stats.clone()));
                 }
             })),
+            on_stream_event: None,
         };
 
         self.agent = Some(Agent::new(AgentOptions {
@@ -350,6 +356,36 @@ impl App {
 
     /// Process any pending app events from agent callbacks.
     fn process_app_events(&mut self) {
+        // Check if the background agent task has completed
+        if let Some(ref mut rx) = self.pending_agent {
+            match rx.try_recv() {
+                Ok((agent, result)) => {
+                    self.agent = Some(agent);
+                    self.pending_agent = None;
+                    match result {
+                        Ok(_) => {
+                            // Response was streamed via callbacks; TurnComplete will finalize
+                        }
+                        Err(e) => {
+                            self.status = Some(format!("Error: {}", e));
+                            self.mode = AppMode::Normal;
+                            self.finalize_streaming();
+                        }
+                    }
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    // Task panicked or was dropped
+                    self.pending_agent = None;
+                    self.status = Some("Agent task failed unexpectedly".to_string());
+                    self.mode = AppMode::Normal;
+                    self.finalize_streaming();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    // Still running, keep waiting
+                }
+            }
+        }
+
         // Collect events first to avoid borrow issues
         let mut events = Vec::new();
         if let Some(ref mut rx) = self.event_rx {
@@ -757,7 +793,25 @@ impl App {
                     // Execute async command
                     let _ = execute_async_command(self, cmd).await;
                 }
-                CommandResult::Ok | CommandResult::Error(_) | CommandResult::Prompt(_) => {
+                CommandResult::Prompt(prompt) => {
+                    // Command generated a prompt to send to the AI
+                    self.messages.push(Message::user(&prompt));
+                    self.scroll_to_bottom();
+
+                    if let Some(mut agent) = self.agent.take() {
+                        self.mode = AppMode::Waiting;
+                        self.status = Some("Thinking...".to_string());
+
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        self.pending_agent = Some(rx);
+
+                        tokio::spawn(async move {
+                            let result = agent.chat(&prompt).await;
+                            let _ = tx.send((agent, result));
+                        });
+                    }
+                }
+                CommandResult::Ok | CommandResult::Error(_) => {
                     // Already handled synchronously
                 }
             }
@@ -768,21 +822,21 @@ impl App {
         self.messages.push(Message::user(&input));
         self.scroll_to_bottom();
 
-        // Get AI response
-        if let Some(ref mut agent) = self.agent {
+        // Get AI response - spawn on background task so the event loop stays responsive
+        if let Some(mut agent) = self.agent.take() {
             self.mode = AppMode::Waiting;
             self.status = Some("Thinking...".to_string());
 
-            // Call the agent
-            match agent.chat(&input).await {
-                Ok(_response) => {
-                    // Response is handled via callbacks
-                }
-                Err(e) => {
-                    self.status = Some(format!("Error: {}", e));
-                    self.mode = AppMode::Normal;
-                }
-            }
+            // Create a oneshot channel to get the agent back when done
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.pending_agent = Some(rx);
+
+            // Spawn the agent chat on a background task
+            tokio::spawn(async move {
+                let result = agent.chat(&input).await;
+                // Send the agent and result back (ignore error if receiver dropped)
+                let _ = tx.send((agent, result));
+            });
         } else {
             // No agent, just echo
             self.messages.push(Message::assistant(

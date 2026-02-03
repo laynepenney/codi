@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{AgentError, Result};
 use crate::types::{
-    BoxedProvider, ContentBlock, Message, Role,
+    BoxedProvider, ContentBlock, Message, Role, StreamEvent,
     ToolCall, ToolDefinition, ToolResult,
 };
 use crate::tools::ToolRegistry;
@@ -315,11 +315,27 @@ impl Agent {
             let tools = self.get_tool_definitions();
             let system_context = self.build_system_context();
 
-            // Call the provider
-            let response = self.provider.chat(
+            // Clone callbacks for the streaming closure (Arc clones are cheap)
+            let on_text = self.callbacks.on_text.clone();
+            let on_stream_event = self.callbacks.on_stream_event.clone();
+
+            // Call the provider with streaming
+            let response = self.provider.stream_chat(
                 &self.state.messages,
                 tools.as_deref(),
                 Some(&system_context),
+                Box::new(move |event| {
+                    // Forward raw stream events
+                    if let Some(ref cb) = on_stream_event {
+                        cb(&event);
+                    }
+                    // Fire on_text for text deltas
+                    if let StreamEvent::TextDelta(ref text) = event {
+                        if let Some(ref cb) = on_text {
+                            cb(text);
+                        }
+                    }
+                }),
             ).await?;
 
             // Update token stats
@@ -329,11 +345,8 @@ impl Agent {
                 turn_stats.total_tokens = turn_stats.input_tokens + turn_stats.output_tokens;
             }
 
-            // Stream text to callback
+            // Store final response text
             if !response.content.is_empty() {
-                if let Some(ref on_text) = self.callbacks.on_text {
-                    on_text(&response.content);
-                }
                 final_response = response.content.clone();
             }
 
@@ -407,10 +420,9 @@ impl Agent {
 
     /// Chat with streaming output.
     ///
-    /// Similar to `chat()` but streams text output via the `on_text` callback
-    /// as it's received from the model.
+    /// Alias for `chat()` - streaming is now built into the main chat loop
+    /// via `provider.stream_chat()`.
     pub async fn stream_chat(&mut self, user_message: &str) -> Result<String> {
-        // For now, delegate to chat() - streaming will be added when we implement stream_chat on providers
         self.chat(user_message).await
     }
 }

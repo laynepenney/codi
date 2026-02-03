@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use crate::types::{BoxedProvider, Message};
+use crate::types::{BoxedProvider, Message, StreamEvent};
 use crate::tools::ToolRegistry;
 
 /// Statistics for a single turn (user message -> final response).
@@ -63,19 +63,24 @@ pub enum ConfirmationResult {
 }
 
 /// Callbacks for agent events.
+///
+/// Uses `Arc` instead of `Box` so callbacks can be cloned into streaming
+/// closures and background tasks without lifetime issues.
 pub struct AgentCallbacks {
-    /// Called when the model outputs text.
-    pub on_text: Option<Box<dyn Fn(&str) + Send + Sync>>,
+    /// Called when the model outputs text (streaming deltas).
+    pub on_text: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// Called when a tool is about to be executed.
-    pub on_tool_call: Option<Box<dyn Fn(&str, &serde_json::Value) + Send + Sync>>,
+    pub on_tool_call: Option<Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync>>,
     /// Called when a tool execution completes.
-    pub on_tool_result: Option<Box<dyn Fn(&str, &str, bool) + Send + Sync>>,
+    pub on_tool_result: Option<Arc<dyn Fn(&str, &str, bool) + Send + Sync>>,
     /// Called to confirm destructive operations. Returns approval result.
-    pub on_confirm: Option<Box<dyn Fn(ToolConfirmation) -> ConfirmationResult + Send + Sync>>,
+    pub on_confirm: Option<Arc<dyn Fn(ToolConfirmation) -> ConfirmationResult + Send + Sync>>,
     /// Called when context compaction starts/ends.
-    pub on_compaction: Option<Box<dyn Fn(bool) + Send + Sync>>,
+    pub on_compaction: Option<Arc<dyn Fn(bool) + Send + Sync>>,
     /// Called when a turn completes with stats.
-    pub on_turn_complete: Option<Box<dyn Fn(&TurnStats) + Send + Sync>>,
+    pub on_turn_complete: Option<Arc<dyn Fn(&TurnStats) + Send + Sync>>,
+    /// Called for each raw stream event from the provider.
+    pub on_stream_event: Option<Arc<dyn Fn(&StreamEvent) + Send + Sync>>,
 }
 
 impl Default for AgentCallbacks {
@@ -87,6 +92,7 @@ impl Default for AgentCallbacks {
             on_confirm: None,
             on_compaction: None,
             on_turn_complete: None,
+            on_stream_event: None,
         }
     }
 }
@@ -100,6 +106,7 @@ impl std::fmt::Debug for AgentCallbacks {
             .field("on_confirm", &self.on_confirm.is_some())
             .field("on_compaction", &self.on_compaction.is_some())
             .field("on_turn_complete", &self.on_turn_complete.is_some())
+            .field("on_stream_event", &self.on_stream_event.is_some())
             .finish()
     }
 }
