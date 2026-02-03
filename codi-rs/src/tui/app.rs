@@ -152,6 +152,8 @@ pub enum AppEvent {
     TurnComplete(TurnStats),
     /// Confirmation request.
     ConfirmRequest(ToolConfirmation),
+    /// Context compaction started (true) or finished (false).
+    Compaction(bool),
 }
 
 /// Pending tool confirmation.
@@ -270,6 +272,10 @@ impl App {
     }
 
     /// Create with a provider.
+    ///
+    /// **Deprecated**: Bypasses config wiring. Use `with_project_path()` +
+    /// `set_config()` + `set_provider()` instead (see `run_repl()`).
+    #[deprecated(note = "bypasses config; use with_project_path() + set_config() + set_provider()")]
     pub fn with_provider(provider: BoxedProvider) -> Self {
         let mut app = Self::new();
         app.set_provider(provider);
@@ -277,6 +283,10 @@ impl App {
     }
 
     /// Create with a provider and project path.
+    ///
+    /// **Deprecated**: Bypasses config wiring. Use `with_project_path()` +
+    /// `set_config()` + `set_provider()` instead (see `run_repl()`).
+    #[deprecated(note = "bypasses config; use with_project_path() + set_config() + set_provider()")]
     pub fn with_provider_and_path(provider: BoxedProvider, project_path: impl AsRef<Path>) -> Self {
         let mut app = Self::with_project_path(project_path);
         app.set_provider(provider);
@@ -305,6 +315,7 @@ impl App {
                 extract_tools_from_text: config.extract_tools_from_text,
                 auto_approve_all: self.auto_approve_all,
                 auto_approve_tools: config.auto_approve.clone(),
+                dangerous_patterns: config.dangerous_patterns.clone(),
             }
         } else {
             let mut default_config = AgentConfig::default();
@@ -315,21 +326,7 @@ impl App {
 
     /// Build the system prompt, incorporating config additions and project context.
     fn build_system_prompt(&self) -> String {
-        let mut prompt = "You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string();
-
-        if let Some(ref config) = self.config {
-            if let Some(ref additions) = config.system_prompt_additions {
-                prompt.push_str("\n\n");
-                prompt.push_str(additions);
-            }
-
-            if let Some(ref project_context) = config.project_context {
-                prompt.push_str("\n\n## Project Context\n");
-                prompt.push_str(project_context);
-            }
-        }
-
-        prompt
+        build_system_prompt_from_config(self.config.as_ref())
     }
 
     /// Set the AI provider and create an agent.
@@ -357,7 +354,12 @@ impl App {
                 }
             })),
             on_confirm: None, // Handled via channel-based approach
-            on_compaction: None,
+            on_compaction: Some(Arc::new({
+                let tx = event_tx.clone();
+                move |is_starting: bool| {
+                    let _ = tx.send(AppEvent::Compaction(is_starting));
+                }
+            })),
             on_turn_complete: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |stats: &TurnStats| {
@@ -477,6 +479,13 @@ impl App {
                 }
                 AppEvent::ConfirmRequest(_) => {
                     // Handled separately via channel
+                }
+                AppEvent::Compaction(is_starting) => {
+                    if is_starting {
+                        self.status = Some("Compacting context...".to_string());
+                    } else {
+                        self.status = Some("Context compacted".to_string());
+                    }
                 }
             }
         }
@@ -1290,6 +1299,29 @@ impl App {
     }
 }
 
+/// Build a system prompt from an optional `ResolvedConfig`.
+///
+/// This is the standalone version used by both the TUI (`App::build_system_prompt`)
+/// and the non-interactive `-P` mode so that config-driven prompt additions are
+/// applied consistently.
+pub fn build_system_prompt_from_config(config: Option<&ResolvedConfig>) -> String {
+    let mut prompt = "You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string();
+
+    if let Some(config) = config {
+        if let Some(ref additions) = config.system_prompt_additions {
+            prompt.push_str("\n\n");
+            prompt.push_str(additions);
+        }
+
+        if let Some(ref project_context) = config.project_context {
+            prompt.push_str("\n\n## Project Context\n");
+            prompt.push_str(project_context);
+        }
+    }
+
+    prompt
+}
+
 /// Format worker status for display.
 fn format_worker_status(status: &WorkerStatus) -> String {
     match status {
@@ -1487,5 +1519,40 @@ mod tests {
         app.navigate_history_forward();
         assert_eq!(app.input, "current");
         assert_eq!(app.history_index, None);
+    }
+
+    #[test]
+    fn test_build_system_prompt_from_config_none() {
+        let prompt = build_system_prompt_from_config(None);
+        assert!(prompt.contains("Codi"));
+        assert!(!prompt.contains("Project Context"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_from_config_with_additions() {
+        let mut config = crate::config::default_config();
+        config.system_prompt_additions = Some("Be concise.".to_string());
+        config.project_context = Some("Rust CLI app.".to_string());
+
+        let prompt = build_system_prompt_from_config(Some(&config));
+        assert!(prompt.contains("Be concise."));
+        assert!(prompt.contains("## Project Context"));
+        assert!(prompt.contains("Rust CLI app."));
+    }
+
+    #[test]
+    fn test_app_event_compaction_variant() {
+        // Verify the Compaction variant exists and can be constructed
+        let start = AppEvent::Compaction(true);
+        let end = AppEvent::Compaction(false);
+        // Pattern match to confirm the variant works
+        match start {
+            AppEvent::Compaction(is_starting) => assert!(is_starting),
+            _ => panic!("expected Compaction variant"),
+        }
+        match end {
+            AppEvent::Compaction(is_starting) => assert!(!is_starting),
+            _ => panic!("expected Compaction variant"),
+        }
     }
 }

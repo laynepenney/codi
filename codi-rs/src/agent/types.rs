@@ -130,6 +130,8 @@ pub struct AgentConfig {
     pub auto_approve_all: bool,
     /// Auto-approve specific tools by name.
     pub auto_approve_tools: Vec<String>,
+    /// Regex patterns that flag tool inputs as dangerous (from config `dangerousPatterns`).
+    pub dangerous_patterns: Vec<String>,
 }
 
 impl Default for AgentConfig {
@@ -143,6 +145,7 @@ impl Default for AgentConfig {
             extract_tools_from_text: true,
             auto_approve_all: false,
             auto_approve_tools: Vec::new(),
+            dangerous_patterns: Vec::new(),
         }
     }
 }
@@ -165,6 +168,25 @@ impl AgentConfig {
     /// Check if a tool requires confirmation.
     pub fn requires_confirmation(&self, tool_name: &str) -> bool {
         DESTRUCTIVE_TOOLS.contains(&tool_name) && !self.should_auto_approve(tool_name)
+    }
+
+    /// Check if any dangerous pattern matches the given input string.
+    /// Returns the first matching pattern, or `None` if no pattern matches.
+    /// Invalid regex patterns are silently skipped.
+    pub fn matches_dangerous_pattern(&self, input_str: &str) -> Option<String> {
+        for pat in &self.dangerous_patterns {
+            match regex::Regex::new(pat) {
+                Ok(re) => {
+                    if re.is_match(input_str) {
+                        return Some(pat.clone());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Invalid dangerous pattern '{}': {}", pat, e);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -193,6 +215,8 @@ pub struct AgentState {
     pub current_iteration: usize,
     /// Consecutive error count.
     pub consecutive_errors: usize,
+    /// Running character count across all messages (avoids re-serializing JSON each iteration).
+    pub running_char_count: usize,
 }
 
 impl Default for AgentState {
@@ -202,6 +226,7 @@ impl Default for AgentState {
             conversation_summary: None,
             current_iteration: 0,
             consecutive_errors: 0,
+            running_char_count: 0,
         }
     }
 }

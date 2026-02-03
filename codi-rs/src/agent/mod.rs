@@ -135,18 +135,14 @@ impl Agent {
 
     /// Estimate the current token count of all messages.
     /// Uses the standard approximation of ~4 characters per token.
+    /// Leverages `running_char_count` to avoid re-serializing every message each iteration.
     fn estimate_tokens(&self) -> usize {
-        let mut total_chars: usize = 0;
+        let mut total_chars: usize = self.state.running_char_count;
 
-        // Count system prompt
+        // Add system prompt + summary (not cached — these are cheap to measure)
         total_chars += self.system_prompt.len();
         if let Some(ref summary) = self.state.conversation_summary {
             total_chars += summary.len();
-        }
-
-        // Count all messages
-        for msg in &self.state.messages {
-            total_chars += self.message_char_count(msg);
         }
 
         total_chars / 4
@@ -239,6 +235,11 @@ impl Agent {
             self.state.conversation_summary = Some(new_summary);
         }
 
+        // Recalculate running_char_count from remaining messages
+        self.state.running_char_count = self.state.messages.iter()
+            .map(|m| self.message_char_count(m))
+            .sum();
+
         tracing::info!(
             "Context compacted: removed {} messages, {} remaining",
             split_at,
@@ -251,24 +252,41 @@ impl Agent {
         }
     }
 
-    /// Check if a tool call should be confirmed.
-    fn should_confirm(&self, tool_name: &str) -> bool {
-        self.config.requires_confirmation(tool_name) && self.callbacks.on_confirm.is_some()
-    }
+    /// Check whether a tool call needs confirmation and, if so, ask the user.
+    ///
+    /// Returns `None` when no confirmation is needed (tool is auto-approved and
+    /// no dangerous pattern matches). Otherwise returns the user's decision.
+    /// Serializes the input only once to avoid redundant work.
+    fn maybe_confirm(&self, tool_call: &ToolCall) -> Option<ConfirmationResult> {
+        let on_confirm = self.callbacks.on_confirm.as_ref()?;
 
-    /// Confirm a tool call with the user.
-    fn confirm_tool(&self, tool_call: &ToolCall) -> ConfirmationResult {
-        if let Some(ref on_confirm) = self.callbacks.on_confirm {
-            let confirmation = ToolConfirmation {
-                tool_name: tool_call.name.clone(),
-                input: tool_call.input.clone(),
-                is_dangerous: DESTRUCTIVE_TOOLS.contains(&tool_call.name.as_str()),
-                danger_reason: None, // TODO: Add danger detection
-            };
-            on_confirm(confirmation)
+        let is_builtin_dangerous = DESTRUCTIVE_TOOLS.contains(&tool_call.name.as_str());
+        let needs_builtin_confirm = is_builtin_dangerous
+            && !self.config.should_auto_approve(&tool_call.name);
+
+        // Serialize input once and check dangerous patterns
+        let pattern_match = if !self.config.dangerous_patterns.is_empty() {
+            let input_str = tool_call.input.to_string();
+            self.config.matches_dangerous_pattern(&input_str)
         } else {
-            ConfirmationResult::Approve
+            None
+        };
+
+        // If neither builtin-destructive nor pattern-matched, no confirmation needed
+        if !needs_builtin_confirm && pattern_match.is_none() {
+            return None;
         }
+
+        let is_dangerous = is_builtin_dangerous || pattern_match.is_some();
+        let danger_reason = pattern_match.map(|p| format!("Matches dangerous pattern: {}", p));
+
+        let confirmation = ToolConfirmation {
+            tool_name: tool_call.name.clone(),
+            input: tool_call.input.clone(),
+            is_dangerous,
+            danger_reason,
+        };
+        Some(on_confirm(confirmation))
     }
 
     /// Execute a single tool call.
@@ -325,9 +343,9 @@ impl Agent {
         let mut has_error = false;
 
         for tool_call in tool_calls {
-            // Check if confirmation is needed
-            if self.should_confirm(&tool_call.name) {
-                match self.confirm_tool(tool_call) {
+            // Check if confirmation is needed, and if so, get the user's decision
+            if let Some(decision) = self.maybe_confirm(tool_call) {
+                match decision {
                     ConfirmationResult::Approve => {
                         // Continue to execute
                     }
@@ -387,10 +405,12 @@ impl Agent {
             .map(|r| ContentBlock::tool_result(&r.tool_use_id, &r.content, r.is_error.unwrap_or(false)))
             .collect();
 
-        self.state.messages.push(Message {
+        let msg = Message {
             role: Role::User,
             content: crate::types::MessageContent::Blocks(content),
-        });
+        };
+        self.state.running_char_count += self.message_char_count(&msg);
+        self.state.messages.push(msg);
     }
 
     /// The main agentic loop.
@@ -405,7 +425,9 @@ impl Agent {
         let mut turn_stats = TurnStats::default();
 
         // Add user message to history
-        self.state.messages.push(Message::user(user_message));
+        let user_msg = Message::user(user_message);
+        self.state.running_char_count += self.message_char_count(&user_msg);
+        self.state.messages.push(user_msg);
 
         // Reset iteration state
         self.state.current_iteration = 0;
@@ -485,10 +507,12 @@ impl Agent {
             }
 
             if !assistant_blocks.is_empty() {
-                self.state.messages.push(Message {
+                let assistant_msg = Message {
                     role: Role::Assistant,
                     content: crate::types::MessageContent::Blocks(assistant_blocks),
-                });
+                };
+                self.state.running_char_count += self.message_char_count(&assistant_msg);
+                self.state.messages.push(assistant_msg);
             }
 
             // If no tool calls, we're done
@@ -636,5 +660,57 @@ mod tests {
         let result = Agent::truncate_str(input, 7);
         assert!(result.ends_with("..."));
         assert!(!result.contains("world"));
+    }
+
+    #[test]
+    fn test_agent_state_default_running_char_count() {
+        let state = AgentState::default();
+        assert_eq!(state.running_char_count, 0);
+    }
+
+    #[test]
+    fn test_dangerous_pattern_match() {
+        let mut config = AgentConfig::default();
+        config.dangerous_patterns = vec![
+            r"rm\s+-rf".to_string(),
+            r"sudo\s+".to_string(),
+        ];
+
+        assert_eq!(
+            config.matches_dangerous_pattern("rm -rf /"),
+            Some(r"rm\s+-rf".to_string())
+        );
+        assert_eq!(
+            config.matches_dangerous_pattern("sudo apt install"),
+            Some(r"sudo\s+".to_string())
+        );
+        assert_eq!(
+            config.matches_dangerous_pattern("echo hello"),
+            None,
+        );
+    }
+
+    #[test]
+    fn test_dangerous_pattern_empty() {
+        let config = AgentConfig::default();
+        assert!(config.dangerous_patterns.is_empty());
+        assert_eq!(config.matches_dangerous_pattern("rm -rf /"), None);
+    }
+
+    #[test]
+    fn test_dangerous_pattern_invalid_regex_skipped() {
+        let mut config = AgentConfig::default();
+        config.dangerous_patterns = vec![
+            "[invalid".to_string(),  // bad regex
+            r"rm\s+-rf".to_string(), // valid
+        ];
+
+        // Should skip the invalid pattern gracefully and still match the valid one
+        assert_eq!(
+            config.matches_dangerous_pattern("rm -rf /"),
+            Some(r"rm\s+-rf".to_string())
+        );
+        // Invalid pattern should not cause a panic
+        assert_eq!(config.matches_dangerous_pattern("hello"), None);
     }
 }
