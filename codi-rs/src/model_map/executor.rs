@@ -6,11 +6,15 @@
 //! Executes multi-model pipelines with variable substitution,
 //! conditional step execution, and streaming support.
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use std::sync::Arc;
 
 use crate::error::ProviderError;
 use crate::types::{Message, StreamEvent};
+
+/// Static regex for variable substitution (compiled once).
+static VAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\{(\w+)\}").unwrap());
 
 use super::config::ModelMapError;
 use super::registry::ModelRegistry;
@@ -129,17 +133,20 @@ impl PipelineExecutor {
         input: &str,
         options: Option<PipelineExecuteOptions>,
     ) -> Result<PipelineResult, ExecutorError> {
-        self.execute_with_callbacks(pipeline, input, options, &NoOpCallbacks)
+        self.execute_with_callbacks(pipeline, input, options, Arc::new(NoOpCallbacks))
             .await
     }
 
     /// Execute a pipeline with callbacks for progress reporting.
+    ///
+    /// Takes an `Arc<dyn PipelineCallbacks>` to allow sharing the callbacks
+    /// across async streaming boundaries.
     pub async fn execute_with_callbacks(
         &self,
         pipeline: &PipelineDefinition,
         input: &str,
         options: Option<PipelineExecuteOptions>,
-        callbacks: &dyn PipelineCallbacks,
+        callbacks: Arc<dyn PipelineCallbacks>,
     ) -> Result<PipelineResult, ExecutorError> {
         let options = options.unwrap_or_default();
 
@@ -174,7 +181,7 @@ impl PipelineExecutor {
 
             // Execute the step
             match self
-                .execute_step(step, &model, &context, callbacks)
+                .execute_step(step, &model, &context, callbacks.clone())
                 .await
             {
                 Ok(output) => {
@@ -295,7 +302,7 @@ impl PipelineExecutor {
         step: &PipelineStep,
         model: &ResolvedModel,
         context: &PipelineContext,
-        _callbacks: &dyn PipelineCallbacks,
+        callbacks: Arc<dyn PipelineCallbacks>,
     ) -> Result<String, ExecutorError> {
         let prompt = self.substitute_variables(&step.prompt, context)?;
 
@@ -312,14 +319,14 @@ impl PipelineExecutor {
         // Create messages
         let messages = vec![Message::user(&prompt)];
 
-        // Use streaming for better UX
+        // Clone Arc for the streaming callback
         let step_name = step.name.clone();
+        let callbacks_clone = callbacks.clone();
 
         let on_event = Box::new(move |event: StreamEvent| {
             if let StreamEvent::TextDelta(text) = event {
-                // Note: We can't mutate output here due to move semantics,
-                // but the callback is for UI updates. We'll collect from response.
-                tracing::trace!("Step {} text: {}", step_name, text);
+                // Forward streaming text to callbacks for UI updates
+                callbacks_clone.on_step_text(&step_name, &text);
             }
         });
 
@@ -338,11 +345,10 @@ impl PipelineExecutor {
         template: &str,
         context: &PipelineContext,
     ) -> Result<String, ExecutorError> {
-        let re = Regex::new(r"\{(\w+)\}").unwrap();
         let mut result = template.to_string();
         let mut undefined_vars = Vec::new();
 
-        for cap in re.captures_iter(template) {
+        for cap in VAR_REGEX.captures_iter(template) {
             let var_name = &cap[1];
             if let Some(value) = context.get(var_name) {
                 result = result.replace(&cap[0], value);
