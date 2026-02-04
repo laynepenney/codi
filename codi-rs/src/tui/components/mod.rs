@@ -5,9 +5,13 @@
 //!
 //! This module provides reusable UI components for the Codi TUI.
 
+pub mod diff_view;
 pub mod exec_cell;
+pub mod search_bar;
 
+pub use diff_view::{DiffLine, DiffLineType, DiffView};
 pub use exec_cell::{ExecCell, ExecCellManager, ExecCellWidget, ToolStatus};
+pub use search_bar::SearchBar;
 
 /// Snapshot testing utilities for TUI components.
 #[cfg(test)]
