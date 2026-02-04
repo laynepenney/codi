@@ -4,7 +4,7 @@ assertion_line: 157
 expression: terminal.backend()
 ---
 "┌ bash ────────────────────────────────────────────────────────────────────────┐"
-"│ ⠋ Running... (1ms)                                                           │"
+"│ ⠋ Running... (3ms)                                                           │"
 "│ Input: {"cmd":"long_running_command"}                                        │"
 "│ ┌──────────────────────────────────────────────────────────────────────────┐ │"
 "│ │ Starting process...                                                      │ │"

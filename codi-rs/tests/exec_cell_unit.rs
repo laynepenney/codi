@@ -208,8 +208,8 @@ fn test_exec_cell_spinner_animation() {
     assert_ne!(frame1, frame2);
     assert_ne!(char1, char2);
 
-    // Should cycle back
-    for _ in 0..10 {
+    // Should cycle back (SPINNER_CHARS has 10 elements, so 9 more ticks to complete cycle)
+    for _ in 0..9 {
         cell.tick_spinner();
     }
     assert_eq!(cell.spinner_frame, frame1);
