@@ -4,6 +4,7 @@ use ratatui::{
     style::{Color, Style},
     text::Span,
 };
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Parser, Query, QueryCursor};
 
 /// Supported languages for syntax highlighting.
@@ -45,7 +46,7 @@ impl SupportedLanguage {
             SupportedLanguage::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
             SupportedLanguage::Json => tree_sitter_json::LANGUAGE.into(),
             SupportedLanguage::Bash => tree_sitter_bash::LANGUAGE.into(),
-            SupportedLanguage::Markdown => tree_sitter_markdown::LANGUAGE.into(),
+            SupportedLanguage::Markdown => tree_sitter_markdown::language().into(),
         }
     }
 
