@@ -143,9 +143,11 @@ impl Message {
 pub enum AppEvent {
     /// Text delta received from streaming.
     TextDelta(String),
-    /// Tool call started.
-    ToolStart(String, serde_json::Value),
-    /// Tool call completed.
+    /// Tool call started (id, name, input).
+    ToolStart(String, String, serde_json::Value),
+    /// Tool output line received during execution.
+    ToolOutput(String, String),
+    /// Tool call completed (id, result, is_error).
     ToolResult(String, String, bool),
     /// Turn completed with stats.
     TurnComplete(TurnStats),
@@ -207,6 +209,10 @@ pub struct App {
     /// Tab completion hint to display.
     pub completion_hint: Option<String>,
 
+    // Tool execution visualization
+    /// Manager for tool execution cells.
+    pub exec_cells: crate::tui::components::ExecCellManager,
+
     // Orchestration
     /// Commander for multi-agent orchestration.
     commander: Option<Commander>,
@@ -251,6 +257,7 @@ impl App {
             current_session: None,
             project_path,
             completion_hint: None,
+            exec_cells: crate::tui::components::ExecCellManager::new(),
             commander: None,
             pending_worker_permissions: Vec::new(),
         }
@@ -284,14 +291,14 @@ impl App {
             })),
             on_tool_call: Some(Box::new({
                 let tx = event_tx.clone();
-                move |name: &str, input: &serde_json::Value| {
-                    let _ = tx.send(AppEvent::ToolStart(name.to_string(), input.clone()));
+                move |tool_id: &str, name: &str, input: &serde_json::Value| {
+                    let _ = tx.send(AppEvent::ToolStart(tool_id.to_string(), name.to_string(), input.clone()));
                 }
             })),
             on_tool_result: Some(Box::new({
                 let tx = event_tx.clone();
-                move |name: &str, result: &str, is_error: bool| {
-                    let _ = tx.send(AppEvent::ToolResult(name.to_string(), result.to_string(), is_error));
+                move |tool_id: &str, _name: &str, result: &str, is_error: bool| {
+                    let _ = tx.send(AppEvent::ToolResult(tool_id.to_string(), result.to_string(), is_error));
                 }
             })),
             on_confirm: None, // Handled via channel-based approach
@@ -364,14 +371,32 @@ impl App {
                 AppEvent::TextDelta(text) => {
                     self.handle_text_delta(&text);
                 }
-                AppEvent::ToolStart(name, _input) => {
+                AppEvent::ToolStart(id, name, input) => {
+                    // Create a new exec cell for this tool
+                    let cell = crate::tui::components::ExecCell::new(
+                        id.clone(),
+                        name.clone(),
+                        input,
+                    );
+                    self.exec_cells.add(cell);
                     self.status = Some(format!("Running: {} ...", name));
                 }
-                AppEvent::ToolResult(name, _result, is_error) => {
-                    if is_error {
-                        self.status = Some(format!("Tool {} failed", name));
-                    } else {
-                        self.status = Some(format!("Completed: {}", name));
+                AppEvent::ToolOutput(id, line) => {
+                    // Add output line to the exec cell
+                    if let Some(cell) = self.exec_cells.get_mut(&id) {
+                        cell.add_output_line(line);
+                    }
+                }
+                AppEvent::ToolResult(id, result, is_error) => {
+                    // Update the exec cell with the result
+                    if let Some(cell) = self.exec_cells.get_mut(&id) {
+                        if is_error {
+                            cell.mark_error(&result);
+                            self.status = Some(format!("Tool {} failed", cell.tool_name));
+                        } else {
+                            cell.mark_success(&result);
+                            self.status = Some(format!("Completed: {}", cell.tool_name));
+                        }
                     }
                 }
                 AppEvent::TurnComplete(stats) => {

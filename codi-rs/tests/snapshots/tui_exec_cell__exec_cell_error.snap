@@ -1,0 +1,25 @@
+---
+source: tests/tui_exec_cell.rs
+assertion_line: 99
+expression: terminal.backend()
+---
+"┌ bash ────────────────────────────────────────────────────────────────────────┐"
+"│ ✗ Error (0ms)                                                                │"
+"│ Input: {"cmd":"invalid_command"}                                             │"
+"│ Result: 1 lines | Command not found: invalid_command                         │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

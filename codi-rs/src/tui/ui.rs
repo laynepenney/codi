@@ -14,21 +14,45 @@ use ratatui::{
 use crate::types::Role;
 
 use super::app::{App, AppMode};
+use super::components::{ExecCellWidget, ToolStatus};
 
 /// Draw the main UI.
 pub fn draw(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(3),    // Messages area
-            Constraint::Length(3), // Input area
-            Constraint::Length(1), // Status bar
-        ])
-        .split(f.area());
+    let has_exec_cells = !app.exec_cells.cells().is_empty();
+
+    let chunks = if has_exec_cells {
+        // Split to show exec cells between messages and input
+        let exec_height = app.exec_cells.total_height(f.area().width).min(10);
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),              // Messages area
+                Constraint::Length(exec_height), // Tool execution cells
+                Constraint::Length(3),           // Input area
+                Constraint::Length(1),           // Status bar
+            ])
+            .split(f.area())
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),    // Messages area
+                Constraint::Length(3), // Input area
+                Constraint::Length(1), // Status bar
+            ])
+            .split(f.area())
+    };
 
     draw_messages(f, app, chunks[0]);
-    draw_input(f, app, chunks[1]);
-    draw_status(f, app, chunks[2]);
+
+    if has_exec_cells {
+        draw_exec_cells(f, app, chunks[1]);
+        draw_input(f, app, chunks[2]);
+        draw_status(f, app, chunks[3]);
+    } else {
+        draw_input(f, app, chunks[1]);
+        draw_status(f, app, chunks[2]);
+    }
 
     // Draw overlays
     match app.mode {
@@ -43,7 +67,11 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Conversation ")
-        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
 
     let inner = block.inner(area);
 
@@ -58,9 +86,10 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
         };
 
         // Add prefix line
-        lines.push(Line::from(vec![
-            Span::styled(prefix, style.add_modifier(Modifier::BOLD)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            prefix,
+            style.add_modifier(Modifier::BOLD),
+        )]));
 
         // Use pre-rendered lines if available (from streaming)
         if !msg.rendered_lines.is_empty() {
@@ -131,10 +160,7 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Yellow),
         ),
         AppMode::Help => (" Help ", Style::default().fg(Color::Cyan)),
-        AppMode::ConfirmTool => (
-            " Confirm Tool ",
-            Style::default().fg(Color::Red),
-        ),
+        AppMode::ConfirmTool => (" Confirm Tool ", Style::default().fg(Color::Red)),
     };
 
     let block = Block::default()
@@ -150,10 +176,7 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
 
     // Show cursor in normal mode
     if app.mode == AppMode::Normal {
-        f.set_cursor_position((
-            area.x + 1 + app.cursor_pos as u16,
-            area.y + 1,
-        ));
+        f.set_cursor_position((area.x + 1 + app.cursor_pos as u16, area.y + 1));
     }
 }
 
@@ -187,17 +210,14 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             spans.push(Span::styled(
                 format!(
                     " | {} tools, {} in, {} out",
-                    stats.tool_call_count,
-                    stats.input_tokens,
-                    stats.output_tokens
+                    stats.tool_call_count, stats.input_tokens, stats.output_tokens
                 ),
                 Style::default().fg(Color::DarkGray),
             ));
         }
     }
 
-    let status = Paragraph::new(Line::from(spans))
-        .style(Style::default().bg(Color::DarkGray));
+    let status = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::DarkGray));
 
     f.render_widget(status, area);
 }
@@ -360,9 +380,7 @@ fn draw_confirmation(f: &mut Frame, app: &App) {
     let mut lines = vec![
         Line::from(Span::styled(
             " Tool Confirmation Required ",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
@@ -395,11 +413,24 @@ fn draw_confirmation(f: &mut Frame, app: &App) {
     lines.extend(vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Y]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" Approve  "),
-            Span::styled("[N]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[N]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" Deny  "),
-            Span::styled("[A]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[A]",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" Abort"),
         ]),
     ]);
@@ -414,6 +445,40 @@ fn draw_confirmation(f: &mut Frame, app: &App) {
 
     f.render_widget(Clear, area);
     f.render_widget(confirmation_widget, area);
+}
+
+/// Draw the exec cells area.
+fn draw_exec_cells(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Tools ")
+        .title_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Render each exec cell
+    let mut current_y = inner.y;
+    for cell in app.exec_cells.cells() {
+        let cell_height = cell.required_height(inner.width);
+        if current_y + cell_height > inner.bottom() {
+            break; // Don't overflow
+        }
+
+        let cell_area = Rect {
+            x: inner.x,
+            y: current_y,
+            width: inner.width,
+            height: cell_height,
+        };
+
+        ExecCellWidget::render(cell, cell_area, f.buffer_mut());
+        current_y += cell_height + 1; // +1 for spacing
+    }
 }
 
 /// Create a centered rectangle.

@@ -1,0 +1,25 @@
+---
+source: tests/tui_exec_cell.rs
+assertion_line: 75
+expression: terminal.backend()
+---
+"┌ read_file ───────────────────────────────────────────────────────────────────┐"
+"│ ✓ Success (0ms)                                                              │"
+"│ Input: {"path":"test.rs"}                                                    │"
+"│ Result: 3 lines | File content hereMultiple linesOf text                     │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

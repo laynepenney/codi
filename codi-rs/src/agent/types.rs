@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use crate::types::{BoxedProvider, Message};
 use crate::tools::ToolRegistry;
+use crate::types::{BoxedProvider, Message};
 
 /// Statistics for a single turn (user message -> final response).
 #[derive(Debug, Clone, Default)]
@@ -66,10 +66,10 @@ pub enum ConfirmationResult {
 pub struct AgentCallbacks {
     /// Called when the model outputs text.
     pub on_text: Option<Box<dyn Fn(&str) + Send + Sync>>,
-    /// Called when a tool is about to be executed.
-    pub on_tool_call: Option<Box<dyn Fn(&str, &serde_json::Value) + Send + Sync>>,
-    /// Called when a tool execution completes.
-    pub on_tool_result: Option<Box<dyn Fn(&str, &str, bool) + Send + Sync>>,
+    /// Called when a tool is about to be executed (tool_id, name, input).
+    pub on_tool_call: Option<Box<dyn Fn(&str, &str, &serde_json::Value) + Send + Sync>>,
+    /// Called when a tool execution completes (tool_id, name, result, is_error).
+    pub on_tool_result: Option<Box<dyn Fn(&str, &str, &str, bool) + Send + Sync>>,
     /// Called to confirm destructive operations. Returns approval result.
     pub on_confirm: Option<Box<dyn Fn(ToolConfirmation) -> ConfirmationResult + Send + Sync>>,
     /// Called when context compaction starts/ends.
