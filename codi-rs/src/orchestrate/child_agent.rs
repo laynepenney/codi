@@ -181,7 +181,7 @@ impl ChildAgent {
         let auto_approve = self.auto_approve.clone();
 
         let callbacks = AgentCallbacks {
-            on_confirm: Some(Box::new(move |confirmation: ToolConfirmation| {
+            on_confirm: Some(Arc::new(move |confirmation: ToolConfirmation| {
                 // Check auto-approve list
                 if auto_approve.contains(&confirmation.tool_name) {
                     return ConfirmationResult::Approve;
@@ -212,7 +212,7 @@ impl ChildAgent {
                 }
             })),
             on_text: None,
-            on_tool_call: Some(Box::new({
+            on_tool_call: Some(Arc::new({
                 let ipc = Arc::clone(&self.ipc);
                 move |_tool_id: &str, tool_name: &str, _input: &serde_json::Value| {
                     let ipc = Arc::clone(&ipc);
@@ -229,6 +229,7 @@ impl ChildAgent {
             on_tool_result: None,
             on_compaction: None,
             on_turn_complete: None,
+            on_stream_event: None,
         };
 
         let agent_config = AgentConfig {
@@ -240,6 +241,7 @@ impl ChildAgent {
             extract_tools_from_text: true,
             auto_approve_all: false,
             auto_approve_tools: self.auto_approve.clone(),
+            dangerous_patterns: Vec::new(),
         };
 
         let mut agent = Agent::new(AgentOptions {

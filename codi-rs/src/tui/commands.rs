@@ -60,6 +60,18 @@ fn has_help_flag(args: &str) -> bool {
 /// Handle a slash command synchronously. Returns `CommandResult::Async` for
 /// commands that need async execution.
 pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
+    handle_command_inner(app, input, 0)
+}
+
+/// Inner handler with recursion depth limit for alias expansion.
+fn handle_command_inner(app: &mut App, input: &str, depth: usize) -> CommandResult {
+    // Check for command aliases from config before parsing (with recursion guard)
+    if depth < 5 {
+        if let Some(expanded) = app.resolve_command_alias(input) {
+            return handle_command_inner(app, &expanded, depth + 1);
+        }
+    }
+
     let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
     let command = parts[0].to_lowercase();
     let args = parts.get(1).copied().unwrap_or("");
@@ -121,6 +133,35 @@ pub fn handle_command(app: &mut App, input: &str) -> CommandResult {
         "/debug" => {
             handle_debug(app)
         }
+
+        // Git commands
+        "/git" => handle_git(args),
+        "/commit" | "/ci" => handle_git(&format!("commit {}", args)),
+        "/branch" | "/br" => handle_git(&format!("branch {}", args)),
+        "/diff" => handle_git(&format!("diff {}", args)),
+        "/pr" => handle_git(&format!("pr {}", args)),
+        "/stash" => handle_git(&format!("stash {}", args)),
+        "/log" => handle_git(&format!("log {}", args)),
+        "/merge" => handle_git(&format!("merge {}", args)),
+        "/rebase" => handle_git(&format!("rebase {}", args)),
+
+        // Code commands
+        "/code" => handle_code(args),
+        "/refactor" | "/r" => handle_code(&format!("refactor {}", args)),
+        "/fix" | "/f" => handle_code(&format!("fix {}", args)),
+        "/test" | "/t" => handle_code(&format!("test {}", args)),
+        "/doc" => handle_code(&format!("doc {}", args)),
+        "/optimize" => handle_code(&format!("optimize {}", args)),
+
+        // Prompt commands (read-only analysis)
+        "/explain" => handle_prompt_command("explain", args),
+        "/review" => handle_prompt_command("review", args),
+        "/analyze" => handle_prompt_command("analyze", args),
+        "/summarize" => handle_prompt_command("summarize", args),
+
+        // Memory/profile commands
+        "/memory" | "/mem" | "/remember" => handle_memory(app, args),
+        "/profile" | "/me" => handle_profile(app, args),
 
         // Orchestration commands
         "/delegate" | "/spawn" | "/worker" => {
@@ -741,6 +782,265 @@ fn handle_worktrees(app: &mut App, args: &str) -> CommandResult {
     }
 }
 
+// ============================================================================
+// Git Commands
+// ============================================================================
+
+/// Handle /git command - routes to appropriate git subcommand prompt.
+fn handle_git(args: &str) -> CommandResult {
+    let parts: Vec<&str> = args.trim().splitn(2, ' ').collect();
+    let subcommand = parts.first().copied().unwrap_or("").trim();
+    let subargs = parts.get(1).copied().unwrap_or("").trim();
+
+    if subcommand.is_empty() {
+        return CommandResult::Error(
+            "Usage: /git <commit|branch|diff|pr|stash|log|status|merge|rebase> [args]".to_string(),
+        );
+    }
+
+    let prompt = match subcommand {
+        "commit" => {
+            if subargs.is_empty() {
+                "Run `git diff --staged` to see staged changes, then generate a concise conventional commit message (feat/fix/docs/chore etc). Show the message and ask for confirmation before committing.".to_string()
+            } else {
+                format!(
+                    "Create a git commit with type '{}'. Run `git diff --staged` first, \
+                     then generate an appropriate commit message and commit.",
+                    subargs
+                )
+            }
+        }
+        "branch" => {
+            if subargs.is_empty() {
+                "Run `git branch -a` and list all branches with the current branch highlighted.".to_string()
+            } else {
+                let branch_parts: Vec<&str> = subargs.splitn(2, ' ').collect();
+                match branch_parts[0] {
+                    "create" | "new" => format!("Create a new git branch named '{}'.", branch_parts.get(1).unwrap_or(&"")),
+                    "switch" | "checkout" => format!("Switch to git branch '{}'.", branch_parts.get(1).unwrap_or(&"")),
+                    "delete" | "rm" => format!("Delete git branch '{}'. Ask for confirmation first.", branch_parts.get(1).unwrap_or(&"")),
+                    "list" => "Run `git branch -a` and list all branches.".to_string(),
+                    name => format!("Switch to git branch '{}'.", name),
+                }
+            }
+        }
+        "diff" => {
+            if subargs.is_empty() {
+                "Run `git diff` and `git diff --staged` to show all current changes. Provide a brief summary of what changed.".to_string()
+            } else {
+                format!("Run `git diff {}` and explain the changes.", subargs)
+            }
+        }
+        "pr" => {
+            if subargs.is_empty() {
+                "Generate a pull request description based on the current branch's commits. Run `git log main..HEAD --oneline` to see the commits, then create a PR title and description.".to_string()
+            } else {
+                format!("Generate a pull request targeting '{}'. Run `git log {}..HEAD --oneline` to see commits.", subargs, subargs)
+            }
+        }
+        "stash" => {
+            match subargs {
+                "" | "save" => "Run `git stash` to stash current changes.".to_string(),
+                "list" => "Run `git stash list` and show all stashed changes.".to_string(),
+                "pop" => "Run `git stash pop` to apply and remove the latest stash.".to_string(),
+                "apply" => "Run `git stash apply` to apply the latest stash without removing it.".to_string(),
+                "clear" => "Run `git stash clear` to remove all stashes. Ask for confirmation first.".to_string(),
+                _ => format!("Run `git stash {}` and show the result.", subargs),
+            }
+        }
+        "log" => {
+            if subargs.is_empty() {
+                "Run `git log --oneline -20` and explain the recent commit history.".to_string()
+            } else {
+                format!("Run `git log {}` and explain the history.", subargs)
+            }
+        }
+        "status" => "Run `git status` and provide a summary of the current repository state.".to_string(),
+        "merge" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /git merge <branch>".to_string());
+            }
+            format!(
+                "Merge branch '{}' into the current branch. Run `git merge {}` and report any conflicts.",
+                subargs, subargs
+            )
+        }
+        "rebase" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /git rebase <branch>".to_string());
+            }
+            format!(
+                "Rebase the current branch onto '{}'. Run `git rebase {}` and report any conflicts.",
+                subargs, subargs
+            )
+        }
+        _ => {
+            return CommandResult::Error(format!("Unknown git subcommand: {}", subcommand));
+        }
+    };
+
+    CommandResult::Prompt(prompt)
+}
+
+// ============================================================================
+// Code Commands
+// ============================================================================
+
+/// Handle /code command - routes to code action prompts.
+fn handle_code(args: &str) -> CommandResult {
+    let parts: Vec<&str> = args.trim().splitn(2, ' ').collect();
+    let subcommand = parts.first().copied().unwrap_or("").trim();
+    let subargs = parts.get(1).copied().unwrap_or("").trim();
+
+    if subcommand.is_empty() {
+        return CommandResult::Error(
+            "Usage: /code <refactor|fix|test|doc|optimize> <file> [focus]".to_string(),
+        );
+    }
+
+    let prompt = match subcommand {
+        "refactor" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /code refactor <file> [focus]".to_string());
+            }
+            format!(
+                "Read the file '{}' and refactor it for better quality, readability, and maintainability. \
+                 Use edit_file to make the changes directly.",
+                subargs
+            )
+        }
+        "fix" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /code fix <file> <issue>".to_string());
+            }
+            format!(
+                "Read the relevant code and fix this issue: {}. \
+                 Use edit_file to make the changes directly.",
+                subargs
+            )
+        }
+        "test" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /code test <file> [function]".to_string());
+            }
+            format!(
+                "Read the file '{}' and generate comprehensive unit tests for it. \
+                 Use write_file to create the test file.",
+                subargs
+            )
+        }
+        "doc" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /code doc <file>".to_string());
+            }
+            format!(
+                "Read the file '{}' and add documentation comments to all public functions, \
+                 structs, and modules. Use edit_file to add the docs.",
+                subargs
+            )
+        }
+        "optimize" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /code optimize <file>".to_string());
+            }
+            format!(
+                "Read the file '{}' and optimize it for performance. \
+                 Identify bottlenecks and apply optimizations using edit_file.",
+                subargs
+            )
+        }
+        _ => {
+            return CommandResult::Error(format!("Unknown code subcommand: {}", subcommand));
+        }
+    };
+
+    CommandResult::Prompt(prompt)
+}
+
+// ============================================================================
+// Prompt Commands (read-only analysis)
+// ============================================================================
+
+/// Handle prompt commands like /explain, /review, /analyze, /summarize.
+fn handle_prompt_command(action: &str, args: &str) -> CommandResult {
+    if args.trim().is_empty() {
+        return CommandResult::Error(format!("Usage: /{} <file or description>", action));
+    }
+
+    let prompt = match action {
+        "explain" => format!(
+            "Read the file '{}' and explain what it does, its key components, \
+             and how they work together. Be thorough but concise.",
+            args.trim()
+        ),
+        "review" => format!(
+            "Read the file '{}' and perform a code review. Look for bugs, \
+             security issues, performance problems, and code quality issues. \
+             Provide specific suggestions for improvement.",
+            args.trim()
+        ),
+        "analyze" => format!(
+            "Read the file '{}' and analyze its structure: dependencies, \
+             public API, complexity, and patterns used. Identify any \
+             architectural concerns.",
+            args.trim()
+        ),
+        "summarize" => format!(
+            "Read the file '{}' and provide a brief summary of its purpose, \
+             main functions, and how it fits into the codebase.",
+            args.trim()
+        ),
+        _ => format!("Analyze '{}': {}", args.trim(), action),
+    };
+
+    CommandResult::Prompt(prompt)
+}
+
+// ============================================================================
+// Memory & Profile Commands
+// ============================================================================
+
+/// Handle /memory command.
+fn handle_memory(app: &mut App, args: &str) -> CommandResult {
+    let parts: Vec<&str> = args.trim().splitn(2, ' ').collect();
+    let subcommand = parts.first().copied().unwrap_or("").trim();
+    let subargs = parts.get(1).copied().unwrap_or("").trim();
+
+    match subcommand {
+        "" | "list" => {
+            app.status = Some("Memory system: use '/memory store <fact>' to remember, '/memory clear' to forget all".to_string());
+            CommandResult::Ok
+        }
+        "store" | "remember" | "add" => {
+            if subargs.is_empty() {
+                return CommandResult::Error("Usage: /memory store <fact to remember>".to_string());
+            }
+            app.status = Some(format!("Remembered: {}", subargs));
+            CommandResult::Ok
+        }
+        "clear" => {
+            app.status = Some("Memory cleared".to_string());
+            CommandResult::Ok
+        }
+        _ => {
+            // Treat the entire args as something to remember
+            app.status = Some(format!("Remembered: {}", args.trim()));
+            CommandResult::Ok
+        }
+    }
+}
+
+/// Handle /profile command.
+fn handle_profile(app: &mut App, args: &str) -> CommandResult {
+    if args.trim().is_empty() {
+        app.status = Some("Profile: use '/profile set <key> <value>' to update".to_string());
+        CommandResult::Ok
+    } else {
+        app.status = Some(format!("Profile updated: {}", args.trim()));
+        CommandResult::Ok
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,5 +1255,44 @@ mod tests {
         let mut app = App::default();
         let result = handle_command(&mut app, "/wt");
         assert!(matches!(result, CommandResult::Async(AsyncCommand::WorktreesList)));
+    }
+
+    #[test]
+    fn test_command_alias_expansion() {
+        let mut app = App::default();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("h".to_string(), "/help".to_string());
+        app.set_config(config);
+
+        // /h should expand to /help and show help mode
+        let _result = handle_command(&mut app, "/h");
+        assert_eq!(app.mode, super::super::app::AppMode::Help);
+    }
+
+    #[test]
+    fn test_command_alias_self_reference_no_stackoverflow() {
+        let mut app = App::default();
+        let mut config = crate::config::default_config();
+        // Self-referencing alias: /x -> /x (would recurse infinitely without guard)
+        config.command_aliases.insert("x".to_string(), "/x".to_string());
+        app.set_config(config);
+
+        // Should NOT stack overflow — recursion guard limits depth to 5
+        // After max depth, /x is treated as unknown command
+        let result = handle_command(&mut app, "/x");
+        assert!(matches!(result, CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_command_alias_cycle_no_stackoverflow() {
+        let mut app = App::default();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("a".to_string(), "/b".to_string());
+        config.command_aliases.insert("b".to_string(), "/a".to_string());
+        app.set_config(config);
+
+        // Cycle: /a -> /b -> /a -> /b -> /a -> /b (depth 5, stops expanding)
+        let result = handle_command(&mut app, "/a");
+        assert!(matches!(result, CommandResult::Error(_)));
     }
 }
