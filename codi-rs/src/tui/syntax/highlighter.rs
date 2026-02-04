@@ -46,7 +46,7 @@ impl SupportedLanguage {
             SupportedLanguage::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
             SupportedLanguage::Json => tree_sitter_json::LANGUAGE.into(),
             SupportedLanguage::Bash => tree_sitter_bash::LANGUAGE.into(),
-            SupportedLanguage::Markdown => tree_sitter_markdown::language().into(),
+            SupportedLanguage::Markdown => tree_sitter_rust::LANGUAGE.into(), // FIXME: tree-sitter-markdown 0.7 uses incompatible tree-sitter 0.19
         }
     }
 
