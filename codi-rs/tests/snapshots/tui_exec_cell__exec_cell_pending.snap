@@ -3,7 +3,7 @@ source: tests/tui_exec_cell.rs
 expression: snapshot
 ---
 "┌ read_file ───────────────────────────────────────────────────────────────────┐"
-"│ ○ Running... (##ms)│"
+"│ ○ Running... (#ms)│"
 "│ Input: {"path":"test.rs"}│"
 "││"
 "││"
