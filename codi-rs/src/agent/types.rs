@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use crate::types::{BoxedProvider, Message, StreamEvent};
 use crate::tools::ToolRegistry;
+use crate::types::{BoxedProvider, Message, StreamEvent};
 
 /// Statistics for a single turn (user message -> final response).
 #[derive(Debug, Clone, Default)]
@@ -69,9 +69,9 @@ pub enum ConfirmationResult {
 pub struct AgentCallbacks {
     /// Called when the model outputs text (streaming deltas).
     pub on_text: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-    /// Called when a tool is about to be executed.
-    pub on_tool_call: Option<Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync>>,
-    /// Called when a tool execution completes.
+    /// Called when a tool is about to be executed (tool_id, tool_name, input).
+    pub on_tool_call: Option<Arc<dyn Fn(&str, &str, &serde_json::Value) + Send + Sync>>,
+    /// Called when a tool execution completes (tool_id, result, is_error).
     pub on_tool_result: Option<Arc<dyn Fn(&str, &str, bool) + Send + Sync>>,
     /// Called to confirm destructive operations. Returns approval result.
     pub on_confirm: Option<Arc<dyn Fn(ToolConfirmation) -> ConfirmationResult + Send + Sync>>,

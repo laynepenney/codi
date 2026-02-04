@@ -37,13 +37,16 @@
 
 pub mod app;
 pub mod commands;
+pub mod components;
 pub mod events;
 pub mod streaming;
+pub mod syntax;
 pub mod ui;
 
 pub use app::{App, AppMode, Message as ChatMessage, build_system_prompt_from_config};
 pub use events::{Event, EventHandler};
 pub use streaming::{MarkdownStreamCollector, StreamController, StreamState, StreamStatus};
+pub use syntax::{HighlightType, SupportedLanguage, SyntaxHighlighter, Theme};
 
 use std::io;
 use crossterm::{

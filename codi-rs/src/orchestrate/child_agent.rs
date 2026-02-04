@@ -214,7 +214,7 @@ impl ChildAgent {
             on_text: None,
             on_tool_call: Some(Arc::new({
                 let ipc = Arc::clone(&self.ipc);
-                move |tool_name: &str, _input: &serde_json::Value| {
+                move |_tool_id: &str, tool_name: &str, _input: &serde_json::Value| {
                     let ipc = Arc::clone(&ipc);
                     let tool = tool_name.to_string();
                     tokio::spawn(async move {
