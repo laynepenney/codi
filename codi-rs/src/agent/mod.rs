@@ -293,7 +293,7 @@ impl Agent {
     async fn execute_tool(&self, tool_call: &ToolCall) -> ToolResult {
         // Notify callback
         if let Some(ref on_tool_call) = self.callbacks.on_tool_call {
-            on_tool_call(&tool_call.id, &tool_call.input);
+            on_tool_call(&tool_call.id, &tool_call.name, &tool_call.input);
         }
 
         // Execute the tool
