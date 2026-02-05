@@ -326,7 +326,7 @@ impl Agent {
 
         // Notify callback
         if let Some(ref on_tool_result) = self.callbacks.on_tool_result {
-            on_tool_result(&tool_call.id, &result.content, result.is_error.unwrap_or(false));
+            on_tool_result(&tool_call.id, &tool_call.name, &result.content, result.is_error.unwrap_or(false));
         }
 
         result

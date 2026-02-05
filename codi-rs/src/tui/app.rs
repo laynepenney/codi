@@ -356,7 +356,7 @@ impl App {
             })),
             on_tool_result: Some(Arc::new({
                 let tx = event_tx.clone();
-                move |tool_id: &str, result: &str, is_error: bool| {
+                move |tool_id: &str, _name: &str, result: &str, is_error: bool| {
                     let _ = tx.send(AppEvent::ToolResult(tool_id.to_string(), result.to_string(), is_error));
                 }
             })),
