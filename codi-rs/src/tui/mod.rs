@@ -48,7 +48,7 @@ pub mod ui;
 
 pub use app::{App, AppMode, Message as ChatMessage, build_system_prompt_from_config};
 pub use events::{Event, EventHandler};
-pub use input::{EnhancedInput, KeyCode, KeyEvent, KeyModifiers, SmartInput};
+pub use input::{EnhancedInput, KeyCode, KeyEvent, KeyModifiers, ModifierEncoding, SmartInput};
 pub use search::{SearchResult, SearchState, SearchableContent};
 pub use streaming::{MarkdownStreamCollector, StreamController, StreamState, StreamStatus};
 pub use syntax::{HighlightType, SupportedLanguage, SyntaxHighlighter, Theme};

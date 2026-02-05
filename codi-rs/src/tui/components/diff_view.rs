@@ -12,10 +12,10 @@
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, StatefulWidget, Widget},
+    widgets::{Block, Paragraph, StatefulWidget, Widget},
 };
 
 use crate::tui::diff::{DiffLine, UnifiedDiff};
@@ -361,6 +361,7 @@ mod tests {
     use super::*;
     use crate::tui::diff::generate_unified_diff;
     use ratatui::backend::TestBackend;
+    use ratatui::widgets::Borders;
     use ratatui::Terminal;
 
     fn create_test_terminal(width: u16, height: u16) -> Terminal<TestBackend> {

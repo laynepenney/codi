@@ -32,13 +32,11 @@
 //! }
 //! ```
 
-use std::io::{self, Write};
+use std::io::{self};
 
 use crossterm::{
-    cursor::Show,
     event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode},
 };
 
 /// Represents a key event with full modifier information.
@@ -104,14 +102,27 @@ pub struct KeyModifiers {
     pub meta: bool,
 }
 
+/// CSI u modifier encoding variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierEncoding {
+    /// CSI u bitmask (Shift=1, Alt=2, Ctrl=4, Meta=8).
+    Bitmask,
+    /// Xterm-style 1-based encoding (None=1, Shift=2, Alt=3, ...).
+    Xterm,
+}
+
 impl KeyModifiers {
-    /// Create from CSI u modifier bitmask.
-    fn from_csi_u_mask(mask: u8) -> Self {
+    fn from_csi_u_mask_with_encoding(mask: u8, encoding: ModifierEncoding) -> Self {
+        let effective = match encoding {
+            ModifierEncoding::Bitmask => mask,
+            ModifierEncoding::Xterm => mask.saturating_sub(1),
+        };
+
         Self {
-            shift: mask & 1 != 0,
-            alt: mask & 2 != 0,
-            ctrl: mask & 4 != 0,
-            meta: mask & 8 != 0,
+            shift: effective & 1 != 0,
+            alt: effective & 2 != 0,
+            ctrl: effective & 4 != 0,
+            meta: effective & 8 != 0,
         }
     }
 
@@ -202,10 +213,18 @@ impl EnhancedInput {
     ///
     /// This handles both CSI u format and standard escape sequences.
     pub fn parse_key_sequence(data: &[u8]) -> Option<KeyEvent> {
+        Self::parse_key_sequence_with_encoding(data, ModifierEncoding::Bitmask)
+    }
+
+    /// Parse a key sequence using a specific CSI u modifier encoding.
+    pub fn parse_key_sequence_with_encoding(
+        data: &[u8],
+        encoding: ModifierEncoding,
+    ) -> Option<KeyEvent> {
         let seq = String::from_utf8_lossy(data);
 
         // Try CSI u format first (ESC [ unicode ; modifiers u)
-        if let Some(event) = Self::parse_csi_u(&seq) {
+        if let Some(event) = Self::parse_csi_u(&seq, encoding) {
             return Some(event);
         }
 
@@ -214,7 +233,7 @@ impl EnhancedInput {
     }
 
     /// Parse CSI u format: ESC [ unicode ; modifiers u
-    fn parse_csi_u(seq: &str) -> Option<KeyEvent> {
+    fn parse_csi_u(seq: &str, encoding: ModifierEncoding) -> Option<KeyEvent> {
         // CSI u pattern: ESC [ <unicode> [ ; <modifiers> ] u
         let pattern = regex::Regex::new(r"^\x1b\[(\d+)(?:;(\d+))?u$").ok()?;
 
@@ -241,7 +260,7 @@ impl EnhancedInput {
 
             return Some(KeyEvent {
                 code,
-                modifiers: KeyModifiers::from_csi_u_mask(modifiers),
+                modifiers: KeyModifiers::from_csi_u_mask_with_encoding(modifiers, encoding),
                 raw_sequence: seq.to_string(),
             });
         }
@@ -324,8 +343,15 @@ pub fn detect_terminal_capabilities() -> TerminalCapabilities {
             || termini.to_lowercase().contains(t)
     });
 
+    let modifier_encoding = if supports_csi_u {
+        ModifierEncoding::Bitmask
+    } else {
+        ModifierEncoding::Xterm
+    };
+
     TerminalCapabilities {
         supports_csi_u,
+        modifier_encoding,
         term: term.clone(),
         term_program,
     }
@@ -336,6 +362,8 @@ pub fn detect_terminal_capabilities() -> TerminalCapabilities {
 pub struct TerminalCapabilities {
     /// Terminal supports CSI u protocol.
     pub supports_csi_u: bool,
+    /// CSI u modifier encoding.
+    pub modifier_encoding: ModifierEncoding,
     /// TERM environment variable.
     pub term: String,
     /// TERM_PROGRAM environment variable.
@@ -379,7 +407,7 @@ impl SmartInput {
 
     /// Parse a key sequence.
     pub fn parse(&self, data: &[u8]) -> Option<KeyEvent> {
-        EnhancedInput::parse_key_sequence(data)
+        EnhancedInput::parse_key_sequence_with_encoding(data, self.capabilities.modifier_encoding)
     }
 
     /// Check if enhanced keys are active.
@@ -428,6 +456,22 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_csi_u_xterm_no_modifiers() {
+        // Xterm-style no modifiers: ESC [ 97 ; 1 u
+        let seq = "\x1b[97;1u";
+        let event = EnhancedInput::parse_key_sequence_with_encoding(
+            seq.as_bytes(),
+            ModifierEncoding::Xterm,
+        )
+        .unwrap();
+        assert_eq!(event.code, KeyCode::Char('a'));
+        assert!(!event.modifiers.shift);
+        assert!(!event.modifiers.ctrl);
+        assert!(!event.modifiers.alt);
+        assert!(!event.modifiers.meta);
+    }
+
+    #[test]
     fn test_parse_standard_tab() {
         // Plain Tab
         let seq = "\t";
@@ -447,19 +491,19 @@ mod tests {
     #[test]
     fn test_modifiers_from_csi_u_mask() {
         // Mask 1 = Shift
-        let mods = KeyModifiers::from_csi_u_mask(1);
+        let mods = KeyModifiers::from_csi_u_mask_with_encoding(1, ModifierEncoding::Bitmask);
         assert!(mods.shift);
         assert!(!mods.ctrl);
         assert!(!mods.alt);
 
         // Mask 5 = Shift + Ctrl
-        let mods = KeyModifiers::from_csi_u_mask(5);
+        let mods = KeyModifiers::from_csi_u_mask_with_encoding(5, ModifierEncoding::Bitmask);
         assert!(mods.shift);
         assert!(mods.ctrl);
         assert!(!mods.alt);
 
         // Mask 15 = Shift + Alt + Ctrl + Meta
-        let mods = KeyModifiers::from_csi_u_mask(15);
+        let mods = KeyModifiers::from_csi_u_mask_with_encoding(15, ModifierEncoding::Bitmask);
         assert!(mods.shift);
         assert!(mods.alt);
         assert!(mods.ctrl);

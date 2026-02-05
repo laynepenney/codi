@@ -8,6 +8,6 @@
 pub mod enhanced;
 
 pub use enhanced::{
-    detect_terminal_capabilities, EnhancedInput, KeyCode, KeyEvent, KeyModifiers, SmartInput,
-    TerminalCapabilities,
+    detect_terminal_capabilities, EnhancedInput, KeyCode, KeyEvent, KeyModifiers, ModifierEncoding,
+    SmartInput, TerminalCapabilities,
 };

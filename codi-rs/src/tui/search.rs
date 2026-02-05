@@ -66,54 +66,57 @@ impl SearchState {
             return;
         }
 
-        let search_fn = if self.case_sensitive {
-            |line: &str, q: &str| line.contains(q)
-        } else {
-            |line: &str, q: &str| line.to_lowercase().contains(&q.to_lowercase())
+        let pattern = regex::escape(query);
+        let regex = match regex::RegexBuilder::new(&pattern)
+            .case_insensitive(!self.case_sensitive)
+            .build()
+        {
+            Ok(re) => re,
+            Err(_) => return,
         };
 
         for (msg_id, content) in messages {
-            let lines: Vec<&str> = content.lines().collect();
+            for (line_num, line) in content.lines().enumerate() {
+                let mut char_starts: Option<Vec<usize>> = None;
 
-            for (line_num, line) in lines.iter().enumerate() {
-                if search_fn(line, query) {
-                    // Find all occurrences in this line
-                    let search_line = if self.case_sensitive {
-                        line.to_string()
-                    } else {
-                        line.to_lowercase()
-                    };
-                    let search_query = if self.case_sensitive {
-                        query.to_string()
-                    } else {
-                        query.to_lowercase()
-                    };
+                for m in regex.find_iter(line) {
+                    let char_starts = char_starts.get_or_insert_with(|| Self::char_starts(line));
+                    let match_start = m.start();
+                    let match_end = m.end();
+                    let char_start = Self::byte_to_char_index(char_starts, match_start);
+                    let char_end = Self::byte_to_char_index(char_starts, match_end);
+                    let match_len = char_end.saturating_sub(char_start);
 
-                    let mut start = 0;
-                    while let Some(pos) = search_line[start..].find(&search_query) {
-                        let match_start = start + pos;
-                        let match_len = query.len();
+                    // Extract context (60 chars around match)
+                    let total_chars = char_starts.len().saturating_sub(1);
+                    let context_start_char = char_start.saturating_sub(20);
+                    let context_end_char = (char_end + 40).min(total_chars);
+                    let context_start = char_starts[context_start_char];
+                    let context_end = char_starts[context_end_char];
+                    let context = &line[context_start..context_end];
 
-                        // Extract context (80 chars around match)
-                        let context_start = match_start.saturating_sub(20);
-                        let context_end = (match_start + match_len + 40).min(line.len());
-                        let context = &line[context_start..context_end];
-
-                        self.results.push(SearchResult {
-                            message_id: msg_id.clone(),
-                            line_number: line_num,
-                            char_index: match_start,
-                            match_length: match_len,
-                            context: context.to_string(),
-                        });
-
-                        start = match_start + match_len;
-                        if start >= line.len() {
-                            break;
-                        }
-                    }
+                    self.results.push(SearchResult {
+                        message_id: msg_id.clone(),
+                        line_number: line_num,
+                        char_index: char_start,
+                        match_length: match_len,
+                        context: context.to_string(),
+                    });
                 }
             }
+        }
+    }
+
+    fn char_starts(line: &str) -> Vec<usize> {
+        let mut starts: Vec<usize> = line.char_indices().map(|(i, _)| i).collect();
+        starts.push(line.len());
+        starts
+    }
+
+    fn byte_to_char_index(char_starts: &[usize], byte_index: usize) -> usize {
+        match char_starts.binary_search(&byte_index) {
+            Ok(idx) => idx,
+            Err(idx) => idx.saturating_sub(1),
         }
     }
 
@@ -268,5 +271,19 @@ mod tests {
 
         assert_eq!(state.result_count(), 0);
         assert!(!state.has_results());
+    }
+
+    #[test]
+    fn test_search_unicode_indices() {
+        let mut state = SearchState::new();
+        let messages = vec![("msg1".to_string(), "café 👍".to_string())];
+
+        state.search("👍", &messages);
+
+        assert_eq!(state.result_count(), 1);
+        let result = &state.results[0];
+        assert_eq!(result.char_index, 5);
+        assert_eq!(result.match_length, 1);
+        assert_eq!(result.context, "café 👍");
     }
 }
