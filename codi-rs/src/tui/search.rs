@@ -14,12 +14,26 @@ pub struct SearchResult {
     pub message_id: String,
     /// Line number within the message (0-indexed).
     pub line_number: usize,
-    /// Character index within the line where match starts.
+    /// Character index (Unicode scalar values) within the line where match starts.
     pub char_index: usize,
     /// Length of the match in characters.
     pub match_length: usize,
     /// Context text around the match.
     pub context: String,
+}
+
+impl SearchResult {
+    /// Convert the character index to a byte range for a given line.
+    pub fn byte_range(&self, line: &str) -> Option<(usize, usize)> {
+        let char_starts = SearchState::char_starts(line);
+        if self.char_index >= char_starts.len() {
+            return None;
+        }
+        let start = char_starts[self.char_index];
+        let end_char = self.char_index.saturating_add(self.match_length);
+        let end = *char_starts.get(end_char).unwrap_or(&line.len());
+        Some((start, end))
+    }
 }
 
 /// Search state for incremental search.

@@ -390,12 +390,19 @@ impl SmartInput {
     /// This enables enhanced keys if the terminal supports it,
     /// otherwise falls back to standard input.
     pub fn init(&mut self) -> io::Result<()> {
-        if self.capabilities.supports_csi_u {
+        let enabled = self.enhanced.enable_enhanced_keys()?;
+        self.capabilities.supports_csi_u = enabled;
+        self.capabilities.modifier_encoding = if enabled {
+            ModifierEncoding::Bitmask
+        } else {
+            ModifierEncoding::Xterm
+        };
+
+        if enabled {
             tracing::info!(
                 "Terminal '{}' supports enhanced keys, enabling CSI u protocol",
                 self.capabilities.term_program
             );
-            self.enhanced.enable_enhanced_keys()?;
         } else {
             tracing::info!(
                 "Terminal '{}' does not support enhanced keys, using standard input",
