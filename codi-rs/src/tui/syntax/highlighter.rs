@@ -170,6 +170,9 @@ impl SyntaxHighlighter {
 
     /// Get or create parser for language.
     fn get_parser(&mut self, lang: SupportedLanguage) -> Option<&mut Parser> {
+        if lang == SupportedLanguage::Markdown {
+            return None;
+        }
         if !self.parsers.contains_key(&lang) {
             let mut parser = Parser::new();
             let ts_lang = lang.tree_sitter_language();
@@ -181,6 +184,9 @@ impl SyntaxHighlighter {
 
     /// Get or create query for language.
     fn get_query(&mut self, lang: SupportedLanguage) -> Option<&Query> {
+        if lang == SupportedLanguage::Markdown {
+            return None;
+        }
         if !self.queries.contains_key(&lang) {
             let ts_lang = lang.tree_sitter_language();
             let query = Query::new(&ts_lang, lang.highlight_query()).ok()?;

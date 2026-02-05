@@ -211,16 +211,13 @@ pub struct App {
     project_path: String,
     /// Tab completion hint to display.
     pub completion_hint: Option<String>,
-
     /// Resolved configuration from config files and CLI.
     config: Option<ResolvedConfig>,
     /// Auto-approve all tool operations (from --yes CLI flag).
     auto_approve_all: bool,
-
     // Background agent task
     /// Receiver for agent returning from a background chat task.
     pending_agent: Option<tokio::sync::oneshot::Receiver<(Agent, CodiResult<String>)>>,
-
     // Tool execution visualization
     /// Manager for tool execution cells.
     pub exec_cells: crate::tui::components::ExecCellManager,

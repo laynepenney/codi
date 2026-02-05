@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph, StatefulWidget, Widget, Wrap},
+    widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 
 /// Status of a tool execution.
@@ -195,7 +195,7 @@ impl ExecCell {
     }
 
     /// Calculate the height needed to render this cell.
-    pub fn required_height(&self, width: u16) -> u16 {
+    pub fn required_height(&self, _width: u16) -> u16 {
         let base_height = 3; // Header + border
 
         let input_height = if self.expanded {
@@ -302,7 +302,7 @@ impl ExecCellWidget {
         let spinner = cell.spinner_char();
         let duration = cell.format_duration();
 
-        let header_text = if cell.status.is_terminal() {
+        let _header_text = if cell.status.is_terminal() {
             format!("{} {} ({})", spinner, cell.status_icon_text(), duration)
         } else {
             format!("{} Running... ({})", spinner, duration)

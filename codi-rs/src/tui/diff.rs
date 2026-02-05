@@ -289,7 +289,7 @@ fn create_hunks(
             old_lines: old_line_num.saturating_sub(old_start),
             new_start,
             new_lines: new_line_num.saturating_sub(new_start),
-            lines,
+            lines: lines.clone(),
         });
     }
 
