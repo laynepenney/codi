@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{AgentError, Result};
 use crate::types::{
-    BoxedProvider, ContentBlock, Message, Role,
+    BoxedProvider, ContentBlock, Message, Role, StreamEvent,
     ToolCall, ToolDefinition, ToolResult,
 };
 use crate::tools::ToolRegistry;
@@ -133,24 +133,160 @@ impl Agent {
         context
     }
 
-    /// Check if a tool call should be confirmed.
-    fn should_confirm(&self, tool_name: &str) -> bool {
-        self.config.requires_confirmation(tool_name) && self.callbacks.on_confirm.is_some()
+    /// Estimate the current token count of all messages.
+    /// Uses the standard approximation of ~4 characters per token.
+    /// Leverages `running_char_count` to avoid re-serializing every message each iteration.
+    fn estimate_tokens(&self) -> usize {
+        let mut total_chars: usize = self.state.running_char_count;
+
+        // Add system prompt + summary (not cached — these are cheap to measure)
+        total_chars += self.system_prompt.len();
+        if let Some(ref summary) = self.state.conversation_summary {
+            total_chars += summary.len();
+        }
+
+        total_chars / 4
     }
 
-    /// Confirm a tool call with the user.
-    fn confirm_tool(&self, tool_call: &ToolCall) -> ConfirmationResult {
-        if let Some(ref on_confirm) = self.callbacks.on_confirm {
-            let confirmation = ToolConfirmation {
-                tool_name: tool_call.name.clone(),
-                input: tool_call.input.clone(),
-                is_dangerous: DESTRUCTIVE_TOOLS.contains(&tool_call.name.as_str()),
-                danger_reason: None, // TODO: Add danger detection
-            };
-            on_confirm(confirmation)
-        } else {
-            ConfirmationResult::Approve
+    /// Count the characters in a message's content.
+    fn message_char_count(&self, msg: &Message) -> usize {
+        match &msg.content {
+            crate::types::MessageContent::Text(s) => s.len(),
+            crate::types::MessageContent::Blocks(blocks) => {
+                blocks.iter().map(|b| {
+                    let mut n = 0;
+                    if let Some(ref t) = b.text { n += t.len(); }
+                    if let Some(ref name) = b.name { n += name.len(); }
+                    if let Some(ref input) = b.input {
+                        n += input.to_string().len();
+                    }
+                    if let Some(ref content) = b.content { n += content.len(); }
+                    n
+                }).sum()
+            }
         }
+    }
+
+    /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+    /// Safe for multi-byte UTF-8 (truncates at char boundary).
+    fn truncate_str(s: &str, max_chars: usize) -> String {
+        if s.chars().count() <= max_chars {
+            s.to_string()
+        } else {
+            let truncated: String = s.chars().take(max_chars).collect();
+            format!("{}...", truncated)
+        }
+    }
+
+    /// Compact the conversation context when it exceeds the token limit.
+    /// Keeps the system prompt and recent messages, summarizes older ones.
+    fn compact_context(&mut self) {
+        // Notify that compaction is starting
+        if let Some(ref on_compaction) = self.callbacks.on_compaction {
+            on_compaction(true);
+        }
+
+        let keep_recent = 10; // Keep the last N messages intact
+        let msg_count = self.state.messages.len();
+
+        if msg_count <= keep_recent {
+            // Not enough messages to compact
+            if let Some(ref on_compaction) = self.callbacks.on_compaction {
+                on_compaction(false);
+            }
+            return;
+        }
+
+        // Split messages: older ones to summarize, recent ones to keep
+        let split_at = msg_count - keep_recent;
+        let older_messages: Vec<Message> = self.state.messages.drain(..split_at).collect();
+
+        // Build a simple summary from older messages by extracting text content
+        let mut summary_parts: Vec<String> = Vec::new();
+        for msg in &older_messages {
+            let role = match msg.role {
+                Role::User => "User",
+                Role::Assistant => "Assistant",
+                Role::System => "System",
+            };
+            let text = match &msg.content {
+                crate::types::MessageContent::Text(s) => s.clone(),
+                crate::types::MessageContent::Blocks(blocks) => {
+                    blocks.iter()
+                        .filter_map(|b| b.text.as_ref())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                }
+            };
+            if !text.is_empty() {
+                summary_parts.push(format!("{}: {}", role, Self::truncate_str(&text, 200)));
+            }
+        }
+
+        // Build combined summary, truncating to ~2000 chars
+        let new_summary = Self::truncate_str(&summary_parts.join("\n"), 2000);
+
+        // Prepend existing summary if there is one
+        if let Some(ref existing) = self.state.conversation_summary {
+            let combined = format!("{}\n\n{}", existing, new_summary);
+            self.state.conversation_summary = Some(Self::truncate_str(&combined, 4000));
+        } else {
+            self.state.conversation_summary = Some(new_summary);
+        }
+
+        // Recalculate running_char_count from remaining messages
+        self.state.running_char_count = self.state.messages.iter()
+            .map(|m| self.message_char_count(m))
+            .sum();
+
+        tracing::info!(
+            "Context compacted: removed {} messages, {} remaining",
+            split_at,
+            self.state.messages.len()
+        );
+
+        // Notify that compaction is complete
+        if let Some(ref on_compaction) = self.callbacks.on_compaction {
+            on_compaction(false);
+        }
+    }
+
+    /// Check whether a tool call needs confirmation and, if so, ask the user.
+    ///
+    /// Returns `None` when no confirmation is needed (tool is auto-approved and
+    /// no dangerous pattern matches). Otherwise returns the user's decision.
+    /// Serializes the input only once to avoid redundant work.
+    fn maybe_confirm(&self, tool_call: &ToolCall) -> Option<ConfirmationResult> {
+        let on_confirm = self.callbacks.on_confirm.as_ref()?;
+
+        let is_builtin_dangerous = DESTRUCTIVE_TOOLS.contains(&tool_call.name.as_str());
+        let needs_builtin_confirm = is_builtin_dangerous
+            && !self.config.should_auto_approve(&tool_call.name);
+
+        // Serialize input once and check dangerous patterns
+        let pattern_match = if !self.config.dangerous_patterns.is_empty() {
+            let input_str = tool_call.input.to_string();
+            self.config.matches_dangerous_pattern(&input_str)
+        } else {
+            None
+        };
+
+        // If neither builtin-destructive nor pattern-matched, no confirmation needed
+        if !needs_builtin_confirm && pattern_match.is_none() {
+            return None;
+        }
+
+        let is_dangerous = is_builtin_dangerous || pattern_match.is_some();
+        let danger_reason = pattern_match.map(|p| format!("Matches dangerous pattern: {}", p));
+
+        let confirmation = ToolConfirmation {
+            tool_name: tool_call.name.clone(),
+            input: tool_call.input.clone(),
+            is_dangerous,
+            danger_reason,
+        };
+        Some(on_confirm(confirmation))
     }
 
     /// Execute a single tool call.
@@ -207,9 +343,9 @@ impl Agent {
         let mut has_error = false;
 
         for tool_call in tool_calls {
-            // Check if confirmation is needed
-            if self.should_confirm(&tool_call.name) {
-                match self.confirm_tool(tool_call) {
+            // Check if confirmation is needed, and if so, get the user's decision
+            if let Some(decision) = self.maybe_confirm(tool_call) {
+                match decision {
                     ConfirmationResult::Approve => {
                         // Continue to execute
                     }
@@ -269,10 +405,12 @@ impl Agent {
             .map(|r| ContentBlock::tool_result(&r.tool_use_id, &r.content, r.is_error.unwrap_or(false)))
             .collect();
 
-        self.state.messages.push(Message {
+        let msg = Message {
             role: Role::User,
             content: crate::types::MessageContent::Blocks(content),
-        });
+        };
+        self.state.running_char_count += self.message_char_count(&msg);
+        self.state.messages.push(msg);
     }
 
     /// The main agentic loop.
@@ -287,7 +425,9 @@ impl Agent {
         let mut turn_stats = TurnStats::default();
 
         // Add user message to history
-        self.state.messages.push(Message::user(user_message));
+        let user_msg = Message::user(user_message);
+        self.state.running_char_count += self.message_char_count(&user_msg);
+        self.state.messages.push(user_msg);
 
         // Reset iteration state
         self.state.current_iteration = 0;
@@ -311,15 +451,36 @@ impl Agent {
                 break;
             }
 
+            // Check if context needs compaction
+            if self.estimate_tokens() > self.config.max_context_tokens {
+                self.compact_context();
+            }
+
             // Build request parameters
             let tools = self.get_tool_definitions();
             let system_context = self.build_system_context();
 
-            // Call the provider
-            let response = self.provider.chat(
+            // Clone callbacks for the streaming closure (Arc clones are cheap)
+            let on_text = self.callbacks.on_text.clone();
+            let on_stream_event = self.callbacks.on_stream_event.clone();
+
+            // Call the provider with streaming
+            let response = self.provider.stream_chat(
                 &self.state.messages,
                 tools.as_deref(),
                 Some(&system_context),
+                Box::new(move |event| {
+                    // Forward raw stream events
+                    if let Some(ref cb) = on_stream_event {
+                        cb(&event);
+                    }
+                    // Fire on_text for text deltas
+                    if let StreamEvent::TextDelta(ref text) = event {
+                        if let Some(ref cb) = on_text {
+                            cb(text);
+                        }
+                    }
+                }),
             ).await?;
 
             // Update token stats
@@ -329,11 +490,8 @@ impl Agent {
                 turn_stats.total_tokens = turn_stats.input_tokens + turn_stats.output_tokens;
             }
 
-            // Stream text to callback
+            // Store final response text
             if !response.content.is_empty() {
-                if let Some(ref on_text) = self.callbacks.on_text {
-                    on_text(&response.content);
-                }
                 final_response = response.content.clone();
             }
 
@@ -349,10 +507,12 @@ impl Agent {
             }
 
             if !assistant_blocks.is_empty() {
-                self.state.messages.push(Message {
+                let assistant_msg = Message {
                     role: Role::Assistant,
                     content: crate::types::MessageContent::Blocks(assistant_blocks),
-                });
+                };
+                self.state.running_char_count += self.message_char_count(&assistant_msg);
+                self.state.messages.push(assistant_msg);
             }
 
             // If no tool calls, we're done
@@ -407,10 +567,9 @@ impl Agent {
 
     /// Chat with streaming output.
     ///
-    /// Similar to `chat()` but streams text output via the `on_text` callback
-    /// as it's received from the model.
+    /// Alias for `chat()` - streaming is now built into the main chat loop
+    /// via `provider.stream_chat()`.
     pub async fn stream_chat(&mut self, user_message: &str) -> Result<String> {
-        // For now, delegate to chat() - streaming will be added when we implement stream_chat on providers
         self.chat(user_message).await
     }
 }
@@ -469,5 +628,89 @@ mod tests {
     fn test_confirmation_result() {
         assert_eq!(ConfirmationResult::Approve, ConfirmationResult::Approve);
         assert_ne!(ConfirmationResult::Approve, ConfirmationResult::Deny);
+    }
+
+    #[test]
+    fn test_truncate_str_short() {
+        assert_eq!(Agent::truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_exact() {
+        assert_eq!(Agent::truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_long() {
+        let result = Agent::truncate_str("hello world", 5);
+        assert_eq!(result, "hello...");
+    }
+
+    #[test]
+    fn test_truncate_str_multibyte() {
+        // "café" is 5 bytes but 4 chars — should not panic
+        let result = Agent::truncate_str("café!", 4);
+        assert_eq!(result, "café...");
+    }
+
+    #[test]
+    fn test_truncate_str_emoji() {
+        // Emoji are multi-byte — slicing at byte boundary would panic
+        let input = "hello 🌍 world";
+        let result = Agent::truncate_str(input, 7);
+        assert!(result.ends_with("..."));
+        assert!(!result.contains("world"));
+    }
+
+    #[test]
+    fn test_agent_state_default_running_char_count() {
+        let state = AgentState::default();
+        assert_eq!(state.running_char_count, 0);
+    }
+
+    #[test]
+    fn test_dangerous_pattern_match() {
+        let mut config = AgentConfig::default();
+        config.dangerous_patterns = vec![
+            r"rm\s+-rf".to_string(),
+            r"sudo\s+".to_string(),
+        ];
+
+        assert_eq!(
+            config.matches_dangerous_pattern("rm -rf /"),
+            Some(r"rm\s+-rf".to_string())
+        );
+        assert_eq!(
+            config.matches_dangerous_pattern("sudo apt install"),
+            Some(r"sudo\s+".to_string())
+        );
+        assert_eq!(
+            config.matches_dangerous_pattern("echo hello"),
+            None,
+        );
+    }
+
+    #[test]
+    fn test_dangerous_pattern_empty() {
+        let config = AgentConfig::default();
+        assert!(config.dangerous_patterns.is_empty());
+        assert_eq!(config.matches_dangerous_pattern("rm -rf /"), None);
+    }
+
+    #[test]
+    fn test_dangerous_pattern_invalid_regex_skipped() {
+        let mut config = AgentConfig::default();
+        config.dangerous_patterns = vec![
+            "[invalid".to_string(),  // bad regex
+            r"rm\s+-rf".to_string(), // valid
+        ];
+
+        // Should skip the invalid pattern gracefully and still match the valid one
+        assert_eq!(
+            config.matches_dangerous_pattern("rm -rf /"),
+            Some(r"rm\s+-rf".to_string())
+        );
+        // Invalid pattern should not cause a panic
+        assert_eq!(config.matches_dangerous_pattern("hello"), None);
     }
 }

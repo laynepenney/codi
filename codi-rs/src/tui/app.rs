@@ -16,7 +16,8 @@ use crate::agent::{
     Agent, AgentCallbacks, AgentConfig, AgentOptions,
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
-use crate::error::ToolError;
+use crate::config::ResolvedConfig;
+use crate::error::{Result as CodiResult, ToolError};
 use crate::completion::{complete_line, get_completion_matches};
 use crate::orchestrate::{Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo, PermissionResult};
 use crate::session::{Session, SessionInfo, SessionService};
@@ -153,6 +154,8 @@ pub enum AppEvent {
     TurnComplete(TurnStats),
     /// Confirmation request.
     ConfirmRequest(ToolConfirmation),
+    /// Context compaction started (true) or finished (false).
+    Compaction(bool),
 }
 
 /// Pending tool confirmation.
@@ -209,6 +212,15 @@ pub struct App {
     /// Tab completion hint to display.
     pub completion_hint: Option<String>,
 
+    /// Resolved configuration from config files and CLI.
+    config: Option<ResolvedConfig>,
+    /// Auto-approve all tool operations (from --yes CLI flag).
+    auto_approve_all: bool,
+
+    // Background agent task
+    /// Receiver for agent returning from a background chat task.
+    pending_agent: Option<tokio::sync::oneshot::Receiver<(Agent, CodiResult<String>)>>,
+
     // Tool execution visualization
     /// Manager for tool execution cells.
     pub exec_cells: crate::tui::components::ExecCellManager,
@@ -257,6 +269,9 @@ impl App {
             current_session: None,
             project_path,
             completion_hint: None,
+            config: None,
+            auto_approve_all: false,
+            pending_agent: None,
             exec_cells: crate::tui::components::ExecCellManager::new(),
             commander: None,
             pending_worker_permissions: Vec::new(),
@@ -264,6 +279,10 @@ impl App {
     }
 
     /// Create with a provider.
+    ///
+    /// **Deprecated**: Bypasses config wiring. Use `with_project_path()` +
+    /// `set_config()` + `set_provider()` instead (see `run_repl()`).
+    #[deprecated(note = "bypasses config; use with_project_path() + set_config() + set_provider()")]
     pub fn with_provider(provider: BoxedProvider) -> Self {
         let mut app = Self::new();
         app.set_provider(provider);
@@ -271,10 +290,50 @@ impl App {
     }
 
     /// Create with a provider and project path.
+    ///
+    /// **Deprecated**: Bypasses config wiring. Use `with_project_path()` +
+    /// `set_config()` + `set_provider()` instead (see `run_repl()`).
+    #[deprecated(note = "bypasses config; use with_project_path() + set_config() + set_provider()")]
     pub fn with_provider_and_path(provider: BoxedProvider, project_path: impl AsRef<Path>) -> Self {
         let mut app = Self::with_project_path(project_path);
         app.set_provider(provider);
         app
+    }
+
+    /// Set the resolved configuration. Call before `set_provider` to apply config values.
+    pub fn set_config(&mut self, config: ResolvedConfig) {
+        self.config = Some(config);
+    }
+
+    /// Set auto-approve-all flag (from --yes CLI flag). Call before `set_provider`.
+    pub fn set_auto_approve(&mut self, auto_approve: bool) {
+        self.auto_approve_all = auto_approve;
+    }
+
+    /// Build an `AgentConfig` from the stored `ResolvedConfig`, or use defaults.
+    fn build_agent_config(&self) -> AgentConfig {
+        if let Some(ref config) = self.config {
+            AgentConfig {
+                max_iterations: 50,
+                max_consecutive_errors: 3,
+                max_turn_duration_ms: 120_000,
+                max_context_tokens: config.max_context_tokens as usize,
+                use_tools: !config.no_tools,
+                extract_tools_from_text: config.extract_tools_from_text,
+                auto_approve_all: self.auto_approve_all,
+                auto_approve_tools: config.auto_approve.clone(),
+                dangerous_patterns: config.dangerous_patterns.clone(),
+            }
+        } else {
+            let mut default_config = AgentConfig::default();
+            default_config.auto_approve_all = self.auto_approve_all;
+            default_config
+        }
+    }
+
+    /// Build the system prompt, incorporating config additions and project context.
+    fn build_system_prompt(&self) -> String {
+        build_system_prompt_from_config(self.config.as_ref())
     }
 
     /// Set the AI provider and create an agent.
@@ -283,39 +342,45 @@ impl App {
         let event_tx = self.event_tx.clone().unwrap();
 
         let callbacks = AgentCallbacks {
-            on_text: Some(Box::new({
+            on_text: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |text: &str| {
                     let _ = tx.send(AppEvent::TextDelta(text.to_string()));
                 }
             })),
-            on_tool_call: Some(Box::new({
+            on_tool_call: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |tool_id: &str, name: &str, input: &serde_json::Value| {
                     let _ = tx.send(AppEvent::ToolStart(tool_id.to_string(), name.to_string(), input.clone()));
                 }
             })),
-            on_tool_result: Some(Box::new({
+            on_tool_result: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |tool_id: &str, _name: &str, result: &str, is_error: bool| {
                     let _ = tx.send(AppEvent::ToolResult(tool_id.to_string(), result.to_string(), is_error));
                 }
             })),
             on_confirm: None, // Handled via channel-based approach
-            on_compaction: None,
-            on_turn_complete: Some(Box::new({
+            on_compaction: Some(Arc::new({
+                let tx = event_tx.clone();
+                move |is_starting: bool| {
+                    let _ = tx.send(AppEvent::Compaction(is_starting));
+                }
+            })),
+            on_turn_complete: Some(Arc::new({
                 let tx = event_tx.clone();
                 move |stats: &TurnStats| {
                     let _ = tx.send(AppEvent::TurnComplete(stats.clone()));
                 }
             })),
+            on_stream_event: None,
         };
 
         self.agent = Some(Agent::new(AgentOptions {
             provider,
             tool_registry: registry,
-            system_prompt: Some("You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string()),
-            config: AgentConfig::default(),
+            system_prompt: Some(self.build_system_prompt()),
+            config: self.build_agent_config(),
             callbacks,
         }));
     }
@@ -357,6 +422,36 @@ impl App {
 
     /// Process any pending app events from agent callbacks.
     fn process_app_events(&mut self) {
+        // Check if the background agent task has completed
+        if let Some(ref mut rx) = self.pending_agent {
+            match rx.try_recv() {
+                Ok((agent, result)) => {
+                    self.agent = Some(agent);
+                    self.pending_agent = None;
+                    match result {
+                        Ok(_) => {
+                            // Response was streamed via callbacks; TurnComplete will finalize
+                        }
+                        Err(e) => {
+                            self.status = Some(format!("Error: {}", e));
+                            self.mode = AppMode::Normal;
+                            self.finalize_streaming();
+                        }
+                    }
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    // Task panicked or was dropped
+                    self.pending_agent = None;
+                    self.status = Some("Agent task failed unexpectedly".to_string());
+                    self.mode = AppMode::Normal;
+                    self.finalize_streaming();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    // Still running, keep waiting
+                }
+            }
+        }
+
         // Collect events first to avoid borrow issues
         let mut events = Vec::new();
         if let Some(ref mut rx) = self.event_rx {
@@ -409,6 +504,13 @@ impl App {
                 }
                 AppEvent::ConfirmRequest(_) => {
                     // Handled separately via channel
+                }
+                AppEvent::Compaction(is_starting) => {
+                    if is_starting {
+                        self.status = Some("Compacting context...".to_string());
+                    } else {
+                        self.status = Some("Context compacted".to_string());
+                    }
                 }
             }
         }
@@ -782,7 +884,25 @@ impl App {
                     // Execute async command
                     let _ = execute_async_command(self, cmd).await;
                 }
-                CommandResult::Ok | CommandResult::Error(_) | CommandResult::Prompt(_) => {
+                CommandResult::Prompt(prompt) => {
+                    // Command generated a prompt to send to the AI
+                    self.messages.push(Message::user(&prompt));
+                    self.scroll_to_bottom();
+
+                    if let Some(mut agent) = self.agent.take() {
+                        self.mode = AppMode::Waiting;
+                        self.status = Some("Thinking...".to_string());
+
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        self.pending_agent = Some(rx);
+
+                        tokio::spawn(async move {
+                            let result = agent.chat(&prompt).await;
+                            let _ = tx.send((agent, result));
+                        });
+                    }
+                }
+                CommandResult::Ok | CommandResult::Error(_) => {
                     // Already handled synchronously
                 }
             }
@@ -793,21 +913,21 @@ impl App {
         self.messages.push(Message::user(&input));
         self.scroll_to_bottom();
 
-        // Get AI response
-        if let Some(ref mut agent) = self.agent {
+        // Get AI response - spawn on background task so the event loop stays responsive
+        if let Some(mut agent) = self.agent.take() {
             self.mode = AppMode::Waiting;
             self.status = Some("Thinking...".to_string());
 
-            // Call the agent
-            match agent.chat(&input).await {
-                Ok(_response) => {
-                    // Response is handled via callbacks
-                }
-                Err(e) => {
-                    self.status = Some(format!("Error: {}", e));
-                    self.mode = AppMode::Normal;
-                }
-            }
+            // Create a oneshot channel to get the agent back when done
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.pending_agent = Some(rx);
+
+            // Spawn the agent chat on a background task
+            tokio::spawn(async move {
+                let result = agent.chat(&input).await;
+                // Send the agent and result back (ignore error if receiver dropped)
+                let _ = tx.send((agent, result));
+            });
         } else {
             // No agent, just echo
             self.messages.push(Message::assistant(
@@ -836,6 +956,45 @@ impl App {
     /// Get the pending confirmation for UI display.
     pub fn get_pending_confirmation(&self) -> Option<&ToolConfirmation> {
         self.pending_confirmation.as_ref().map(|p| &p.confirmation)
+    }
+
+    /// Resolve a command alias from config. Returns the expanded command if an alias matches,
+    /// or `None` if no alias applies. Aliases are checked against the command portion after `/`.
+    pub fn resolve_command_alias(&self, input: &str) -> Option<String> {
+        let config = self.config.as_ref()?;
+        if config.command_aliases.is_empty() {
+            return None;
+        }
+
+        let trimmed = input.trim();
+        if !trimmed.starts_with('/') {
+            return None;
+        }
+
+        // Extract the command name (without /) and any trailing args
+        let without_slash = &trimmed[1..];
+        let (cmd, extra_args) = match without_slash.split_once(' ') {
+            Some((c, a)) => (c, Some(a)),
+            None => (without_slash, None),
+        };
+
+        // Check if this command matches an alias
+        if let Some(expansion) = config.command_aliases.get(cmd) {
+            let expanded = if let Some(args) = extra_args {
+                format!("{} {}", expansion, args)
+            } else {
+                expansion.clone()
+            };
+            // Ensure the expansion starts with /
+            let result = if expanded.starts_with('/') {
+                expanded
+            } else {
+                format!("/{}", expanded)
+            };
+            Some(result)
+        } else {
+            None
+        }
     }
 
     /// Check if a provider is configured.
@@ -1165,6 +1324,29 @@ impl App {
     }
 }
 
+/// Build a system prompt from an optional `ResolvedConfig`.
+///
+/// This is the standalone version used by both the TUI (`App::build_system_prompt`)
+/// and the non-interactive `-P` mode so that config-driven prompt additions are
+/// applied consistently.
+pub fn build_system_prompt_from_config(config: Option<&ResolvedConfig>) -> String {
+    let mut prompt = "You are Codi, a helpful AI coding assistant. Help the user with their programming tasks.".to_string();
+
+    if let Some(config) = config {
+        if let Some(ref additions) = config.system_prompt_additions {
+            prompt.push_str("\n\n");
+            prompt.push_str(additions);
+        }
+
+        if let Some(ref project_context) = config.project_context {
+            prompt.push_str("\n\n## Project Context\n");
+            prompt.push_str(project_context);
+        }
+    }
+
+    prompt
+}
+
 /// Format worker status for display.
 fn format_worker_status(status: &WorkerStatus) -> String {
     match status {
@@ -1239,6 +1421,104 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_command_alias_no_config() {
+        let app = App::new();
+        // No config set, should return None
+        assert!(app.resolve_command_alias("/t").is_none());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_basic() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("t".to_string(), "/test src/".to_string());
+        config.command_aliases.insert("b".to_string(), "/build".to_string());
+        app.set_config(config);
+
+        // Basic alias
+        assert_eq!(app.resolve_command_alias("/t"), Some("/test src/".to_string()));
+        assert_eq!(app.resolve_command_alias("/b"), Some("/build".to_string()));
+
+        // Non-matching command
+        assert!(app.resolve_command_alias("/help").is_none());
+
+        // Non-slash input
+        assert!(app.resolve_command_alias("hello").is_none());
+    }
+
+    #[test]
+    fn test_resolve_command_alias_with_extra_args() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.command_aliases.insert("t".to_string(), "/test src/".to_string());
+        app.set_config(config);
+
+        // Extra args appended
+        assert_eq!(
+            app.resolve_command_alias("/t --verbose"),
+            Some("/test src/ --verbose".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_command_alias_bare_expansion() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        // Alias without leading /
+        config.command_aliases.insert("x".to_string(), "exit".to_string());
+        app.set_config(config);
+
+        // Should auto-prepend /
+        assert_eq!(app.resolve_command_alias("/x"), Some("/exit".to_string()));
+    }
+
+    #[test]
+    fn test_build_system_prompt_no_config() {
+        let app = App::new();
+        let prompt = app.build_system_prompt();
+        assert!(prompt.contains("Codi"));
+        assert!(!prompt.contains("Project Context"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_additions() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.system_prompt_additions = Some("Always use strict mode.".to_string());
+        config.project_context = Some("This is a React app.".to_string());
+        app.set_config(config);
+
+        let prompt = app.build_system_prompt();
+        assert!(prompt.contains("Always use strict mode."));
+        assert!(prompt.contains("## Project Context"));
+        assert!(prompt.contains("This is a React app."));
+    }
+
+    #[test]
+    fn test_build_agent_config_defaults() {
+        let app = App::new();
+        let config = app.build_agent_config();
+        assert!(config.use_tools);
+        assert!(!config.auto_approve_all);
+        assert!(config.auto_approve_tools.is_empty());
+    }
+
+    #[test]
+    fn test_build_agent_config_from_resolved() {
+        let mut app = App::new();
+        let mut config = crate::config::default_config();
+        config.no_tools = true;
+        config.auto_approve = vec!["read_file".to_string()];
+        app.set_config(config);
+        app.set_auto_approve(true);
+
+        let agent_config = app.build_agent_config();
+        assert!(!agent_config.use_tools);
+        assert!(agent_config.auto_approve_all);
+        assert_eq!(agent_config.auto_approve_tools, vec!["read_file".to_string()]);
+    }
+
+    #[test]
     fn test_input_history() {
         let mut app = App::new();
 
@@ -1264,5 +1544,40 @@ mod tests {
         app.navigate_history_forward();
         assert_eq!(app.input, "current");
         assert_eq!(app.history_index, None);
+    }
+
+    #[test]
+    fn test_build_system_prompt_from_config_none() {
+        let prompt = build_system_prompt_from_config(None);
+        assert!(prompt.contains("Codi"));
+        assert!(!prompt.contains("Project Context"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_from_config_with_additions() {
+        let mut config = crate::config::default_config();
+        config.system_prompt_additions = Some("Be concise.".to_string());
+        config.project_context = Some("Rust CLI app.".to_string());
+
+        let prompt = build_system_prompt_from_config(Some(&config));
+        assert!(prompt.contains("Be concise."));
+        assert!(prompt.contains("## Project Context"));
+        assert!(prompt.contains("Rust CLI app."));
+    }
+
+    #[test]
+    fn test_app_event_compaction_variant() {
+        // Verify the Compaction variant exists and can be constructed
+        let start = AppEvent::Compaction(true);
+        let end = AppEvent::Compaction(false);
+        // Pattern match to confirm the variant works
+        match start {
+            AppEvent::Compaction(is_starting) => assert!(is_starting),
+            _ => panic!("expected Compaction variant"),
+        }
+        match end {
+            AppEvent::Compaction(is_starting) => assert!(!is_starting),
+            _ => panic!("expected Compaction variant"),
+        }
     }
 }
