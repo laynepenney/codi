@@ -410,8 +410,8 @@ mod tests {
 
     #[test]
     fn test_parse_csi_u_ctrl_c() {
-        // Ctrl+C: ESC [ 99 ; 5 u
-        let seq = "\x1b[99;5u";
+        // Ctrl+C: ESC [ 99 ; 4 u (mask 4 = Ctrl only)
+        let seq = "\x1b[99;4u";
         let event = EnhancedInput::parse_key_sequence(seq.as_bytes()).unwrap();
         assert_eq!(event.code, KeyCode::Char('c'));
         assert!(event.modifiers.ctrl);

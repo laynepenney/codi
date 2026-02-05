@@ -38,6 +38,7 @@
 pub mod app;
 pub mod commands;
 pub mod components;
+pub mod diff;
 pub mod events;
 pub mod input;
 pub mod search;

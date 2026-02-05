@@ -14,7 +14,7 @@ use ratatui::{
 use crate::types::Role;
 
 use super::app::{App, AppMode};
-use super::components::{ExecCellWidget, ToolStatus};
+use super::components::ExecCellWidget;
 
 /// Draw the main UI.
 pub fn draw(f: &mut Frame, app: &App) {

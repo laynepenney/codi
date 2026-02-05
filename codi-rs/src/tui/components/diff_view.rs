@@ -11,7 +11,6 @@
 //! It handles scrolling for large diffs and displays line numbers.
 
 use ratatui::{
-    backend::Backend,
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -220,13 +219,13 @@ impl<'a> DiffView<'a> {
 
                 let line_content = if cfg.show_line_numbers {
                     // Format: " old | new | content"
-                    let old_str = old_num
-                        .map(|n| {
+                    let old_str: String = old_num
+                        .map(|n: usize| {
                             format!("{:>width$}", n, width = cfg.line_number_width as usize - 1)
                         })
                         .unwrap_or_else(|| " ".repeat(cfg.line_number_width as usize - 1));
-                    let new_str = new_num
-                        .map(|n| {
+                    let new_str: String = new_num
+                        .map(|n: usize| {
                             format!("{:>width$}", n, width = cfg.line_number_width as usize - 1)
                         })
                         .unwrap_or_else(|| " ".repeat(cfg.line_number_width as usize - 1));
@@ -263,7 +262,7 @@ impl<'a> StatefulWidget for DiffView<'a> {
         };
 
         // Render block if present
-        if let Some(block) = self.block {
+        if let Some(ref block) = self.block {
             block.render(area, buf);
         }
 
@@ -327,7 +326,7 @@ pub fn calculate_diff_size(diff: &UnifiedDiff, max_width: u16, max_height: u16) 
 
         // Content lines
         for line in &hunk.lines {
-            let content_len = line.content().len();
+            let content_len: usize = line.content().len();
             let total_len = if config.show_line_numbers {
                 (config.line_number_width as usize * 2) + 3 + content_len
             } else {

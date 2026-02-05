@@ -10,7 +10,8 @@ pub mod exec_cell;
 pub mod process_footer;
 pub mod search_bar;
 
-pub use diff_view::{DiffLine, DiffLineType, DiffView};
+pub use crate::tui::diff::DiffLine;
+pub use diff_view::DiffView;
 pub use exec_cell::{ExecCell, ExecCellManager, ExecCellWidget, ToolStatus};
 pub use process_footer::{ProcessFooter, ProcessInfo};
 pub use search_bar::SearchBar;
