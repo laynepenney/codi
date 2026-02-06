@@ -53,7 +53,7 @@ pub use search::{SearchResult, SearchState, SearchableContent};
 pub use streaming::{MarkdownStreamCollector, StreamController, StreamState, StreamStatus};
 pub use syntax::{HighlightType, SupportedLanguage, SyntaxHighlighter, Theme};
 
-use std::io;
+use std::io::{self, IsTerminal};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -63,6 +63,14 @@ use ratatui::prelude::*;
 
 /// Initialize the terminal for TUI mode.
 pub fn init_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    // Check if we have a proper TTY
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "No TTY available. Codi requires an interactive terminal. Try running without input/output redirection."
+        ));
+    }
+    
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
