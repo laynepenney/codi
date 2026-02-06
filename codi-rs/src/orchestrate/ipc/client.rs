@@ -24,6 +24,12 @@ use super::protocol::{
 use super::transport::{self, IpcStream};
 use super::super::types::{WorkerConfig, WorkerResult, WorkerStatus, WorkspaceInfo};
 
+const CONNECT_RETRY_ATTEMPTS: usize = 10;
+const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(100);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+const HANDSHAKE_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
 /// Error type for IPC client operations.
 #[derive(Debug, thiserror::Error)]
 pub enum IpcClientError {
@@ -107,7 +113,33 @@ impl IpcClient {
 
     /// Connect to the commander's endpoint.
     pub async fn connect(&mut self) -> Result<(), IpcClientError> {
-        let stream = transport::connect(&self.socket_path).await?;
+        let mut last_error: Option<String> = None;
+        let mut stream = None;
+
+        for attempt in 0..CONNECT_RETRY_ATTEMPTS {
+            match tokio::time::timeout(CONNECT_TIMEOUT, transport::connect(&self.socket_path)).await {
+                Ok(Ok(conn)) => {
+                    stream = Some(conn);
+                    break;
+                }
+                Ok(Err(err)) => {
+                    last_error = Some(err.to_string());
+                }
+                Err(_) => {
+                    last_error = Some("connect timeout".to_string());
+                }
+            }
+
+            if attempt + 1 < CONNECT_RETRY_ATTEMPTS {
+                tokio::time::sleep(CONNECT_RETRY_DELAY).await;
+            }
+        }
+
+        let stream = stream.ok_or_else(|| {
+            IpcClientError::ConnectionFailed(
+                last_error.unwrap_or_else(|| "failed to connect".to_string())
+            )
+        })?;
         let (read_half, write_half) = tokio::io::split(stream);
 
         self.writer = Some(write_half);
@@ -237,7 +269,7 @@ impl IpcClient {
         writer.flush().await?;
 
         let ack = self
-            .wait_for_handshake_ack(Duration::from_secs(2))
+            .wait_for_handshake_ack(HANDSHAKE_TIMEOUT)
             .await;
 
         if let Some(ack) = ack {
@@ -285,7 +317,7 @@ impl IpcClient {
                 if let Some(ack) = self.handshake_ack.lock().await.take() {
                     return ack;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(HANDSHAKE_POLL_INTERVAL).await;
             }
         })
         .await
@@ -425,5 +457,36 @@ mod tests {
     async fn test_cancelled_state() {
         let client = IpcClient::new("/tmp/test.sock", "worker-1");
         assert!(!client.is_cancelled().await);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_handshake_ack_timeout() {
+        let client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let ack = client
+            .wait_for_handshake_ack(Duration::from_millis(1))
+            .await;
+        assert!(ack.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_handshake_ack_returns_value() {
+        let client = IpcClient::new("/tmp/test.sock", "worker-1");
+        {
+            let mut ack = client.handshake_ack.lock().await;
+            *ack = Some(HandshakeAck {
+                accepted: true,
+                auto_approve: Vec::new(),
+                dangerous_patterns: Vec::new(),
+                timeout_ms: 123,
+                reason: None,
+            });
+        }
+
+        let ack = client
+            .wait_for_handshake_ack(Duration::from_millis(20))
+            .await
+            .expect("ack missing");
+        assert!(ack.accepted);
+        assert_eq!(ack.timeout_ms, 123);
     }
 }

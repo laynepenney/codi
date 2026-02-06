@@ -60,7 +60,8 @@ pub use client::IpcClient;
 
 #[cfg(test)]
 mod tests {
-    use super::{CommanderMessage, IpcClient, IpcServer, WorkerMessage};
+    use super::{CommanderMessage, IpcClient, IpcServer, PermissionResult, WorkerMessage};
+    use crate::agent::ToolConfirmation;
     use crate::orchestrate::types::{WorkerConfig, WorkspaceInfo};
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -122,5 +123,82 @@ mod tests {
 
         accept_task.await.expect("accept task failed");
         ack_task.await.expect("ack task failed");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_named_pipe_permission_roundtrip() {
+        let pipe_name = format!(r"\\.\pipe\codi-ipc-permission-{}", uuid::Uuid::new_v4());
+        let socket_path = PathBuf::from(pipe_name);
+
+        let mut server = IpcServer::new(&socket_path);
+        server.start().await.expect("server start failed");
+
+        let mut rx = server.take_receiver().expect("receiver already taken");
+        let server = Arc::new(server);
+
+        let accept_server = Arc::clone(&server);
+        let accept_task = tokio::spawn(async move {
+            accept_server.accept().await.expect("accept failed")
+        });
+
+        let ack_server = Arc::clone(&server);
+        let server_task = tokio::spawn(async move {
+            let (worker_id, msg) = rx.recv().await.expect("handshake missing");
+            assert_eq!(worker_id, "worker-1");
+            assert!(matches!(msg, WorkerMessage::Handshake { .. }));
+
+            let ack = CommanderMessage::handshake_ack(
+                true,
+                Vec::new(),
+                Vec::new(),
+                5_000,
+            );
+            ack_server
+                .send(&worker_id, &ack)
+                .await
+                .expect("ack send failed");
+
+            let (worker_id, msg) = rx.recv().await.expect("permission missing");
+            if let WorkerMessage::PermissionRequest { request_id, .. } = msg {
+                ack_server
+                    .send(&worker_id, &CommanderMessage::approve(request_id))
+                    .await
+                    .expect("permission approve failed");
+            } else {
+                panic!("expected permission request");
+            }
+        });
+
+        let mut client = IpcClient::new(&socket_path, "worker-1");
+        client.connect().await.expect("client connect failed");
+
+        let workspace = WorkspaceInfo::GitWorktree {
+            path: PathBuf::from("."),
+            branch: "feat/test".to_string(),
+            base_branch: "main".to_string(),
+        };
+        let config = WorkerConfig::new("worker-1", "feat/test", "task");
+
+        client
+            .handshake(&config, &workspace)
+            .await
+            .expect("handshake failed");
+
+        let confirmation = ToolConfirmation {
+            tool_name: "read_file".to_string(),
+            input: serde_json::json!({ "path": "README.md" }),
+            is_dangerous: false,
+            danger_reason: None,
+        };
+
+        let result = client
+            .request_permission(&confirmation)
+            .await
+            .expect("permission request failed");
+        assert_eq!(result, PermissionResult::Approve);
+
+        accept_task.await.expect("accept task failed");
+        server_task.await.expect("server task failed");
     }
 }
