@@ -44,6 +44,7 @@ pub mod input;
 pub mod search;
 pub mod streaming;
 pub mod syntax;
+pub mod terminal_ui;
 pub mod ui;
 
 pub use app::{App, AppMode, Message as ChatMessage, build_system_prompt_from_config};

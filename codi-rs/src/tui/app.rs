@@ -195,6 +195,8 @@ pub struct App {
     pending_confirmation: Option<PendingConfirmation>,
     /// Last turn stats.
     pub last_turn_stats: Option<TurnStats>,
+    /// Turn start time for elapsed time display.
+    pub turn_start_time: Option<std::time::Instant>,
     /// Input history.
     pub input_history: Vec<String>,
     /// Current position in input history.
@@ -258,6 +260,7 @@ impl App {
             event_tx: Some(tx),
             pending_confirmation: None,
             last_turn_stats: None,
+            turn_start_time: None,
             input_history: Vec::new(),
             history_index: None,
             saved_input: String::new(),
@@ -495,6 +498,7 @@ impl App {
                     self.last_turn_stats = Some(stats);
                     self.mode = AppMode::Normal;
                     self.status = None;
+                    self.turn_start_time = None; // Reset turn start time
 
                     // Finalize streaming
                     self.finalize_streaming();
@@ -861,6 +865,7 @@ impl App {
             }
         }
         self.mode = AppMode::Waiting;
+        self.turn_start_time = Some(std::time::Instant::now());
     }
 
     /// Submit the current input.
@@ -1001,11 +1006,62 @@ impl App {
 
     /// Get model info string for status bar.
     pub fn model_info(&self) -> String {
-        if self.agent.is_some() {
-            // TODO: Add method to get provider name and model from agent
-            String::new()
+        if let Some(ref config) = self.config {
+            let provider = config.provider.clone();
+            let model = config.model.as_deref().unwrap_or("default");
+            format!("{} | {}", provider, model)
         } else {
             String::new()
+        }
+    }
+
+    /// Get the auto-approve-all flag value.
+    pub fn auto_approve_all(&self) -> bool {
+        self.auto_approve_all
+    }
+
+    /// Compact conversation context by summarizing older messages.
+    /// Returns the number of messages that were summarized.
+    pub fn compact_conversation(&mut self) -> usize {
+        if let Some(ref mut agent) = self.agent {
+            agent.compact_context()
+        } else {
+            0
+        }
+    }
+
+    /// Check if the agent has a conversation summary.
+    pub fn has_conversation_summary(&self) -> bool {
+        if let Some(ref agent) = self.agent {
+            agent.conversation_summary().is_some()
+        } else {
+            false
+        }
+    }
+
+    /// Check if an agent is configured.
+    pub fn has_agent(&self) -> bool {
+        self.agent.is_some()
+    }
+
+    /// Get current provider and model information.
+    pub fn get_current_model_info(&self) -> Option<(String, Option<String>)> {
+        self.config.as_ref().map(|c| {
+            (c.provider.clone(), c.model.clone())
+        })
+    }
+
+    /// Get the current configuration for model switching.
+    pub fn get_config(&self) -> Option<&ResolvedConfig> {
+        self.config.as_ref()
+    }
+
+    /// Update the configuration with a new provider/model.
+    /// Note: This only updates the config. To apply changes, call set_provider() afterwards.
+    pub fn update_config(&mut self, provider: String, model: Option<String>) {
+        if let Some(ref mut config) = self.config {
+            config.provider = provider;
+            config.model = model;
         }
     }
 

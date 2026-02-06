@@ -451,6 +451,151 @@ pub fn create_provider_from_config(config: &ResolvedConfig) -> Result<BoxedProvi
     create_provider(provider_type, provider_config)
 }
 
+/// Model information for listing available models.
+#[derive(Debug, Clone)]
+pub struct AvailableModel {
+    /// Provider name
+    pub provider: &'static str,
+    /// Model identifier
+    pub model_id: &'static str,
+    /// Human-readable model name
+    pub name: &'static str,
+    /// Brief description
+    pub description: &'static str,
+    /// Whether the model supports tool use
+    pub supports_tools: bool,
+    /// Whether the model supports vision
+    pub supports_vision: bool,
+    /// Context window size in tokens
+    pub context_window: u32,
+}
+
+/// Get all available models across all providers.
+pub fn get_available_models() -> Vec<AvailableModel> {
+    vec![
+        // Anthropic models
+        AvailableModel {
+            provider: "anthropic",
+            model_id: "claude-sonnet-4-20250514",
+            name: "Claude Sonnet 4",
+            description: "Most capable Claude model, balanced performance",
+            supports_tools: true,
+            supports_vision: true,
+            context_window: 200_000,
+        },
+        AvailableModel {
+            provider: "anthropic",
+            model_id: "claude-haiku-4-20250514",
+            name: "Claude Haiku 4",
+            description: "Fast, efficient Claude model",
+            supports_tools: true,
+            supports_vision: true,
+            context_window: 200_000,
+        },
+        AvailableModel {
+            provider: "anthropic",
+            model_id: "claude-opus-4-20250514",
+            name: "Claude Opus 4",
+            description: "Most powerful Claude model for complex tasks",
+            supports_tools: true,
+            supports_vision: true,
+            context_window: 200_000,
+        },
+        // OpenAI models
+        AvailableModel {
+            provider: "openai",
+            model_id: "gpt-4o",
+            name: "GPT-4o",
+            description: "Multimodal model with vision support",
+            supports_tools: true,
+            supports_vision: true,
+            context_window: 128_000,
+        },
+        AvailableModel {
+            provider: "openai",
+            model_id: "gpt-4o-mini",
+            name: "GPT-4o Mini",
+            description: "Faster, more affordable GPT-4o",
+            supports_tools: true,
+            supports_vision: true,
+            context_window: 128_000,
+        },
+        AvailableModel {
+            provider: "openai",
+            model_id: "gpt-4.1",
+            name: "GPT-4.1",
+            description: "Latest GPT-4.1 model",
+            supports_tools: true,
+            supports_vision: true,
+            context_window: 1_000_000,
+        },
+        AvailableModel {
+            provider: "openai",
+            model_id: "o3-mini",
+            name: "o3 Mini",
+            description: "Reasoning model for complex tasks",
+            supports_tools: true,
+            supports_vision: false,
+            context_window: 200_000,
+        },
+        // Ollama models (popular choices)
+        AvailableModel {
+            provider: "ollama",
+            model_id: "llama3.2",
+            name: "Llama 3.2",
+            description: "Latest Llama model (local)",
+            supports_tools: false,
+            supports_vision: false,
+            context_window: 8_000,
+        },
+        AvailableModel {
+            provider: "ollama",
+            model_id: "llama3.1",
+            name: "Llama 3.1",
+            description: "Previous Llama generation (local)",
+            supports_tools: false,
+            supports_vision: false,
+            context_window: 8_000,
+        },
+        AvailableModel {
+            provider: "ollama",
+            model_id: "qwen2.5",
+            name: "Qwen 2.5",
+            description: "Alibaba's Qwen model (local)",
+            supports_tools: false,
+            supports_vision: false,
+            context_window: 8_000,
+        },
+        AvailableModel {
+            provider: "ollama",
+            model_id: "deepseek-coder",
+            name: "DeepSeek Coder",
+            description: "Code-focused model (local)",
+            supports_tools: false,
+            supports_vision: false,
+            context_window: 8_000,
+        },
+    ]
+}
+
+/// Get available models filtered by provider.
+pub fn get_models_for_provider(provider: &str) -> Vec<AvailableModel> {
+    get_available_models()
+        .into_iter()
+        .filter(|m| m.provider.eq_ignore_ascii_case(provider))
+        .collect()
+}
+
+/// Check if a provider is available (has API key if required).
+pub fn is_provider_available(provider: &str) -> bool {
+    match provider.to_lowercase().as_str() {
+        "anthropic" | "claude" => std::env::var("ANTHROPIC_API_KEY").is_ok(),
+        "openai" | "gpt" => std::env::var("OPENAI_API_KEY").is_ok(),
+        "ollama" => true, // Ollama doesn't require an API key
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

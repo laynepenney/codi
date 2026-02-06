@@ -12,7 +12,8 @@ use codi::agent::AgentConfig;
 use codi::config::{self, CliOptions};
 use codi::providers::{create_provider_from_config, ProviderType};
 use codi::tools::ToolRegistry;
-use codi::tui::{App, build_system_prompt_from_config, run as run_tui};
+use codi::tui::{App, build_system_prompt_from_config};
+use codi::tui::terminal_ui::run_terminal_repl;
 
 /// Codi version string.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -227,11 +228,6 @@ async fn main() -> anyhow::Result<()> {
     let workspace_root = std::env::current_dir()?;
     let config = config::load_config(&workspace_root, cli_options)?;
 
-    // Print startup message in non-quiet mode
-    if !cli.quiet {
-        print_startup_message(&config);
-    }
-
     // Handle non-interactive mode
     if let Some(prompt) = cli.prompt {
         return handle_prompt(&config, &prompt, cli.output_format, cli.quiet, cli.yes).await;
@@ -239,20 +235,6 @@ async fn main() -> anyhow::Result<()> {
 
     // Start interactive REPL
     run_repl(&config, cli.yes).await
-}
-
-fn print_startup_message(config: &config::ResolvedConfig) {
-    println!(
-        "{} {} - Your AI coding wingman",
-        "codi".cyan().bold(),
-        format!("v{}", VERSION ).dimmed()
-    );
-    println!(
-        "Provider: {} | Model: {}",
-        config.provider.green(),
-        config.model.as_deref().unwrap_or("default").yellow()
-    );
-    println!();
 }
 
 async fn handle_command(command: Commands) -> anyhow::Result<()> {
@@ -514,50 +496,6 @@ async fn handle_prompt(
 }
 
 async fn run_repl(config: &config::ResolvedConfig, auto_approve: bool) -> anyhow::Result<()> {
-    // Create provider from configuration
-    let provider = create_provider_from_config(config)?;
-
-    // Create TUI app with project path, set config before provider
-    let mut app = App::with_project_path(std::env::current_dir()?);
-
-    // Set config and auto_approve flag, then set provider (which uses stored config)
-    app.set_config(config.clone());
-    app.set_auto_approve(auto_approve);
-    app.set_provider(provider);
-
-    // Load session if specified
-    if let Some(ref session_name) = config.default_session {
-        if let Err(e) = load_session(&mut app, session_name).await {
-            eprintln!("{} Failed to load session '{}': {}", "⚠".yellow(), session_name, e);
-        }
-    }
-
-    // Auto-index symbol index in background
-    let project_path_str = std::env::current_dir()?.to_string_lossy().to_string();
-    tokio::spawn(async move {
-        match codi::symbol_index::SymbolIndexService::new(&project_path_str).await {
-            Ok(service) => {
-                if let Err(e) = service.build(false).await {
-                    tracing::warn!("Symbol index build failed: {}", e);
-                } else {
-                    tracing::info!("Symbol index built successfully");
-                }
-            }
-            Err(e) => tracing::debug!("Symbol index init skipped: {}", e),
-        }
-    });
-
-    // Run TUI
-    match run_tui(&mut app).await {
-        Ok(_) => Ok(()),
-        Err(e) => Err(anyhow::anyhow!("TUI error: {}", e)),
-    }
-}
-
-async fn load_session(app: &mut App, session_name: &str) -> anyhow::Result<()> {
-    // Try to load by exact name first, then by fuzzy match
-    if let Err(_) = app.load_session(session_name).await {
-        return Err(anyhow::anyhow!("Session not found: {}", session_name));
-    }
-    Ok(())
+    // Use new terminal-style REPL instead of full-screen TUI
+    run_terminal_repl(config, auto_approve).await
 }

@@ -112,75 +112,26 @@ impl Agent {
         self.system_prompt = prompt.into();
     }
 
-    /// Get tool definitions if tools are enabled and supported.
-    fn get_tool_definitions(&self) -> Option<Vec<ToolDefinition>> {
-        if self.config.use_tools && self.provider.supports_tool_use() {
-            Some(self.tool_registry.definitions())
-        } else {
-            None
-        }
+    /// Get the conversation summary if available.
+    pub fn conversation_summary(&self) -> Option<&str> {
+        self.state.conversation_summary.as_deref()
     }
 
-    /// Build the system context including any conversation summary.
-    fn build_system_context(&self) -> String {
-        let mut context = self.system_prompt.clone();
-
-        if let Some(ref summary) = self.state.conversation_summary {
-            context.push_str("\n\n## Previous Conversation Summary\n");
-            context.push_str(summary);
-        }
-
-        context
+    /// Get the number of messages in the conversation.
+    pub fn message_count(&self) -> usize {
+        self.state.messages.len()
     }
 
-    /// Estimate the current token count of all messages.
-    /// Uses the standard approximation of ~4 characters per token.
-    /// Leverages `running_char_count` to avoid re-serializing every message each iteration.
-    fn estimate_tokens(&self) -> usize {
-        let mut total_chars: usize = self.state.running_char_count;
-
-        // Add system prompt + summary (not cached — these are cheap to measure)
-        total_chars += self.system_prompt.len();
-        if let Some(ref summary) = self.state.conversation_summary {
-            total_chars += summary.len();
-        }
-
-        total_chars / 4
+    /// Force context compaction to reduce token usage.
+    /// Returns the number of messages that were summarized.
+    pub fn compact_context(&mut self) -> usize {
+        let msg_count_before = self.state.messages.len();
+        self.compact_context_internal();
+        msg_count_before.saturating_sub(self.state.messages.len())
     }
 
-    /// Count the characters in a message's content.
-    fn message_char_count(&self, msg: &Message) -> usize {
-        match &msg.content {
-            crate::types::MessageContent::Text(s) => s.len(),
-            crate::types::MessageContent::Blocks(blocks) => {
-                blocks.iter().map(|b| {
-                    let mut n = 0;
-                    if let Some(ref t) = b.text { n += t.len(); }
-                    if let Some(ref name) = b.name { n += name.len(); }
-                    if let Some(ref input) = b.input {
-                        n += input.to_string().len();
-                    }
-                    if let Some(ref content) = b.content { n += content.len(); }
-                    n
-                }).sum()
-            }
-        }
-    }
-
-    /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
-    /// Safe for multi-byte UTF-8 (truncates at char boundary).
-    fn truncate_str(s: &str, max_chars: usize) -> String {
-        if s.chars().count() <= max_chars {
-            s.to_string()
-        } else {
-            let truncated: String = s.chars().take(max_chars).collect();
-            format!("{}...", truncated)
-        }
-    }
-
-    /// Compact the conversation context when it exceeds the token limit.
-    /// Keeps the system prompt and recent messages, summarizes older ones.
-    fn compact_context(&mut self) {
+    /// Internal implementation of context compaction.
+    fn compact_context_internal(&mut self) {
         // Notify that compaction is starting
         if let Some(ref on_compaction) = self.callbacks.on_compaction {
             on_compaction(true);
@@ -249,6 +200,72 @@ impl Agent {
         // Notify that compaction is complete
         if let Some(ref on_compaction) = self.callbacks.on_compaction {
             on_compaction(false);
+        }
+    }
+
+    /// Get tool definitions if tools are enabled and supported.
+    fn get_tool_definitions(&self) -> Option<Vec<ToolDefinition>> {
+        if self.config.use_tools && self.provider.supports_tool_use() {
+            Some(self.tool_registry.definitions())
+        } else {
+            None
+        }
+    }
+
+    /// Build the system context including any conversation summary.
+    fn build_system_context(&self) -> String {
+        let mut context = self.system_prompt.clone();
+
+        if let Some(ref summary) = self.state.conversation_summary {
+            context.push_str("\n\n## Previous Conversation Summary\n");
+            context.push_str(summary);
+        }
+
+        context
+    }
+
+    /// Estimate the current token count of all messages.
+    /// Uses the standard approximation of ~4 characters per token.
+    /// Leverages `running_char_count` to avoid re-serializing every message each iteration.
+    fn estimate_tokens(&self) -> usize {
+        let mut total_chars: usize = self.state.running_char_count;
+
+        // Add system prompt + summary (not cached — these are cheap to measure)
+        total_chars += self.system_prompt.len();
+        if let Some(ref summary) = self.state.conversation_summary {
+            total_chars += summary.len();
+        }
+
+        total_chars / 4
+    }
+
+    /// Count the characters in a message's content.
+    fn message_char_count(&self, msg: &Message) -> usize {
+        match &msg.content {
+            crate::types::MessageContent::Text(s) => s.len(),
+            crate::types::MessageContent::Blocks(blocks) => {
+                blocks.iter().map(|b| {
+                    let mut n = 0;
+                    if let Some(ref t) = b.text { n += t.len(); }
+                    if let Some(ref name) = b.name { n += name.len(); }
+                    if let Some(ref input) = b.input {
+                        n += input.to_string().len();
+                    }
+                    if let Some(ref content) = b.content { n += content.len(); }
+                    n
+                }).sum()
+            }
+        }
+    }
+
+    /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+    /// Safe for multi-byte UTF-8 (truncates at char boundary).
+    fn truncate_str(s: &str, max_chars: usize) -> String {
+        if s.chars().count() <= max_chars {
+            s.to_string()
+        } else {
+            let truncated: String = s.chars().take(max_chars).collect();
+            format!("{}...", truncated)
         }
     }
 
