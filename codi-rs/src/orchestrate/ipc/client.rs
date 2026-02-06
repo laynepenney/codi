@@ -458,4 +458,35 @@ mod tests {
         let client = IpcClient::new("/tmp/test.sock", "worker-1");
         assert!(!client.is_cancelled().await);
     }
+
+    #[tokio::test]
+    async fn test_wait_for_handshake_ack_timeout() {
+        let client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let ack = client
+            .wait_for_handshake_ack(Duration::from_millis(1))
+            .await;
+        assert!(ack.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_handshake_ack_returns_value() {
+        let client = IpcClient::new("/tmp/test.sock", "worker-1");
+        {
+            let mut ack = client.handshake_ack.lock().await;
+            *ack = Some(HandshakeAck {
+                accepted: true,
+                auto_approve: Vec::new(),
+                dangerous_patterns: Vec::new(),
+                timeout_ms: 123,
+                reason: None,
+            });
+        }
+
+        let ack = client
+            .wait_for_handshake_ack(Duration::from_millis(20))
+            .await
+            .expect("ack missing");
+        assert!(ack.accepted);
+        assert_eq!(ack.timeout_ms, 123);
+    }
 }
