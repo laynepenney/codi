@@ -115,3 +115,36 @@ fn pipe_name_from_path(path: &Path) -> String {
         format!(r"\\.\pipe\{}", name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_named_pipe_roundtrip() {
+        let pipe_path = Path::new(r"\\.\pipe\codi-ipc-test");
+
+        let listener = bind(pipe_path).await.expect("bind failed");
+
+        let server_task = tokio::spawn(async move {
+            let mut stream = listener.accept().await.expect("accept failed");
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).await.expect("read failed");
+            assert_eq!(&buf, b"hello");
+            stream.write_all(b"world").await.expect("write failed");
+            stream.flush().await.expect("flush failed");
+        });
+
+        let mut client = connect(pipe_path).await.expect("connect failed");
+        client.write_all(b"hello").await.expect("client write failed");
+        client.flush().await.expect("client flush failed");
+
+        let mut buf = [0u8; 5];
+        client.read_exact(&mut buf).await.expect("client read failed");
+        assert_eq!(&buf, b"world");
+
+        server_task.await.expect("server task failed");
+    }
+}
