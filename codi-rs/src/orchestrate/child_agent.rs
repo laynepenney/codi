@@ -15,13 +15,21 @@
 //! 5. Report completion or error
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::agent::{Agent, AgentCallbacks, AgentConfig, AgentOptions, ConfirmationResult, ToolConfirmation};
+use crate::agent::{
+    Agent,
+    AgentCallbacks,
+    AgentConfig,
+    AgentOptions,
+    ConfirmationResult,
+    ToolConfirmation,
+    TurnStats,
+};
 use crate::tools::ToolRegistry;
 use crate::types::TokenUsage;
 use crate::providers::create_provider_from_env;
@@ -129,22 +137,33 @@ impl ChildAgent {
 
         // Report completion
         match &result {
-            Ok(response) => {
+            Ok((response, stats)) => {
                 let mut ipc = ipc.lock().await;
 
                 // Get git stats
                 let commits = child_agent.get_commits().await.unwrap_or_default();
                 let files_changed = child_agent.get_changed_files().await.unwrap_or_default();
+                let (tool_count, usage) = match stats {
+                    Some(stats) => {
+                        let usage = TokenUsage {
+                            input_tokens: stats.input_tokens as u32,
+                            output_tokens: stats.output_tokens as u32,
+                            ..Default::default()
+                        };
+                        (stats.tool_call_count as u32, Some(usage))
+                    }
+                    None => (0, None),
+                };
 
                 let worker_result = WorkerResult {
                     success: true,
                     response: response.clone(),
-                    tool_count: 0, // TODO: Track this
+                    tool_count,
                     duration_ms,
                     commits,
                     files_changed,
                     branch: Some(child_agent.workspace.branch().to_string()),
-                    usage: None, // TODO: Track this
+                    usage,
                 };
 
                 ipc.send_task_complete(worker_result.clone()).await?;
@@ -173,7 +192,10 @@ impl ChildAgent {
     }
 
     /// Execute the task using an agent.
-    async fn execute_task(&mut self, task: &str) -> Result<String, ChildAgentError> {
+    async fn execute_task(
+        &mut self,
+        task: &str,
+    ) -> Result<(String, Option<TurnStats>), ChildAgentError> {
         // Create provider
         let provider = create_provider_from_env()?;
 
@@ -183,6 +205,8 @@ impl ChildAgent {
         // Create agent with IPC-based confirmation
         let ipc = Arc::clone(&self.ipc);
         let auto_approve = self.auto_approve.clone();
+        let turn_stats: Arc<StdMutex<Option<TurnStats>>> = Arc::new(StdMutex::new(None));
+        let turn_stats_capture = Arc::clone(&turn_stats);
 
         let callbacks = AgentCallbacks {
             on_confirm: Some(Arc::new(move |confirmation: ToolConfirmation| {
@@ -232,7 +256,11 @@ impl ChildAgent {
             })),
             on_tool_result: None,
             on_compaction: None,
-            on_turn_complete: None,
+            on_turn_complete: Some(Arc::new(move |stats: &TurnStats| {
+                if let Ok(mut guard) = turn_stats_capture.lock() {
+                    *guard = Some(stats.clone());
+                }
+            })),
             on_stream_event: None,
         };
 
@@ -265,8 +293,9 @@ impl ChildAgent {
         // Execute chat
         let response = agent.chat(task).await
             .map_err(|e| ChildAgentError::Agent(crate::error::AgentError::InvalidState(e.to_string())))?;
+        let stats = turn_stats.lock().ok().and_then(|guard| guard.clone());
 
-        Ok(response)
+        Ok((response, stats))
     }
 
     /// Get commits made in this workspace.
