@@ -3,7 +3,7 @@
 
 //! IPC client for worker agents.
 //!
-//! The client connects to the commander's Unix domain socket and handles
+//! The client connects to the commander's IPC endpoint and handles
 //! bidirectional communication for permission requests and status updates.
 
 use std::collections::HashMap;
@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
@@ -22,6 +21,7 @@ use crate::types::TokenUsage;
 use super::protocol::{
     decode, encode, CommanderMessage, PermissionResult, WorkerMessage,
 };
+use super::transport::{self, IpcStream};
 use super::super::types::{WorkerConfig, WorkerResult, WorkerStatus, WorkspaceInfo};
 
 /// Error type for IPC client operations.
@@ -75,12 +75,12 @@ struct PendingPermission {
 
 /// IPC client for worker-commander communication.
 pub struct IpcClient {
-    /// Path to the Unix socket.
+    /// Path to the IPC endpoint.
     socket_path: PathBuf,
     /// Worker ID.
     worker_id: String,
-    /// Writer half of the socket.
-    writer: Option<tokio::io::WriteHalf<UnixStream>>,
+    /// Writer half of the stream.
+    writer: Option<tokio::io::WriteHalf<IpcStream>>,
     /// Pending permission requests by request ID.
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     /// Channel for cancel signals.
@@ -105,9 +105,9 @@ impl IpcClient {
         }
     }
 
-    /// Connect to the commander's socket.
+    /// Connect to the commander's endpoint.
     pub async fn connect(&mut self) -> Result<(), IpcClientError> {
-        let stream = UnixStream::connect(&self.socket_path).await?;
+        let stream = transport::connect(&self.socket_path).await?;
         let (read_half, write_half) = tokio::io::split(stream);
 
         self.writer = Some(write_half);

@@ -3,7 +3,7 @@
 
 //! IPC protocol for commander-worker communication.
 //!
-//! Uses newline-delimited JSON over Unix domain sockets.
+//! Uses newline-delimited JSON over a platform-specific IPC transport.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

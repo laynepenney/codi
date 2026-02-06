@@ -3,21 +3,21 @@
 
 //! IPC server for the commander.
 //!
-//! The server listens on a Unix domain socket and handles connections
-//! from worker processes.
+//! The server listens on a platform-specific IPC transport and handles
+//! connections from worker processes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
 use super::protocol::{
     decode, encode, CommanderMessage, WorkerMessage,
 };
+use super::transport::{self, IpcListener, IpcStream};
 
 /// Error type for IPC operations.
 #[derive(Debug, thiserror::Error)]
@@ -43,18 +43,18 @@ pub enum IpcError {
 
 /// A connected worker client.
 struct ConnectedWorker {
-    /// Write half of the socket.
-    writer: tokio::io::WriteHalf<UnixStream>,
+    /// Write half of the stream.
+    writer: tokio::io::WriteHalf<IpcStream>,
     /// Worker ID (stored for logging/diagnostics).
     _worker_id: String,
 }
 
 /// IPC server for commander-worker communication.
 pub struct IpcServer {
-    /// Path to the Unix socket.
+    /// Path to the IPC endpoint.
     socket_path: PathBuf,
     /// Listener (set after start).
-    listener: Option<UnixListener>,
+    listener: Option<IpcListener>,
     /// Connected workers by ID.
     workers: Arc<RwLock<HashMap<String, Arc<Mutex<ConnectedWorker>>>>>,
     /// Channel for incoming messages (worker_id, message).
@@ -76,25 +76,14 @@ impl IpcServer {
         }
     }
 
-    /// Get the socket path.
+    /// Get the IPC endpoint path.
     pub fn socket_path(&self) -> &Path {
         &self.socket_path
     }
 
     /// Start the server.
     pub async fn start(&mut self) -> Result<(), IpcError> {
-        // Remove existing socket file if present
-        if self.socket_path.exists() {
-            std::fs::remove_file(&self.socket_path)?;
-        }
-
-        // Create parent directory if needed
-        if let Some(parent) = self.socket_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        // Bind the listener
-        let listener = UnixListener::bind(&self.socket_path)?;
+        let listener = transport::bind(&self.socket_path).await?;
         info!("IPC server listening on {:?}", self.socket_path);
         self.listener = Some(listener);
 
@@ -107,10 +96,7 @@ impl IpcServer {
         let mut workers = self.workers.write().await;
         workers.clear();
 
-        // Remove socket file
-        if self.socket_path.exists() {
-            std::fs::remove_file(&self.socket_path)?;
-        }
+        transport::cleanup(&self.socket_path)?;
 
         self.listener = None;
         info!("IPC server stopped");
@@ -131,7 +117,7 @@ impl IpcServer {
     pub async fn accept(&self) -> Result<String, IpcError> {
         let listener = self.listener.as_ref().ok_or(IpcError::NotStarted)?;
 
-        let (stream, _addr) = listener.accept().await?;
+        let stream = listener.accept().await?;
         debug!("New connection accepted");
 
         let (read_half, write_half) = tokio::io::split(stream);
@@ -177,7 +163,7 @@ impl IpcServer {
 
     /// Background task to read messages from a worker.
     async fn read_worker_messages(
-        mut reader: BufReader<tokio::io::ReadHalf<UnixStream>>,
+        mut reader: BufReader<tokio::io::ReadHalf<IpcStream>>,
         worker_id: String,
         workers: Arc<RwLock<HashMap<String, Arc<Mutex<ConnectedWorker>>>>>,
         tx: mpsc::Sender<(String, WorkerMessage)>,
@@ -269,10 +255,7 @@ impl IpcServer {
 
 impl Drop for IpcServer {
     fn drop(&mut self) {
-        // Clean up socket file
-        if self.socket_path.exists() {
-            let _ = std::fs::remove_file(&self.socket_path);
-        }
+        let _ = transport::cleanup(&self.socket_path);
     }
 }
 
@@ -287,12 +270,15 @@ mod tests {
         let socket_path = dir.path().join("test.sock");
 
         let mut server = IpcServer::new(&socket_path);
+        #[cfg(not(windows))]
         assert!(!socket_path.exists());
 
         server.start().await.unwrap();
+        #[cfg(not(windows))]
         assert!(socket_path.exists());
 
         server.stop().await.unwrap();
+        #[cfg(not(windows))]
         assert!(!socket_path.exists());
     }
 

@@ -8,6 +8,8 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -352,7 +354,7 @@ impl WorkerState {
 /// Configuration for the commander (orchestrator).
 #[derive(Debug, Clone)]
 pub struct CommanderConfig {
-    /// Path to the IPC socket.
+    /// Path to the IPC endpoint.
     pub socket_path: PathBuf,
     /// Maximum number of concurrent workers.
     pub max_workers: usize,
@@ -369,7 +371,8 @@ pub struct CommanderConfig {
 impl CommanderConfig {
     /// Create configuration for a specific project.
     ///
-    /// The socket will be created at `<project_root>/.codi/orchestrator.sock`.
+    /// The endpoint will be created at `<project_root>/.codi/orchestrator.sock` on Unix,
+    /// and a named pipe on Windows.
     pub fn for_project(project_root: &Path) -> Self {
         Self {
             socket_path: socket_path_for_project(project_root),
@@ -384,9 +387,8 @@ impl CommanderConfig {
 
 impl Default for CommanderConfig {
     fn default() -> Self {
-        // Default uses a temp directory for tests
         Self {
-            socket_path: PathBuf::from("/tmp/codi-orchestrator.sock"),
+            socket_path: default_socket_path(),
             max_workers: 4,
             base_branch: "main".to_string(),
             cleanup_on_exit: true,
@@ -398,9 +400,33 @@ impl Default for CommanderConfig {
 
 /// Get the socket path for a project.
 ///
-/// Returns `<project_root>/.codi/orchestrator.sock`.
+/// Returns `<project_root>/.codi/orchestrator.sock` on Unix, and a named pipe
+/// on Windows.
 pub fn socket_path_for_project(project_root: &Path) -> PathBuf {
-    project_root.join(".codi").join("orchestrator.sock")
+    #[cfg(not(windows))]
+    {
+        project_root.join(".codi").join("orchestrator.sock")
+    }
+
+    #[cfg(windows)]
+    {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        project_root.to_string_lossy().hash(&mut hasher);
+        let hash = hasher.finish();
+        PathBuf::from(format!(r"\\.\pipe\codi-orchestrator-{hash:x}"))
+    }
+}
+
+fn default_socket_path() -> PathBuf {
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/tmp/codi-orchestrator.sock")
+    }
+
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"\\.\pipe\codi-orchestrator-default")
+    }
 }
 
 // ============================================================================
@@ -591,17 +617,23 @@ mod tests {
     #[test]
     fn test_commander_config_for_project() {
         let config = CommanderConfig::for_project(Path::new("/workspace/my-project"));
+        #[cfg(not(windows))]
         assert_eq!(
             config.socket_path,
             PathBuf::from("/workspace/my-project/.codi/orchestrator.sock")
         );
+        #[cfg(windows)]
+        assert!(config.socket_path.to_string_lossy().starts_with(r"\\.\pipe\codi-orchestrator-"));
         assert_eq!(config.max_workers, 4);
     }
 
     #[test]
     fn test_socket_path_for_project() {
         let path = socket_path_for_project(Path::new("/home/user/project"));
+        #[cfg(not(windows))]
         assert_eq!(path, PathBuf::from("/home/user/project/.codi/orchestrator.sock"));
+        #[cfg(windows)]
+        assert!(path.to_string_lossy().starts_with(r"\\.\pipe\codi-orchestrator-"));
     }
 
     #[test]
