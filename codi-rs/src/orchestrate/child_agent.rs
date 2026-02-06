@@ -8,7 +8,7 @@
 //!
 //! # Lifecycle
 //!
-//! 1. Connect to commander's IPC socket
+//! 1. Connect to commander's IPC endpoint
 //! 2. Perform handshake with worker config
 //! 3. Execute task with agent loop
 //! 4. Request permissions via IPC when needed

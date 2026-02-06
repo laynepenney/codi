@@ -3,8 +3,8 @@
 
 //! IPC (Inter-Process Communication) module for commander-worker communication.
 //!
-//! This module provides Unix domain socket-based communication between the
-//! commander (orchestrator) and worker (child agent) processes.
+//! This module provides cross-platform IPC between the commander (orchestrator)
+//! and worker (child agent) processes.
 //!
 //! # Architecture
 //!
@@ -12,8 +12,8 @@
 //! ┌─────────────────┐              ┌─────────────────┐
 //! │    Commander    │              │     Worker      │
 //! │                 │              │                 │
-//! │  ┌───────────┐  │    Unix      │  ┌───────────┐  │
-//! │  │  Server   │◄─┼──Socket──────┼──│  Client   │  │
+//! │  ┌───────────┐  │  Socket/     │  ┌───────────┐  │
+//! │  │  Server   │◄─┼──Pipe────────┼──│  Client   │  │
 //! │  └───────────┘  │              │  └───────────┘  │
 //! └─────────────────┘              └─────────────────┘
 //! ```
@@ -22,6 +22,10 @@
 //!
 //! Messages are newline-delimited JSON (NDJSON). Each message is a complete
 //! JSON object followed by a newline character.
+//!
+//! Transport:
+//! - Unix: domain sockets
+//! - Windows: named pipes
 //!
 //! ## Worker → Commander Messages
 //!
@@ -44,6 +48,7 @@
 pub mod protocol;
 pub mod server;
 pub mod client;
+pub mod transport;
 
 pub use protocol::{
     WorkerMessage, CommanderMessage, PermissionResult,

@@ -19,7 +19,7 @@
 //! - **WorkspaceIsolator**: Abstraction for creating isolated workspaces, supporting
 //!   both git worktrees (single repo) and griptrees (multi-repo gitgrip).
 //!
-//! - **IPC**: Unix domain socket-based communication between Commander and workers.
+//! - **IPC**: Cross-platform IPC (Unix domain sockets on Unix, named pipes on Windows).
 //!
 //! # Workspace Isolation
 //!
@@ -78,7 +78,7 @@
 //!
 //! # IPC Protocol
 //!
-//! Communication uses newline-delimited JSON over Unix domain sockets.
+//! Communication uses newline-delimited JSON over a platform-specific IPC transport.
 //!
 //! ## Worker → Commander Messages
 //!
