@@ -2,9 +2,9 @@
 
 Rust implementation of Codi - Your AI coding wingman.
 
-## 🚨 **ALL PHASES COMPLETE!** 🚨
+## Status
 
-The entire Rust implementation of Codi is now **feature-complete**! All roadmap phases have been successfully implemented and integrated.
+Core feature parity with the TypeScript CLI is in place, and ongoing work is tracked in `docs/ROADMAP.md`.
 
 ### What's Now Complete:
 
@@ -24,24 +24,9 @@ The entire Rust implementation of Codi is now **feature-complete**! All roadmap 
 
 ✅ **Multi-Agent Orchestration** - Git worktree-based parallel workers with IPC permission bubbling
 
-✅ **Test Suite** - Comprehensive 440+ test suite ensuring reliability across all components
+✅ **Test Suite** - Comprehensive 500+ test suite ensuring reliability across all components
 
-## Status: All Phases Complete ✅
-
-The migration roadmap has been successfully completed:
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| **0** | Foundation - types, errors, config, CLI shell | ✅ Complete |
-| **1** | Tool layer - file tools, grep, glob, bash | ✅ Complete |
-| **2** | Provider layer - Anthropic, OpenAI, Ollama | ✅ Complete |
-| **3** | Agent loop - core agentic orchestration | ✅ Complete |
-| **4** | Symbol index - tree-sitter based code navigation | ✅ Complete |
-| **5** | RAG system - vector search with embeddings | ✅ Complete |
-| **6** | Terminal UI - ratatui based interface | ✅ Complete |
-| **7** | Multi-agent - IPC-based worker orchestration | ✅ Complete |
-
-This release marks full feature parity with the TypeScript implementation, ending the migration period.
+## Phase Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
