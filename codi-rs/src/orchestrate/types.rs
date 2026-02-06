@@ -38,6 +38,9 @@ pub struct WorkerConfig {
     /// Tools to auto-approve without permission requests.
     #[serde(default)]
     pub auto_approve: Vec<String>,
+    /// Dangerous patterns for tool inputs (passed to workers).
+    #[serde(default)]
+    pub dangerous_patterns: Vec<String>,
     /// Maximum iterations before stopping.
     #[serde(default = "default_max_iterations")]
     pub max_iterations: u32,
@@ -64,6 +67,7 @@ impl WorkerConfig {
             model: None,
             provider: None,
             auto_approve: Vec::new(),
+            dangerous_patterns: Vec::new(),
             max_iterations: default_max_iterations(),
             timeout_ms: default_timeout_ms(),
         }
@@ -84,6 +88,12 @@ impl WorkerConfig {
     /// Set auto-approved tools.
     pub fn with_auto_approve(mut self, tools: Vec<String>) -> Self {
         self.auto_approve = tools;
+        self
+    }
+
+    /// Set dangerous patterns for tool inputs.
+    pub fn with_dangerous_patterns(mut self, patterns: Vec<String>) -> Self {
+        self.dangerous_patterns = patterns;
         self
     }
 

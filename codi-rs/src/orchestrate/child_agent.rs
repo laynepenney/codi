@@ -66,6 +66,8 @@ pub struct ChildAgent {
     workspace: WorkspaceInfo,
     /// Auto-approved tools from handshake.
     auto_approve: Vec<String>,
+    /// Dangerous patterns from handshake.
+    dangerous_patterns: Vec<String>,
     /// Timeout from handshake.
     timeout_ms: u64,
 }
@@ -107,6 +109,7 @@ impl ChildAgent {
 
         let ipc = Arc::new(Mutex::new(ipc));
         let auto_approve = ack.auto_approve.clone();
+        let dangerous_patterns = ack.dangerous_patterns.clone();
 
         // Create agent
         let mut child_agent = Self {
@@ -114,6 +117,7 @@ impl ChildAgent {
             config,
             workspace,
             auto_approve,
+            dangerous_patterns,
             timeout_ms: ack.timeout_ms,
         };
 
@@ -183,7 +187,7 @@ impl ChildAgent {
         let callbacks = AgentCallbacks {
             on_confirm: Some(Arc::new(move |confirmation: ToolConfirmation| {
                 // Check auto-approve list
-                if auto_approve.contains(&confirmation.tool_name) {
+                if !confirmation.is_dangerous && auto_approve.contains(&confirmation.tool_name) {
                     return ConfirmationResult::Approve;
                 }
 
@@ -241,7 +245,7 @@ impl ChildAgent {
             extract_tools_from_text: true,
             auto_approve_all: false,
             auto_approve_tools: self.auto_approve.clone(),
-            dangerous_patterns: Vec::new(),
+            dangerous_patterns: self.dangerous_patterns.clone(),
         };
 
         let mut agent = Agent::new(AgentOptions {

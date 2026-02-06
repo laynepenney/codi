@@ -271,8 +271,21 @@ impl Commander {
                             .unwrap_or(300_000)
                     };
 
+                    let dangerous_patterns = {
+                        let workers = workers.read().await;
+                        workers
+                            .get(&worker_id)
+                            .map(|w| w.config.dangerous_patterns.clone())
+                            .unwrap_or_default()
+                    };
+
                     // Send ack
-                    let ack = CommanderMessage::handshake_ack(true, auto_approve, timeout_ms);
+                    let ack = CommanderMessage::handshake_ack(
+                        true,
+                        auto_approve,
+                        dangerous_patterns,
+                        timeout_ms
+                    );
                     if let Err(e) = self.server.send(&worker_id, &ack).await {
                         error!("Failed to send handshake ack: {}", e);
                     }
