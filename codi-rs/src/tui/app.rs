@@ -1201,7 +1201,12 @@ impl App {
         // Generate worker ID from branch
         let worker_id = branch.replace('/', "-");
 
-        let config = WorkerConfig::new(&worker_id, branch, task);
+        let mut config = WorkerConfig::new(&worker_id, branch, task);
+        if let Some(ref resolved) = self.config {
+            config = config
+                .with_auto_approve(resolved.auto_approve.clone())
+                .with_dangerous_patterns(resolved.dangerous_patterns.clone());
+        }
 
         commander
             .spawn_worker(config)

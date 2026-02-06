@@ -308,6 +308,8 @@ pub enum CommanderMessage {
         accepted: bool,
         /// Tools to auto-approve.
         auto_approve: Vec<String>,
+        /// Dangerous patterns for tool inputs.
+        dangerous_patterns: Vec<String>,
         /// Timeout in milliseconds.
         timeout_ms: u64,
         /// Rejection reason (if not accepted).
@@ -377,12 +379,18 @@ pub enum PermissionResult {
 
 impl CommanderMessage {
     /// Create a handshake acknowledgment.
-    pub fn handshake_ack(accepted: bool, auto_approve: Vec<String>, timeout_ms: u64) -> Self {
+    pub fn handshake_ack(
+        accepted: bool,
+        auto_approve: Vec<String>,
+        dangerous_patterns: Vec<String>,
+        timeout_ms: u64
+    ) -> Self {
         Self::HandshakeAck {
             id: generate_message_id(),
             timestamp: now(),
             accepted,
             auto_approve,
+            dangerous_patterns,
             timeout_ms,
             reason: None,
         }
@@ -395,6 +403,7 @@ impl CommanderMessage {
             timestamp: now(),
             accepted: false,
             auto_approve: Vec::new(),
+            dangerous_patterns: Vec::new(),
             timeout_ms: 0,
             reason: Some(reason.into()),
         }
@@ -577,7 +586,12 @@ mod tests {
 
     #[test]
     fn test_commander_messages() {
-        let ack = CommanderMessage::handshake_ack(true, vec!["read_file".to_string()], 60000);
+        let ack = CommanderMessage::handshake_ack(
+            true,
+            vec!["read_file".to_string()],
+            vec![],
+            60000
+        );
         assert!(ack.is_handshake_ack());
 
         let cancel = CommanderMessage::cancel(Some("User requested".to_string()));

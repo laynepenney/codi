@@ -957,6 +957,28 @@ describe('Agent', () => {
       expect(confirmation.dangerReason).toBeDefined();
     });
 
+    it('requires confirmation for dangerous bash even when auto-approved', async () => {
+      const toolProvider = createMockProvider([
+        mockToolResponse([mockToolCall('bash', { command: 'rm -rf /' })]),
+        mockTextResponse('Dangerous command handled.'),
+      ]);
+
+      const onConfirm = vi.fn().mockResolvedValue('deny' as ConfirmationResult);
+
+      const agent = new Agent({
+        provider: toolProvider,
+        toolRegistry: registry,
+        autoApprove: true,
+        onConfirm,
+      });
+
+      await agent.chat('Delete everything');
+
+      expect(onConfirm).toHaveBeenCalled();
+      const confirmation = onConfirm.mock.calls[0][0] as ToolConfirmation;
+      expect(confirmation.isDangerous).toBe(true);
+    });
+
     it('flags custom dangerous patterns', async () => {
       const toolProvider = createMockProvider([
         mockToolResponse([mockToolCall('bash', { command: 'deploy --prod' })]),
@@ -968,6 +990,32 @@ describe('Agent', () => {
       const agent = new Agent({
         provider: toolProvider,
         toolRegistry: registry,
+        customDangerousPatterns: [
+          { pattern: /deploy --prod/, description: 'Production deployment' },
+        ],
+        onConfirm,
+      });
+
+      await agent.chat('Deploy to prod');
+
+      expect(onConfirm).toHaveBeenCalled();
+      const confirmation = onConfirm.mock.calls[0][0] as ToolConfirmation;
+      expect(confirmation.isDangerous).toBe(true);
+      expect(confirmation.dangerReason).toBe('Production deployment');
+    });
+
+    it('requires confirmation for custom dangerous patterns even when bash is auto-approved', async () => {
+      const toolProvider = createMockProvider([
+        mockToolResponse([mockToolCall('bash', { command: 'deploy --prod' })]),
+        mockTextResponse('Deploy handled.'),
+      ]);
+
+      const onConfirm = vi.fn().mockResolvedValue('deny' as ConfirmationResult);
+
+      const agent = new Agent({
+        provider: toolProvider,
+        toolRegistry: registry,
+        autoApprove: ['bash'],
         customDangerousPatterns: [
           { pattern: /deploy --prod/, description: 'Production deployment' },
         ],
