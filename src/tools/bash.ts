@@ -1,7 +1,7 @@
 // Copyright 2026 Layne Penney
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { BaseTool } from './base.js';
 import type { ToolDefinition } from '../types.js';
 import type { ExecErrorWithOutput } from '../types/extended.js';
@@ -93,8 +93,9 @@ export class BashTool extends BaseTool {
    */
   private execCommand(command: string, cwd: string): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
-      exec(
-        command,
+      execFile(
+        'bash',
+        ['-lc', command],
         {
           cwd,
           timeout: TIMEOUT_MS,
@@ -130,12 +131,12 @@ export class BashTool extends BaseTool {
         return this.stringifyCommand(command);
       }
 
-      if (parts[0] === 'bash' && parts[1] === '-lc') {
+      if (parts[0] === 'bash' && (parts[1] === '-lc' || parts[1] === '-c')) {
         const script = parts.slice(2).join(' ');
         if (!script.trim()) {
           return this.stringifyCommand(parts);
         }
-        return `bash -lc ${JSON.stringify(script)}`;
+        return script;
       }
 
       return parts.join(' ');

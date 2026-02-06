@@ -1060,52 +1060,59 @@ Always use tools to interact with the filesystem rather than asking the user to 
           }
         }
 
-        // Check if this tool requires confirmation
-        let needsConfirmation = !this.shouldAutoApprove(toolCall.name) &&
-          TOOL_CATEGORIES.DESTRUCTIVE.has(toolCall.name) &&
-          this.callbacks.onConfirm;
+        // Check for dangerous bash commands (including custom patterns)
+        let isDangerous = false;
+        let dangerReason: string | undefined;
 
-        // For bash commands, also check approved patterns/categories
-        if (needsConfirmation && toolCall.name === 'bash') {
-          const command = toolCall.input.command as string;
-          if (command && this.shouldAutoApproveBash(command)) {
-            needsConfirmation = false;
-          }
-        }
+        if (toolCall.name === 'bash') {
+          const command = toolCall.input.command as string | undefined;
+          if (command) {
+            // Check built-in dangerous patterns
+            const danger = checkDangerousBash(command);
+            isDangerous = danger.isDangerous;
+            dangerReason = danger.reason;
 
-        // For file tools, also check approved path patterns/categories
-        if (needsConfirmation && Agent.FILE_TOOLS.has(toolCall.name)) {
-          const filePath = toolCall.input.path as string;
-          if (filePath && this.shouldAutoApproveFilePath(toolCall.name, filePath)) {
-            needsConfirmation = false;
-          }
-        }
-
-        if (needsConfirmation) {
-          // Check for dangerous bash commands (including custom patterns)
-          let isDangerous = false;
-          let dangerReason: string | undefined;
-
-          if (toolCall.name === 'bash') {
-            const command = toolCall.input.command as string | undefined;
-            if (command) {
-              // Check built-in dangerous patterns
-              const danger = checkDangerousBash(command);
-              isDangerous = danger.isDangerous;
-              dangerReason = danger.reason;
-
-              // Check custom dangerous patterns if not already flagged
-              if (!isDangerous && this.customDangerousPatterns.length > 0) {
-                for (const { pattern, description } of this.customDangerousPatterns) {
-                  if (pattern.test(command)) {
-                    isDangerous = true;
-                    dangerReason = description;
-                    break;
-                  }
+            // Check custom dangerous patterns if not already flagged
+            if (!isDangerous && this.customDangerousPatterns.length > 0) {
+              for (const { pattern, description } of this.customDangerousPatterns) {
+                if (pattern.test(command)) {
+                  isDangerous = true;
+                  dangerReason = description;
+                  break;
                 }
               }
             }
           }
+        }
+
+        // Check if this tool requires confirmation
+        let needsConfirmation = TOOL_CATEGORIES.DESTRUCTIVE.has(toolCall.name) && this.callbacks.onConfirm;
+
+        if (needsConfirmation) {
+          if (!isDangerous) {
+            if (this.shouldAutoApprove(toolCall.name)) {
+              needsConfirmation = false;
+            }
+
+            // For bash commands, also check approved patterns/categories
+            if (needsConfirmation && toolCall.name === 'bash') {
+              const command = toolCall.input.command as string;
+              if (command && this.shouldAutoApproveBash(command)) {
+                needsConfirmation = false;
+              }
+            }
+
+            // For file tools, also check approved path patterns/categories
+            if (needsConfirmation && Agent.FILE_TOOLS.has(toolCall.name)) {
+              const filePath = toolCall.input.path as string;
+              if (filePath && this.shouldAutoApproveFilePath(toolCall.name, filePath)) {
+                needsConfirmation = false;
+              }
+            }
+          }
+        }
+
+        if (needsConfirmation) {
 
           // Generate diff preview for file operations
           let diffPreview: DiffResult | undefined;
