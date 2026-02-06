@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crossterm::{
-    style::{Color, Print, ResetColor, SetForegroundColor},
+    style::{Color, Print, ResetColor, SetForegroundColor, Stylize},
     ExecutableCommand,
 };
 

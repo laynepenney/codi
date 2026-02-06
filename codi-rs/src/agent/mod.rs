@@ -44,6 +44,8 @@ pub use types::{
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tokio::sync::watch;
+
 use crate::error::{AgentError, Result};
 use crate::types::{
     BoxedProvider, ContentBlock, Message, Role, StreamEvent,
@@ -440,6 +442,27 @@ impl Agent {
     /// Takes a user message, sends it to the model, handles any tool calls,
     /// and returns the final text response.
     pub async fn chat(&mut self, user_message: &str) -> Result<String> {
+        self.chat_with_cancel_internal(user_message, None).await
+    }
+
+    /// The main agentic loop with a cancellation signal.
+    ///
+    /// If `cancel_rx` is triggered, the request short-circuits with
+    /// `AgentError::UserCancelled`.
+    pub async fn chat_with_cancel(
+        &mut self,
+        user_message: &str,
+        cancel_rx: watch::Receiver<bool>,
+    ) -> Result<String> {
+        self.chat_with_cancel_internal(user_message, Some(cancel_rx)).await
+    }
+
+    async fn chat_with_cancel_internal(
+        &mut self,
+        user_message: &str,
+        cancel_rx: Option<watch::Receiver<bool>>,
+    ) -> Result<String> {
+        let mut cancel_rx = cancel_rx;
         let start_time = Instant::now();
         let max_duration = Duration::from_millis(self.config.max_turn_duration_ms);
 
@@ -459,6 +482,12 @@ impl Agent {
 
         // Main loop
         loop {
+            if let Some(rx) = cancel_rx.as_ref() {
+                if *rx.borrow() {
+                    return Err(AgentError::UserCancelled.into());
+                }
+            }
+
             self.state.current_iteration += 1;
 
             // Check iteration limit
@@ -487,23 +516,56 @@ impl Agent {
             let on_stream_event = self.callbacks.on_stream_event.clone();
 
             // Call the provider with streaming
-            let response = self.provider.stream_chat(
-                &self.state.messages,
-                tools.as_deref(),
-                Some(&system_context),
-                Box::new(move |event| {
-                    // Forward raw stream events
-                    if let Some(ref cb) = on_stream_event {
-                        cb(&event);
-                    }
-                    // Fire on_text for text deltas
-                    if let StreamEvent::TextDelta(ref text) = event {
-                        if let Some(ref cb) = on_text {
-                            cb(text);
+            let response = if let Some(rx) = cancel_rx.as_mut() {
+                if *rx.borrow() {
+                    return Err(AgentError::UserCancelled.into());
+                }
+                tokio::select! {
+                    res = self.provider.stream_chat(
+                        &self.state.messages,
+                        tools.as_deref(),
+                        Some(&system_context),
+                        Box::new(move |event| {
+                            // Forward raw stream events
+                            if let Some(ref cb) = on_stream_event {
+                                cb(&event);
+                            }
+                            // Fire on_text for text deltas
+                            if let StreamEvent::TextDelta(ref text) = event {
+                                if let Some(ref cb) = on_text {
+                                    cb(text);
+                                }
+                            }
+                        }),
+                    ) => res?,
+                    _ = rx.changed() => {
+                        if *rx.borrow() {
+                            return Err(AgentError::UserCancelled.into());
                         }
+                        continue;
                     }
-                }),
-            ).await?;
+                }
+            } else {
+                self.provider
+                    .stream_chat(
+                        &self.state.messages,
+                        tools.as_deref(),
+                        Some(&system_context),
+                        Box::new(move |event| {
+                            // Forward raw stream events
+                            if let Some(ref cb) = on_stream_event {
+                                cb(&event);
+                            }
+                            // Fire on_text for text deltas
+                            if let StreamEvent::TextDelta(ref text) = event {
+                                if let Some(ref cb) = on_text {
+                                    cb(text);
+                                }
+                            }
+                        }),
+                    )
+                    .await?
+            };
 
             // Update token stats
             if let Some(ref usage) = response.usage {
@@ -543,7 +605,24 @@ impl Agent {
             }
 
             // Process tool calls
-            match self.process_tool_calls(&response.tool_calls, &mut turn_stats).await {
+            let tool_result = if let Some(rx) = cancel_rx.as_mut() {
+                if *rx.borrow() {
+                    return Err(AgentError::UserCancelled.into());
+                }
+                tokio::select! {
+                    res = self.process_tool_calls(&response.tool_calls, &mut turn_stats) => res,
+                    _ = rx.changed() => {
+                        if *rx.borrow() {
+                            return Err(AgentError::UserCancelled.into());
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                self.process_tool_calls(&response.tool_calls, &mut turn_stats).await
+            };
+
+            match tool_result {
                 Ok((results, has_error)) => {
                     // Add tool results to history
                     self.add_tool_results(results);
@@ -599,6 +678,12 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use tokio::sync::watch;
+    use tokio::time::Duration;
+
+    use crate::error::ProviderError;
+    use crate::types::{Provider, ProviderResponse};
 
     #[test]
     fn test_agent_config_default() {
@@ -734,5 +819,74 @@ mod tests {
         );
         // Invalid pattern should not cause a panic
         assert_eq!(config.matches_dangerous_pattern("hello"), None);
+    }
+
+    struct SlowProvider {
+        delay: Duration,
+    }
+
+    #[async_trait]
+    impl Provider for SlowProvider {
+        async fn chat(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+            _system_prompt: Option<&str>,
+        ) -> std::result::Result<ProviderResponse, ProviderError> {
+            self.stream_chat(_messages, _tools, _system_prompt, Box::new(|_| {}))
+                .await
+        }
+
+        async fn stream_chat(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+            _system_prompt: Option<&str>,
+            on_event: Box<dyn Fn(StreamEvent) + Send + Sync>,
+        ) -> std::result::Result<ProviderResponse, ProviderError> {
+            on_event(StreamEvent::TextDelta("partial".to_string()));
+            tokio::time::sleep(self.delay).await;
+            Ok(ProviderResponse::text("done"))
+        }
+
+        fn supports_tool_use(&self) -> bool {
+            false
+        }
+
+        fn name(&self) -> &str {
+            "slow"
+        }
+
+        fn model(&self) -> &str {
+            "slow-model"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_cancel_returns_user_cancelled() {
+        let provider: BoxedProvider = Box::new(SlowProvider {
+            delay: Duration::from_millis(200),
+        });
+        let registry = Arc::new(ToolRegistry::with_defaults());
+        let mut agent = Agent::new(AgentOptions {
+            provider,
+            tool_registry: registry,
+            system_prompt: None,
+            config: AgentConfig::default(),
+            callbacks: AgentCallbacks::default(),
+        });
+
+        let (tx, rx) = watch::channel(false);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let _ = tx.send(true);
+        });
+
+        let result = agent.chat_with_cancel("hello", rx).await;
+        let err = result.unwrap_err();
+        let cancelled = err
+            .downcast_ref::<AgentError>()
+            .is_some_and(|e| matches!(e, AgentError::UserCancelled));
+        assert!(cancelled);
     }
 }

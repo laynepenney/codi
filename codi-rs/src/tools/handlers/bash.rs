@@ -276,12 +276,44 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn echo_command() -> &'static str {
+        if cfg!(windows) {
+            "echo hello world"
+        } else {
+            "echo 'hello world'"
+        }
+    }
+
+    fn list_command() -> &'static str {
+        if cfg!(windows) {
+            "dir /B"
+        } else {
+            "ls"
+        }
+    }
+
+    fn stderr_command() -> &'static str {
+        if cfg!(windows) {
+            "echo error 1>&2"
+        } else {
+            "echo 'error' >&2"
+        }
+    }
+
+    fn timeout_command() -> &'static str {
+        if cfg!(windows) {
+            "ping -n 5 127.0.0.1 > NUL"
+        } else {
+            "sleep 10"
+        }
+    }
+
     #[tokio::test]
     async fn test_bash_echo() {
         let handler = BashHandler;
         let result = handler
             .execute(serde_json::json!({
-                "command": "echo 'hello world'"
+                "command": echo_command()
             }))
             .await
             .unwrap();
@@ -298,7 +330,7 @@ mod tests {
         let handler = BashHandler;
         let result = handler
             .execute(serde_json::json!({
-                "command": "ls",
+                "command": list_command(),
                 "cwd": temp.path().to_str().unwrap()
             }))
             .await
@@ -327,7 +359,7 @@ mod tests {
         let handler = BashHandler;
         let result = handler
             .execute(serde_json::json!({
-                "command": "echo 'error' >&2"
+                "command": stderr_command()
             }))
             .await
             .unwrap();
@@ -366,7 +398,7 @@ mod tests {
         let handler = BashHandler;
         let result = handler
             .execute(serde_json::json!({
-                "command": "sleep 10",
+                "command": timeout_command(),
                 "timeout": 100  // 100ms timeout
             }))
             .await

@@ -9,10 +9,10 @@ This roadmap focuses on the Rust CLI (`codi-rs`) and its TUI/orchestration stack
 
 ## P0: Stability and Cross-Platform Foundations
 
-1) Cross-platform IPC for multi-agent
-- Replace Unix domain sockets with an IPC abstraction.
-- Implement Windows named pipes (or a transport-agnostic layer).
-- Ensure commander/worker handshake is deterministic with explicit timeouts.
+1) Cross-platform IPC for multi-agent (complete)
+- Transport abstraction with Windows named pipes.
+- Deterministic commander/worker handshake with explicit timeouts.
+- Windows IPC tests for roundtrip + handshake/permission flows.
 
 2) Cancellation and lifecycle correctness
 - Wire the TUI cancel flow to actual worker cancellation.
