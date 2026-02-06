@@ -1020,11 +1020,6 @@ impl App {
         }
     }
 
-    /// Get the auto-approve-all flag value.
-    pub fn auto_approve_all(&self) -> bool {
-        self.auto_approve_all
-    }
-
     /// Compact conversation context by summarizing older messages.
     /// Returns the number of messages that were summarized.
     pub fn compact_conversation(&mut self) -> usize {
