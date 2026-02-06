@@ -37,7 +37,9 @@ export class BashTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<string> {
     const rawCommand = input.command;
-    const command = this.normalizeCommandInput(rawCommand);
+    const normalized = this.normalizeCommandInput(rawCommand);
+    const command = normalized.command;
+    const preferBash = normalized.preferBash;
     const cwd = (input.cwd as string) || process.cwd();
 
     if (!command) {
@@ -54,7 +56,7 @@ export class BashTool extends BaseTool {
     const startTime = Date.now();
 
     try {
-      const result = await this.execCommand(command, cwd);
+      const result = await this.execCommand(command, cwd, preferBash);
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
       return this.formatOutput({
@@ -91,58 +93,94 @@ export class BashTool extends BaseTool {
   /**
    * Execute command and return stdout/stderr.
    */
-  private execCommand(command: string, cwd: string): Promise<{ stdout: string; stderr: string }> {
-    return new Promise((resolve, reject) => {
-      execFile(
-        'bash',
-        ['-lc', command],
-        {
-          cwd,
-          timeout: TIMEOUT_MS,
-          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            // Attach stdout/stderr to error for access in catch block
-            const errorWithOutput = error as ExecErrorWithOutput;
-            errorWithOutput.stdout = stdout;
-            errorWithOutput.stderr = stderr;
-            reject(errorWithOutput);
-          } else {
-            resolve({ stdout, stderr });
+  private async execCommand(
+    command: string,
+    cwd: string,
+    preferBash: boolean
+  ): Promise<{ stdout: string; stderr: string }> {
+    const run = (file: string, args: string[]) =>
+      new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        execFile(
+          file,
+          args,
+          {
+            cwd,
+            timeout: TIMEOUT_MS,
+            maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+          },
+          (error, stdout, stderr) => {
+            if (error) {
+              // Attach stdout/stderr to error for access in catch block
+              const errorWithOutput = error as ExecErrorWithOutput;
+              errorWithOutput.stdout = stdout;
+              errorWithOutput.stderr = stderr;
+              reject(errorWithOutput);
+            } else {
+              resolve({ stdout, stderr });
+            }
           }
+        );
+      });
+
+    const isWindows = process.platform === 'win32';
+
+    if (isWindows) {
+      const windowsShell = process.env.ComSpec || 'cmd.exe';
+      if (preferBash) {
+        try {
+          return await run('bash', ['-lc', command]);
+        } catch (error) {
+          if (this.isCommandNotFound(error)) {
+            return await run(windowsShell, ['/C', command]);
+          }
+          throw error;
         }
-      );
-    });
+      }
+      return await run(windowsShell, ['/C', command]);
+    }
+
+    try {
+      return await run('bash', ['-lc', command]);
+    } catch (error) {
+      if (this.isCommandNotFound(error)) {
+        return await run('sh', ['-c', command]);
+      }
+      throw error;
+    }
   }
 
-  private normalizeCommandInput(command: unknown): string | null {
+  private normalizeCommandInput(command: unknown): { command: string | null; preferBash: boolean } {
     if (command === null || command === undefined) {
-      return null;
+      return { command: null, preferBash: false };
     }
 
     if (typeof command === 'string') {
-      return command;
+      return { command, preferBash: false };
     }
 
     if (Array.isArray(command)) {
       const parts = command.filter((part): part is string => typeof part === 'string' && part.trim() !== '');
       if (parts.length === 0) {
-        return this.stringifyCommand(command);
+        return { command: this.stringifyCommand(command), preferBash: false };
       }
 
-      if (parts[0] === 'bash' && (parts[1] === '-lc' || parts[1] === '-c')) {
-        const script = parts.slice(2).join(' ');
+      if (parts[0] === 'bash') {
+        const startIndex = (parts[1] === '-lc' || parts[1] === '-c') ? 2 : 1;
+        const script = parts.slice(startIndex).join(' ');
         if (!script.trim()) {
-          return this.stringifyCommand(parts);
+          return { command: this.stringifyCommand(parts), preferBash: true };
         }
-        return script;
+        return { command: script, preferBash: true };
       }
 
-      return parts.join(' ');
+      return { command: parts.join(' '), preferBash: false };
     }
 
-    return this.stringifyCommand(command);
+    return { command: this.stringifyCommand(command), preferBash: false };
+  }
+
+  private isCommandNotFound(error: unknown): boolean {
+    return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
   }
 
   private stringifyCommand(command: unknown): string {

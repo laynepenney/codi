@@ -13,8 +13,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{mpsc, oneshot, Mutex, Notify};
-use tokio::time::timeout;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
 use crate::agent::ToolConfirmation;
@@ -90,8 +89,6 @@ pub struct IpcClient {
     cancelled: Arc<Mutex<bool>>,
     /// Latest handshake acknowledgement.
     handshake_ack: Arc<Mutex<Option<HandshakeAck>>>,
-    /// Notifies when a handshake ack arrives.
-    handshake_notify: Arc<Notify>,
 }
 
 impl IpcClient {
@@ -105,7 +102,6 @@ impl IpcClient {
             cancel_tx: None,
             cancelled: Arc::new(Mutex::new(false)),
             handshake_ack: Arc::new(Mutex::new(None)),
-            handshake_notify: Arc::new(Notify::new()),
         }
     }
 
@@ -123,7 +119,6 @@ impl IpcClient {
         self.cancel_tx = Some(cancel_tx);
 
         let handshake_ack = Arc::clone(&self.handshake_ack);
-        let handshake_notify = Arc::clone(&self.handshake_notify);
 
         tokio::spawn(async move {
             let mut reader = BufReader::new(read_half);
@@ -143,8 +138,7 @@ impl IpcClient {
                                         msg,
                                         &pending,
                                         &cancelled,
-                                        &handshake_ack,
-                                        &handshake_notify
+                                        &handshake_ack
                                     ).await;
                                 }
                                 line.clear();
@@ -173,7 +167,6 @@ impl IpcClient {
         pending: &Arc<Mutex<HashMap<String, PendingPermission>>>,
         cancelled: &Arc<Mutex<bool>>,
         handshake_ack: &Arc<Mutex<Option<HandshakeAck>>>,
-        handshake_notify: &Arc<Notify>,
     ) {
         match msg {
             CommanderMessage::HandshakeAck {
@@ -192,7 +185,6 @@ impl IpcClient {
                     timeout_ms,
                     reason,
                 });
-                handshake_notify.notify_waiters();
             }
             CommanderMessage::PermissionResponse { request_id, result, .. } => {
                 let mut pending = pending.lock().await;
@@ -244,56 +236,44 @@ impl IpcClient {
         writer.write_all(encoded.as_bytes()).await?;
         writer.flush().await?;
 
-        // Wait for handshake ack (with timeout)
-        let ack = {
-            if let Some(existing) = self.handshake_ack.lock().await.take() {
-                existing
-            } else {
-                let notified = self.handshake_notify.notified();
-                let ack_result = timeout(Duration::from_secs(5), notified).await;
-                if ack_result.is_err() {
-                    return Err(IpcClientError::HandshakeFailed(
-                        "Timed out waiting for handshake ack".to_string()
-                    ));
-                }
-                self.handshake_ack
-                    .lock()
-                    .await
-                    .take()
-                    .ok_or_else(|| {
-                        IpcClientError::HandshakeFailed(
-                            "Handshake ack missing after notification".to_string()
-                        )
-                    })?
+        let ack = self.handshake_ack.lock().await.take();
+
+        if let Some(ack) = ack {
+            if !ack.accepted {
+                return Err(IpcClientError::HandshakeFailed(
+                    ack.reason.unwrap_or_else(|| "Handshake rejected".to_string())
+                ));
             }
-        };
 
-        if !ack.accepted {
-            return Err(IpcClientError::HandshakeFailed(
-                ack.reason.unwrap_or_else(|| "Handshake rejected".to_string())
-            ));
+            // If commander didn't provide values, fall back to local config
+            let auto_approve = if ack.auto_approve.is_empty() {
+                config.auto_approve.clone()
+            } else {
+                ack.auto_approve
+            };
+            let dangerous_patterns = if ack.dangerous_patterns.is_empty() {
+                config.dangerous_patterns.clone()
+            } else {
+                ack.dangerous_patterns
+            };
+            let timeout_ms = if ack.timeout_ms == 0 { config.timeout_ms } else { ack.timeout_ms };
+
+            Ok(HandshakeAck {
+                accepted: true,
+                auto_approve,
+                dangerous_patterns,
+                timeout_ms,
+                reason: None,
+            })
+        } else {
+            Ok(HandshakeAck {
+                accepted: true,
+                auto_approve: config.auto_approve.clone(),
+                dangerous_patterns: config.dangerous_patterns.clone(),
+                timeout_ms: config.timeout_ms,
+                reason: None,
+            })
         }
-
-        // If commander didn't provide values, fall back to local config
-        let auto_approve = if ack.auto_approve.is_empty() {
-            config.auto_approve.clone()
-        } else {
-            ack.auto_approve
-        };
-        let dangerous_patterns = if ack.dangerous_patterns.is_empty() {
-            config.dangerous_patterns.clone()
-        } else {
-            ack.dangerous_patterns
-        };
-        let timeout_ms = if ack.timeout_ms == 0 { config.timeout_ms } else { ack.timeout_ms };
-
-        Ok(HandshakeAck {
-            accepted: true,
-            auto_approve,
-            dangerous_patterns,
-            timeout_ms,
-            reason: None,
-        })
     }
 
     /// Request permission for a tool operation.
