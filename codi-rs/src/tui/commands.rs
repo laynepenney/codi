@@ -584,15 +584,38 @@ fn handle_compact(app: &mut App, args: &str) -> CommandResult {
     match args {
         "status" | "" => {
             // Show current context status
+            let msg_count = app.messages.len();
+            let summary_status = if app.has_conversation_summary() {
+                " (with summary)"
+            } else {
+                ""
+            };
+            
             app.status = Some(format!(
-                "Context: {} messages",
-                app.messages.len()
+                "Context: {} messages{}",
+                msg_count, summary_status
             ));
             CommandResult::Ok
         }
         "summarize" => {
-            // TODO: Implement context summarization
-            app.status = Some("Context summarization not yet implemented".to_string());
+            // Trigger context summarization
+            let summarized = app.compact_conversation();
+            if summarized > 0 {
+                let remaining = app.messages.len();
+                app.status = Some(format!(
+                    "Context summarized: {} older messages condensed, {} messages retained",
+                    summarized, remaining
+                ));
+            } else if !app.has_agent() {
+                app.status = Some("No agent available to summarize context".to_string());
+            } else if app.messages.len() <= 10 {
+                app.status = Some(format!(
+                    "Not enough messages to summarize ({} messages, need > 10)",
+                    app.messages.len()
+                ));
+            } else {
+                app.status = Some("Context already summarized".to_string());
+            }
             CommandResult::Ok
         }
         _ => {
@@ -614,17 +637,100 @@ fn handle_model(app: &mut App, args: &str) -> CommandResult {
         }
         CommandResult::Ok
     } else {
-        // TODO: Implement model switching
-        app.status = Some(format!("Model switching not yet implemented. Requested: {}", args));
-        CommandResult::Ok
+        // Parse provider and optional model
+        let parts: Vec<&str> = args.splitn(2, ' ').collect();
+        let provider = parts[0].to_lowercase();
+        let model = parts.get(1).map(|m| m.to_string());
+        
+        // Validate provider
+        match provider.as_str() {
+            "anthropic" | "claude" | "openai" | "gpt" | "ollama" => {
+                // Update config
+                app.update_config(provider.clone(), model.clone());
+                
+                let model_msg = model.as_ref().map(|m| format!(" with model {}", m))
+                    .unwrap_or_else(|| " with default model".to_string());
+                
+                app.status = Some(format!("Switched to {}{}. Provider will be updated on next message.", provider, model_msg));
+                CommandResult::Ok
+            }
+            _ => {
+                app.status = Some(format!("Unknown provider: {}. Valid providers: anthropic, openai, ollama", provider));
+                CommandResult::Error(format!("Unknown provider: {}", provider))
+            }
+        }
     }
 }
 
 /// Handle /models command - list available models.
 fn handle_models(app: &mut App) -> CommandResult {
-    // TODO: Implement model listing
-    app.status = Some("Model listing not yet implemented".to_string());
+    use crate::providers::{get_available_models, is_provider_available};
+    
+    let models = get_available_models();
+    let current_info = app.get_current_model_info();
+    
+    let mut output = Vec::new();
+    output.push("Available Models:\n".to_string());
+    
+    // Group by provider
+    let mut current_provider: Option<String> = None;
+    for model in &models {
+        // New provider section
+        if current_provider.as_ref() != Some(&model.provider.to_string()) {
+            current_provider = Some(model.provider.to_string());
+            output.push(format!("\n{}:", model.provider.to_uppercase()));
+            
+            // Show availability
+            if is_provider_available(model.provider) {
+                output.push(" ✓ (configured)".to_string());
+            } else {
+                output.push(" ⚠ (not configured)".to_string());
+            }
+        }
+        
+        // Mark current model
+        let is_current = current_info.as_ref()
+            .map(|(p, m)| {
+                let current_model_lower = m.as_ref().map(|m| m.to_lowercase());
+                p.to_lowercase() == model.provider.to_lowercase() &&
+                current_model_lower.map(|cm| cm == model.model_id.to_lowercase())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        
+        let marker = if is_current { "→ " } else { "  " };
+        
+        output.push(format!(
+            "{}{} ({}): {} [context: {}]",
+            marker,
+            model.name,
+            model.model_id,
+            model.description,
+            format_context_window(model.context_window)
+        ));
+        
+        // Show capabilities
+        let mut caps = Vec::new();
+        if model.supports_tools { caps.push("tools"); }
+        if model.supports_vision { caps.push("vision"); }
+        if !caps.is_empty() {
+            output.push(format!("    Supports: {}", caps.join(", ")));
+        }
+    }
+    
+    app.status = Some(output.join("\n"));
     CommandResult::Ok
+}
+
+/// Format context window size for display.
+fn format_context_window(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{}M", tokens / 1_000_000)
+    } else if tokens >= 1_000 {
+        format!("{}k", tokens / 1_000)
+    } else {
+        tokens.to_string()
+    }
 }
 
 /// Handle /session commands.
