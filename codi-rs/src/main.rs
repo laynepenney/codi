@@ -75,8 +75,8 @@ struct Cli {
     #[arg(short = 'y', long)]
     yes: bool,
 
-    /// Show verbose output
-    #[arg(long)]
+    /// Show verbose output (enables tool call visibility)
+    #[arg(short = 'v', long)]
     verbose: bool,
 
     /// Show debug output
@@ -234,7 +234,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Start interactive REPL
-    run_repl(&config, cli.yes).await
+    run_repl(&config, cli.yes, cli.verbose).await
 }
 
 async fn handle_command(command: Commands) -> anyhow::Result<()> {
@@ -495,7 +495,17 @@ async fn handle_prompt(
     Ok(())
 }
 
-async fn run_repl(config: &config::ResolvedConfig, auto_approve: bool) -> anyhow::Result<()> {
+async fn run_repl(config: &config::ResolvedConfig, auto_approve: bool, verbose: bool) -> anyhow::Result<()> {
     // Use new terminal-style REPL instead of full-screen TUI
-    run_terminal_repl(config, auto_approve).await
+    // Pass verbose flag to enable tool visibility
+    let debug_mode = verbose || std::env::var("CODI_DEBUG").is_ok();
+    run_terminal_repl(config, auto_approve, debug_mode).await
+}
+
+async fn load_session(app: &mut App, session_name: &str) -> anyhow::Result<()> {
+    // Try to load by exact name first, then by fuzzy match
+    if let Err(_) = app.load_session(session_name).await {
+        return Err(anyhow::anyhow!("Session not found: {}", session_name));
+    }
+    Ok(())
 }
