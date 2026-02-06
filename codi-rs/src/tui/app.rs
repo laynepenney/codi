@@ -310,6 +310,11 @@ impl App {
         self.auto_approve_all = auto_approve;
     }
 
+    /// Get the auto-approve-all flag value.
+    pub fn auto_approve_all(&self) -> bool {
+        self.auto_approve_all
+    }
+
     /// Build an `AgentConfig` from the stored `ResolvedConfig`, or use defaults.
     fn build_agent_config(&self) -> AgentConfig {
         if let Some(ref config) = self.config {
@@ -1013,11 +1018,6 @@ impl App {
         } else {
             String::new()
         }
-    }
-
-    /// Get the auto-approve-all flag value.
-    pub fn auto_approve_all(&self) -> bool {
-        self.auto_approve_all
     }
 
     /// Compact conversation context by summarizing older messages.

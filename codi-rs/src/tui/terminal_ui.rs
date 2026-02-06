@@ -31,14 +31,13 @@ use super::commands::{execute_async_command, handle_command, CommandResult};
 pub async fn run_terminal_repl(
     config: &ResolvedConfig,
     auto_approve: bool,
+    debug_mode: bool,
 ) -> anyhow::Result<()> {
     // Print welcome banner
     print_welcome(config)?;
     
-    // Check if debug mode is enabled via environment variable
-    let debug_mode = std::env::var("CODI_DEBUG").is_ok();
     if debug_mode {
-        println!("{} Debug mode enabled - tool calls will be shown", "⚙".yellow());
+        println!("⚙  Debug mode enabled - tool calls will be shown");
         println!();
     }
     
@@ -64,9 +63,9 @@ pub async fn run_terminal_repl(
                     if trimmed == "/debug" {
                         app.debug_mode = !app.debug_mode;
                         if app.debug_mode {
-                            println!("{} Debug mode enabled - tool calls will be shown", "⚙".yellow());
+                            println!("⚙  Debug mode enabled - tool calls will be shown");
                         } else {
-                            println!("{} Debug mode disabled", "⚙".yellow());
+                            println!("⚙  Debug mode disabled");
                         }
                         continue;
                     }
@@ -265,12 +264,9 @@ impl TerminalApp {
                     println!();
                     print_tool_start(&name);
                 }
-                StreamEvent::ToolResult(_result, is_error) => {
-                    if is_error {
-                        print_tool_error();
-                    } else {
-                        print_tool_success();
-                    }
+                StreamEvent::ToolResult(result, is_error) => {
+                    // Show result in debug mode
+                    print_tool_result(&result, is_error);
                 }
                 StreamEvent::TurnComplete(_stats) => {
                     break;
@@ -361,31 +357,42 @@ fn print_tool_start(name: &str) {
     let _ = stdout.flush();
 }
 
-fn print_tool_success() {
+fn print_tool_result(result: &str, is_error: bool) {
     use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
     use crossterm::ExecutableCommand;
     use std::io::{self, Write};
     
     let mut stdout = io::stdout();
-    let _ = stdout.execute(Print("\r"));
-    let _ = stdout.execute(SetForegroundColor(Color::Green));
-    let _ = stdout.execute(Print("✓ Completed"));
-    let _ = stdout.execute(ResetColor);
-    let _ = stdout.execute(Print("\n"));
-    let _ = stdout.flush();
-}
-
-fn print_tool_error() {
-    use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
-    use crossterm::ExecutableCommand;
-    use std::io::{self, Write};
     
-    let mut stdout = io::stdout();
-    let _ = stdout.execute(Print("\r"));
-    let _ = stdout.execute(SetForegroundColor(Color::Red));
-    let _ = stdout.execute(Print("✗ Failed"));
+    // Truncate very long results
+    let display_result = if result.len() > 500 {
+        format!("{}... [truncated {} more chars]", &result[..500], result.len() - 500)
+    } else {
+        result.to_string()
+    };
+    
+    // Format as indented JSON if possible
+    let formatted = if let Ok(json) = serde_json::from_str::<serde_json::Value>(result) {
+        serde_json::to_string_pretty(&json).unwrap_or_else(|_| display_result)
+    } else {
+        display_result
+    };
+    
+    println!();
+    
+    if is_error {
+        let _ = stdout.execute(SetForegroundColor(Color::Red));
+        let _ = stdout.execute(Print("✗ Failed:\n"));
+    } else {
+        let _ = stdout.execute(SetForegroundColor(Color::Green));
+        let _ = stdout.execute(Print("✓ Result:\n"));
+    }
     let _ = stdout.execute(ResetColor);
-    let _ = stdout.execute(Print("\n"));
+    
+    // Print indented result
+    for line in formatted.lines() {
+        let _ = stdout.execute(Print(format!("  {}\n", line)));
+    }
     let _ = stdout.flush();
 }
 
