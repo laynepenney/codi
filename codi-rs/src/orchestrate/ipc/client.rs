@@ -236,7 +236,9 @@ impl IpcClient {
         writer.write_all(encoded.as_bytes()).await?;
         writer.flush().await?;
 
-        let ack = self.handshake_ack.lock().await.take();
+        let ack = self
+            .wait_for_handshake_ack(Duration::from_secs(2))
+            .await;
 
         if let Some(ack) = ack {
             if !ack.accepted {
@@ -266,6 +268,7 @@ impl IpcClient {
                 reason: None,
             })
         } else {
+            warn!("Handshake ack not received; using local config defaults");
             Ok(HandshakeAck {
                 accepted: true,
                 auto_approve: config.auto_approve.clone(),
@@ -273,6 +276,22 @@ impl IpcClient {
                 timeout_ms: config.timeout_ms,
                 reason: None,
             })
+        }
+    }
+
+    async fn wait_for_handshake_ack(&self, timeout: Duration) -> Option<HandshakeAck> {
+        match tokio::time::timeout(timeout, async {
+            loop {
+                if let Some(ack) = self.handshake_ack.lock().await.take() {
+                    return ack;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        {
+            Ok(ack) => Some(ack),
+            Err(_) => None,
         }
     }
 
