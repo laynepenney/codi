@@ -170,6 +170,14 @@ mod tests {
         assert!(dir.ends_with(".codi"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn test_global_config_dir_windows() {
+        let home = dirs::home_dir().expect("home dir");
+        let expected = home.join(GLOBAL_CONFIG_DIR);
+        assert_eq!(get_global_config_dir().unwrap(), expected);
+    }
+
     #[test]
     fn test_load_workspace_config_not_found() {
         let temp = TempDir::new().unwrap();

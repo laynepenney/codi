@@ -8,10 +8,11 @@ use std::path::Path;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub trait IpcStreamTrait: AsyncRead + AsyncWrite {}
-impl<T: AsyncRead + AsyncWrite> IpcStreamTrait for T {}
+pub trait IpcIo: AsyncRead + AsyncWrite + Unpin + Send {}
 
-pub type IpcStream = Box<dyn IpcStreamTrait + Unpin + Send>;
+impl<T> IpcIo for T where T: AsyncRead + AsyncWrite + Unpin + Send {}
+
+pub type IpcStream = Box<dyn IpcIo>;
 
 #[cfg(unix)]
 use tokio::net::UnixListener;

@@ -10,14 +10,14 @@ use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::text::Line;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::agent::{
     Agent, AgentCallbacks, AgentConfig, AgentOptions,
     ConfirmationResult, ToolConfirmation, TurnStats,
 };
 use crate::config::ResolvedConfig;
-use crate::error::{Result as CodiResult, ToolError};
+use crate::error::{AgentError, Result as CodiResult, ToolError};
 use crate::completion::{complete_line, get_completion_matches};
 use crate::orchestrate::{Commander, CommanderConfig, WorkerConfig, WorkerStatus, WorkspaceInfo, PermissionResult};
 use crate::session::{Session, SessionInfo, SessionService};
@@ -220,6 +220,10 @@ pub struct App {
     // Background agent task
     /// Receiver for agent returning from a background chat task.
     pending_agent: Option<tokio::sync::oneshot::Receiver<(Agent, CodiResult<String>)>>,
+    /// Cancellation signal for the in-flight agent task.
+    pending_agent_cancel: Option<watch::Sender<bool>>,
+    /// Whether a cancel request is in flight.
+    cancel_requested: bool,
     // Tool execution visualization
     /// Manager for tool execution cells.
     pub exec_cells: crate::tui::components::ExecCellManager,
@@ -272,6 +276,8 @@ impl App {
             config: None,
             auto_approve_all: false,
             pending_agent: None,
+            pending_agent_cancel: None,
+            cancel_requested: false,
             exec_cells: crate::tui::components::ExecCellManager::new(),
             commander: None,
             pending_worker_permissions: Vec::new(),
@@ -433,23 +439,44 @@ impl App {
                 Ok((agent, result)) => {
                     self.agent = Some(agent);
                     self.pending_agent = None;
+                    self.pending_agent_cancel = None;
+                    self.cancel_requested = false;
                     match result {
                         Ok(_) => {
                             // Response was streamed via callbacks; TurnComplete will finalize
                         }
                         Err(e) => {
-                            self.status = Some(format!("Error: {}", e));
-                            self.mode = AppMode::Normal;
-                            self.finalize_streaming();
+                            let cancelled = e
+                                .downcast_ref::<AgentError>()
+                                .is_some_and(|err| matches!(err, AgentError::UserCancelled));
+                            if cancelled {
+                                self.status = Some("Cancelled".to_string());
+                                self.mode = AppMode::Normal;
+                                self.turn_start_time = None;
+                                self.finalize_streaming();
+                            } else {
+                                self.status = Some(format!("Error: {}", e));
+                                self.mode = AppMode::Normal;
+                                self.finalize_streaming();
+                            }
                         }
                     }
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Task panicked or was dropped
                     self.pending_agent = None;
-                    self.status = Some("Agent task failed unexpectedly".to_string());
-                    self.mode = AppMode::Normal;
-                    self.finalize_streaming();
+                    self.pending_agent_cancel = None;
+                    if self.cancel_requested {
+                        self.status = Some("Cancelled".to_string());
+                        self.mode = AppMode::Normal;
+                        self.turn_start_time = None;
+                        self.finalize_streaming();
+                    } else {
+                        self.status = Some("Agent task failed unexpectedly".to_string());
+                        self.mode = AppMode::Normal;
+                        self.finalize_streaming();
+                    }
+                    self.cancel_requested = false;
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
                     // Still running, keep waiting
@@ -524,6 +551,10 @@ impl App {
 
     /// Handle text delta from streaming.
     fn handle_text_delta(&mut self, text: &str) {
+        if self.cancel_requested {
+            return;
+        }
+
         // Initialize stream controller if needed
         if self.stream_controller.is_none() {
             let width = self.terminal_width.map(|w| (w.saturating_sub(4)) as usize);
@@ -832,9 +863,19 @@ impl App {
     /// Handle key while waiting for response.
     fn handle_waiting_key(&mut self, key: KeyCode) {
         if key == KeyCode::Esc {
-            // Cancel request (TODO: actually cancel)
-            self.mode = AppMode::Normal;
-            self.status = Some("Cancelled".to_string());
+            self.request_cancel();
+        }
+    }
+
+    fn request_cancel(&mut self) {
+        if self.cancel_requested {
+            return;
+        }
+
+        if let Some(tx) = self.pending_agent_cancel.as_ref() {
+            let _ = tx.send(true);
+            self.cancel_requested = true;
+            self.status = Some("Cancelling...".to_string());
             self.finalize_streaming();
         }
     }
@@ -902,9 +943,12 @@ impl App {
 
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         self.pending_agent = Some(rx);
+                        let (cancel_tx, cancel_rx) = watch::channel(false);
+                        self.pending_agent_cancel = Some(cancel_tx);
+                        self.cancel_requested = false;
 
                         tokio::spawn(async move {
-                            let result = agent.chat(&prompt).await;
+                            let result = agent.chat_with_cancel(&prompt, cancel_rx).await;
                             let _ = tx.send((agent, result));
                         });
                     }
@@ -928,10 +972,13 @@ impl App {
             // Create a oneshot channel to get the agent back when done
             let (tx, rx) = tokio::sync::oneshot::channel();
             self.pending_agent = Some(rx);
+            let (cancel_tx, cancel_rx) = watch::channel(false);
+            self.pending_agent_cancel = Some(cancel_tx);
+            self.cancel_requested = false;
 
             // Spawn the agent chat on a background task
             tokio::spawn(async move {
-                let result = agent.chat(&input).await;
+                let result = agent.chat_with_cancel(&input, cancel_rx).await;
                 // Send the agent and result back (ignore error if receiver dropped)
                 let _ = tx.send((agent, result));
             });
