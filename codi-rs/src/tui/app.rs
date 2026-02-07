@@ -440,10 +440,10 @@ impl App {
                     self.agent = Some(agent);
                     self.pending_agent = None;
                     self.pending_agent_cancel = None;
-                    self.cancel_requested = false;
                     match result {
                         Ok(_) => {
                             // Response was streamed via callbacks; TurnComplete will finalize
+                            self.cancel_requested = false;
                         }
                         Err(e) => {
                             let cancelled = e
@@ -454,7 +454,9 @@ impl App {
                                 self.mode = AppMode::Normal;
                                 self.turn_start_time = None;
                                 self.finalize_streaming();
+                                // Leave cancel_requested set until the next request starts.
                             } else {
+                                self.cancel_requested = false;
                                 self.status = Some(format!("Error: {}", e));
                                 self.mode = AppMode::Normal;
                                 self.finalize_streaming();
@@ -472,11 +474,11 @@ impl App {
                         self.turn_start_time = None;
                         self.finalize_streaming();
                     } else {
+                        self.cancel_requested = false;
                         self.status = Some("Agent task failed unexpectedly".to_string());
                         self.mode = AppMode::Normal;
                         self.finalize_streaming();
                     }
-                    self.cancel_requested = false;
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
                     // Still running, keep waiting
