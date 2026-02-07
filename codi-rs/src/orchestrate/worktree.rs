@@ -218,12 +218,15 @@ impl WorkspaceIsolator for GitWorktreeIsolator {
         // git worktree add -b <branch> <path> <base>
         info!("Creating worktree for {} at {:?}", branch, worktree_path);
 
+        // Convert path to string for git command
+        let worktree_path_str = worktree_path.to_string_lossy().to_string();
+        
         let result = if self.branch_exists(branch).await {
             // Branch exists, just add worktree
             self.git(&[
                 "worktree",
                 "add",
-                worktree_path.to_str().unwrap(),
+                &worktree_path_str,
                 branch,
             ])
             .await
@@ -234,7 +237,7 @@ impl WorkspaceIsolator for GitWorktreeIsolator {
                 "add",
                 "-b",
                 branch,
-                worktree_path.to_str().unwrap(),
+                &worktree_path_str,
                 base_branch,
             ])
             .await
@@ -269,8 +272,9 @@ impl WorkspaceIsolator for GitWorktreeIsolator {
             info!("Removing worktree for {} at {:?}", branch, path);
 
             // Remove worktree
+            let path_str = path.to_string_lossy().to_string();
             let result = self
-                .git(&["worktree", "remove", "--force", path.to_str().unwrap()])
+                .git(&["worktree", "remove", "--force", &path_str])
                 .await;
 
             if let Err(e) = result {

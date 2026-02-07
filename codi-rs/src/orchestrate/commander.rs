@@ -194,7 +194,7 @@ impl Commander {
         let process = Command::new(&exe)
             .arg("--child-mode")
             .arg("--socket-path")
-            .arg(self.config.socket_path.to_str().unwrap())
+            .arg(self.config.socket_path.as_os_str())
             .arg("--child-id")
             .arg(&config.id)
             .arg("--child-task")
