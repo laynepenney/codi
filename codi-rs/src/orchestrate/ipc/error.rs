@@ -80,6 +80,26 @@ pub enum IpcError {
     /// General transport error.
     #[error("Transport error: {0}")]
     Transport(String),
+
+    /// Worker is not connected.
+    #[error("Worker not connected: {0}")]
+    WorkerNotConnected(String),
+
+    /// Invalid handshake message received.
+    #[error("Invalid handshake")]
+    InvalidHandshake,
+
+    /// Channel closed unexpectedly.
+    #[error("Channel closed")]
+    ChannelClosed,
+
+    /// Server has not been started.
+    #[error("Server not started")]
+    NotStarted,
+
+    /// Serialization error.
+    #[error("Serialization error: {0}")]
+    Serialization(String),
 }
 
 impl IpcError {

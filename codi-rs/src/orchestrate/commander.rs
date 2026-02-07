@@ -46,7 +46,7 @@ use tracing::{debug, error, info, warn};
 
 use super::isolation::{detect_isolator, IsolationError, WorkspaceIsolator};
 use super::ipc::{
-    CommanderMessage, IpcServer, PermissionResult, WorkerMessage,
+    CommanderMessage, IpcError, IpcServer, PermissionResult, WorkerMessage,
 };
 use super::types::{
     CommanderConfig, WorkerConfig, WorkerResult, WorkerState, WorkerStatus,
@@ -56,7 +56,7 @@ use super::types::{
 #[derive(Debug, thiserror::Error)]
 pub enum CommanderError {
     #[error("IPC error: {0}")]
-    Ipc(#[from] super::ipc::server::IpcError),
+    Ipc(#[from] IpcError),
 
     #[error("Isolation error: {0}")]
     Isolation(#[from] IsolationError),

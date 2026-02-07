@@ -56,6 +56,9 @@ pub enum IpcClientError {
 
     #[error("Cancelled")]
     Cancelled,
+
+    #[error("Invalid message: {0}")]
+    InvalidMessage(String),
 }
 
 /// Handshake acknowledgment from commander.

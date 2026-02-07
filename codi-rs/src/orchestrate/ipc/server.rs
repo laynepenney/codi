@@ -18,28 +18,7 @@ use super::protocol::{
     decode, encode, CommanderMessage, WorkerMessage,
 };
 use super::transport::{self, IpcListener, IpcStream};
-
-/// Error type for IPC operations.
-#[derive(Debug, thiserror::Error)]
-pub enum IpcError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Worker not connected: {0}")]
-    WorkerNotConnected(String),
-
-    #[error("Invalid handshake")]
-    InvalidHandshake,
-
-    #[error("Channel closed")]
-    ChannelClosed,
-
-    #[error("Server not started")]
-    NotStarted,
-}
+use super::error::IpcError;
 
 /// A connected worker client.
 struct ConnectedWorker {
@@ -83,7 +62,9 @@ impl IpcServer {
 
     /// Start the server.
     pub async fn start(&mut self) -> Result<(), IpcError> {
-        let listener = transport::bind(&self.socket_path).await?;
+        let listener = transport::bind(&self.socket_path)
+            .await
+            .map_err(|e| IpcError::from_io_error("binding socket", e))?;
         info!("IPC server listening on {:?}", self.socket_path);
         self.listener = Some(listener);
 
@@ -96,7 +77,8 @@ impl IpcServer {
         let mut workers = self.workers.write().await;
         workers.clear();
 
-        transport::cleanup(&self.socket_path)?;
+        transport::cleanup(&self.socket_path)
+            .map_err(|e| IpcError::from_io_error("cleaning up socket", e))?;
 
         self.listener = None;
         info!("IPC server stopped");
@@ -117,7 +99,9 @@ impl IpcServer {
     pub async fn accept(&self) -> Result<String, IpcError> {
         let listener = self.listener.as_ref().ok_or(IpcError::NotStarted)?;
 
-        let stream = listener.accept().await?;
+        let stream = listener.accept()
+            .await
+            .map_err(|e| IpcError::from_io_error("accepting connection", e))?;
         debug!("New connection accepted");
 
         let (read_half, write_half) = tokio::io::split(stream);
@@ -125,9 +109,12 @@ impl IpcServer {
 
         // Read handshake message
         let mut line = String::new();
-        reader.read_line(&mut line).await?;
+        reader.read_line(&mut line)
+            .await
+            .map_err(|e| IpcError::from_io_error("reading handshake", e))?;
 
-        let msg: WorkerMessage = decode(&line)?;
+        let msg: WorkerMessage = decode(&line)
+            .map_err(|e| IpcError::InvalidMessage(format!("handshake decode failed: {}", e)))?;
 
         if let WorkerMessage::Handshake { worker_id, .. } = &msg {
             let worker_id = worker_id.clone();
@@ -210,17 +197,23 @@ impl IpcServer {
             .get(worker_id)
             .ok_or_else(|| IpcError::WorkerNotConnected(worker_id.to_string()))?;
 
-        let encoded = encode(msg)?;
+        let encoded = encode(msg)
+            .map_err(|e| IpcError::InvalidMessage(format!("encode failed: {}", e)))?;
         let mut worker = worker.lock().await;
-        worker.writer.write_all(encoded.as_bytes()).await?;
-        worker.writer.flush().await?;
+        worker.writer.write_all(encoded.as_bytes())
+            .await
+            .map_err(|e| IpcError::from_io_error("sending message", e))?;
+        worker.writer.flush()
+            .await
+            .map_err(|e| IpcError::from_io_error("flushing writer", e))?;
 
         Ok(())
     }
 
     /// Broadcast a message to all connected workers.
     pub async fn broadcast(&self, msg: &CommanderMessage) -> Result<(), IpcError> {
-        let encoded = encode(msg)?;
+        let encoded = encode(msg)
+            .map_err(|e| IpcError::InvalidMessage(format!("encode failed: {}", e)))?;
         let workers = self.workers.read().await;
 
         for (worker_id, worker) in workers.iter() {
