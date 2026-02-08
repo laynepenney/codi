@@ -598,6 +598,132 @@ impl SymbolDatabase {
         Ok(result)
     }
 
+    /// Find all imports that reference a symbol name.
+    pub fn find_imports_with_symbol(
+        &self,
+        symbol_name: &str,
+    ) -> Result<Vec<(String, String, u32)>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.path, i.source_path, i.line
+             FROM import_symbols s
+             JOIN imports i ON s.import_id = i.id
+             JOIN files f ON i.file_id = f.id
+             WHERE s.name = ?1",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![symbol_name], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, u32>(2)?,
+                ))
+            })
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to query imports: {}", e)))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            if let Ok((file_path, source, line)) = row {
+                result.push((file_path, source, line));
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS
+            .record_operation("symbol_index.db.find_imports_with_symbol", start.elapsed());
+
+        Ok(result)
+    }
+
+    /// Get file dependencies (imports) for a file.
+    pub fn get_file_dependencies(
+        &self,
+        file_id: i64,
+    ) -> Result<Vec<(i64, String, String)>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.id, f.path, i.source_path
+             FROM imports i
+             JOIN files f ON i.resolved_file_id = f.id
+             WHERE i.file_id = ?1 AND i.resolved_file_id IS NOT NULL",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![file_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to query dependencies: {}", e))
+            })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            if let Ok((id, path, source)) = row {
+                result.push((id, path, source));
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS.record_operation("symbol_index.db.get_file_dependencies", start.elapsed());
+
+        Ok(result)
+    }
+
+    /// Get files that depend on a given file (reverse dependencies).
+    pub fn get_file_dependents(
+        &self,
+        file_id: i64,
+    ) -> Result<Vec<(i64, String, String)>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.id, f.path, i.source_path
+             FROM imports i
+             JOIN files f ON i.file_id = f.id
+             WHERE i.resolved_file_id = ?1",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![file_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to query dependents: {}", e))
+            })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            if let Ok((id, path, source)) = row {
+                result.push((id, path, source));
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS.record_operation("symbol_index.db.get_file_dependents", start.elapsed());
+
+        Ok(result)
+    }
+
     /// Clear the entire index.
     pub fn clear(&self) -> Result<(), ToolError> {
         let start = Instant::now();

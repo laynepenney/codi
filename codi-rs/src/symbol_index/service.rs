@@ -203,10 +203,19 @@ impl SymbolIndexService {
                 });
             }
 
-            // TODO: Implement usage detection by:
-            // 1. Finding all imports that reference the symbol
-            // 2. Searching for usages in code (would need full text search)
-            // For now, we return just the definition
+            // Find all imports that reference this symbol
+            let imports = db.find_imports_with_symbol(symbol_name)?;
+            for (file_path, _source, line) in imports {
+                // Skip if this is the definition file (already added above)
+                if file_path != def_symbol.file {
+                    results.push(ReferenceResult {
+                        file: file_path,
+                        line,
+                        reference_type: ReferenceType::Import,
+                        context: None,
+                    });
+                }
+            }
         }
 
         #[cfg(feature = "telemetry")]
@@ -218,19 +227,64 @@ impl SymbolIndexService {
     /// Get the dependency graph for a file.
     pub async fn get_dependencies(
         &self,
-        _file_path: &str,
-        _direction: DependencyDirection,
-        _max_depth: Option<u32>,
+        file_path: &str,
+        direction: DependencyDirection,
+        max_depth: Option<u32>,
     ) -> Result<Vec<DependencyResult>, ToolError> {
         let start = Instant::now();
+        let mut results = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let max_depth = max_depth.unwrap_or(3); // Default to 3 levels deep
 
-        let results = Vec::new();
+        let db = self.db.lock().await;
 
-        // TODO: Implement dependency graph traversal
-        // This requires:
-        // 1. Getting imports from the file
-        // 2. Resolving import paths to actual files
-        // 3. Recursively following the graph
+        // Get the starting file ID
+        if let Ok(Some(file)) = db.get_file(file_path) {
+            let file_id = file.id;
+            visited.insert(file_id);
+
+            // BFS traversal
+            let mut queue = vec![(file_id, file_path.to_string(), 0u32)];
+
+            while let Some((current_id, _current_path, depth)) = queue.pop() {
+                if depth >= max_depth {
+                    continue;
+                }
+
+                match direction {
+                    DependencyDirection::Imports => {
+                        // Get files that this file imports
+                        let deps = db.get_file_dependencies(current_id)?;
+                        for (dep_id, dep_path, _source) in deps {
+                            if visited.insert(dep_id) {
+                                results.push(DependencyResult {
+                                    file: dep_path.clone(),
+                                    direction: DependencyDirection::Imports,
+                                    depth: depth + 1,
+                                    dependency_type: super::types::DependencyType::Import,
+                                });
+                                queue.push((dep_id, dep_path, depth + 1));
+                            }
+                        }
+                    }
+                    DependencyDirection::ImportedBy => {
+                        // Get files that import this file
+                        let dependents = db.get_file_dependents(current_id)?;
+                        for (dep_id, dep_path, _source) in dependents {
+                            if visited.insert(dep_id) {
+                                results.push(DependencyResult {
+                                    file: dep_path.clone(),
+                                    direction: DependencyDirection::ImportedBy,
+                                    depth: depth + 1,
+                                    dependency_type: super::types::DependencyType::Import,
+                                });
+                                queue.push((dep_id, dep_path, depth + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.service.get_dependencies", start.elapsed());
