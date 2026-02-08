@@ -56,6 +56,9 @@ pub enum IpcClientError {
 
     #[error("Cancelled")]
     Cancelled,
+
+    #[error("Invalid message: {0}")]
+    InvalidMessage(String),
 }
 
 /// Handshake acknowledgment from commander.
@@ -344,7 +347,12 @@ impl IpcClient {
 
         // Create permission request message
         let msg = WorkerMessage::permission_request(confirmation);
-        let request_id = msg.request_id().unwrap().to_string();
+        let request_id = msg.request_id()
+            .ok_or_else(|| {
+                tracing::error!("Failed to get request_id from permission message");
+                IpcClientError::InvalidMessage("Permission message missing request_id".to_string())
+            })?
+            .to_string();
 
         // Set up response channel
         let (tx, rx) = oneshot::channel();

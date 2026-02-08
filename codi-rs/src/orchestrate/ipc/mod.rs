@@ -49,6 +49,9 @@ pub mod protocol;
 pub mod server;
 pub mod client;
 pub mod transport;
+pub mod error;
+
+pub use error::{IpcError, IpcResult};
 
 pub use protocol::{
     WorkerMessage, CommanderMessage, PermissionResult,

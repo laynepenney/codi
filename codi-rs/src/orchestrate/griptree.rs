@@ -313,15 +313,16 @@ impl WorkspaceIsolator for GriptreeIsolator {
             }
 
             // Create worktree
+            let worktree_path_str = worktree_path.to_string_lossy().to_string();
             let create_args = if self.branch_exists(&repo_path, branch).await {
-                vec!["worktree", "add", worktree_path.to_str().unwrap(), branch]
+                vec!["worktree", "add", &worktree_path_str, branch]
             } else {
                 vec![
                     "worktree",
                     "add",
                     "-b",
                     branch,
-                    worktree_path.to_str().unwrap(),
+                    &worktree_path_str,
                     base_branch,
                 ]
             };
@@ -400,6 +401,7 @@ impl WorkspaceIsolator for GriptreeIsolator {
                         if let Some(repo_config) = manifest.repos.get(&repo.name) {
                             let main_repo_path = self.main_workspace.join(&repo_config.path);
 
+                            let worktree_path_str = repo.worktree_path.to_string_lossy().to_string();
                             let result = self
                                 .git(
                                     &main_repo_path,
@@ -407,7 +409,7 @@ impl WorkspaceIsolator for GriptreeIsolator {
                                         "worktree",
                                         "remove",
                                         "--force",
-                                        repo.worktree_path.to_str().unwrap(),
+                                        &worktree_path_str,
                                     ],
                                 )
                                 .await;
@@ -546,6 +548,7 @@ impl GriptreeIsolator {
                 if let Ok(manifest) = self.get_manifest().await {
                     if let Some(repo_config) = manifest.repos.get(&repo.name) {
                         let main_repo_path = self.main_workspace.join(&repo_config.path);
+                        let worktree_path_str = repo.worktree_path.to_string_lossy().to_string();
                         let _ = self
                             .git(
                                 &main_repo_path,
@@ -553,7 +556,7 @@ impl GriptreeIsolator {
                                     "worktree",
                                     "remove",
                                     "--force",
-                                    repo.worktree_path.to_str().unwrap(),
+                                    &worktree_path_str,
                                 ],
                             )
                             .await;
