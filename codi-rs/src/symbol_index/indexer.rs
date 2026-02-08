@@ -550,18 +550,30 @@ impl Indexer {
     ) -> Result<u32, ToolError> {
         let start = Instant::now();
 
-        let _project_root = Path::new(&self.options.project_root);
-        let _db_lock = db.lock().await;
+        let project_root = Path::new(&self.options.project_root);
+        let db_lock = db.lock().await;
 
-        // Get all indexed files
-        // Note: We'd need to add a method to get all files from db
-        // For now, this is a placeholder
-        let deleted_count = 0u32;
+        // Get all indexed files from database
+        let indexed_files = db_lock.get_all_files()?;
 
-        // TODO: Implement file cleanup
-        // 1. Get all indexed file paths from database
-        // 2. Check which ones no longer exist on disk
-        // 3. Delete those from the database
+        let mut deleted_count = 0u32;
+
+        // Check which files no longer exist on disk
+        for file_path in indexed_files {
+            let full_path = if file_path.starts_with('/') {
+                PathBuf::from(&file_path)
+            } else {
+                project_root.join(&file_path)
+            };
+
+            if !full_path.exists() {
+                // Get file ID and delete
+                if let Ok(Some(file)) = db_lock.get_file(&file_path) {
+                    db_lock.delete_file(file.id)?;
+                    deleted_count += 1;
+                }
+            }
+        }
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.indexer.cleanup_deleted", start.elapsed());

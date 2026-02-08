@@ -12,7 +12,7 @@ use codi::agent::AgentConfig;
 use codi::config::{self, CliOptions};
 use codi::providers::{create_provider_from_config, ProviderType};
 use codi::tools::ToolRegistry;
-use codi::tui::{App, build_system_prompt_from_config};
+use codi::tui::build_system_prompt_from_config;
 use codi::tui::terminal_ui::run_terminal_repl;
 
 /// Codi version string.
@@ -500,12 +500,4 @@ async fn run_repl(config: &config::ResolvedConfig, auto_approve: bool, verbose: 
     // Pass verbose flag to enable tool visibility
     let debug_mode = verbose || std::env::var("CODI_DEBUG").is_ok();
     run_terminal_repl(config, auto_approve, debug_mode).await
-}
-
-async fn load_session(app: &mut App, session_name: &str) -> anyhow::Result<()> {
-    // Try to load by exact name first, then by fuzzy match
-    if let Err(_) = app.load_session(session_name).await {
-        return Err(anyhow::anyhow!("Session not found: {}", session_name));
-    }
-    Ok(())
 }

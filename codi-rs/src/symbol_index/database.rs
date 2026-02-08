@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use rusqlite::{Connection, params, OptionalExtension};
-use sha2::{Sha256, Digest};
+use rusqlite::{params, Connection, OptionalExtension};
+use sha2::{Digest, Sha256};
 
 use crate::error::ToolError;
 
@@ -17,9 +17,8 @@ use crate::error::ToolError;
 use crate::telemetry::metrics::GLOBAL_METRICS;
 
 use super::types::{
-    CodeSymbol, ExtractionMethod, ImportStatement,
-    IndexStats, IndexedFile, SymbolKind, SymbolSearchResult,
-    SymbolVisibility,
+    CodeSymbol, ExtractionMethod, ImportStatement, IndexStats, IndexedFile, SymbolKind,
+    SymbolSearchResult, SymbolVisibility,
 };
 
 /// Current index format version.
@@ -66,19 +65,17 @@ impl SymbolDatabase {
         })?;
 
         // Open database
-        let conn = Connection::open(&db_path).map_err(|e| {
-            ToolError::ExecutionFailed(format!("Failed to open database: {}", e))
-        })?;
+        let conn = Connection::open(&db_path)
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to open database: {}", e)))?;
 
         // Set pragmas for performance
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
-             PRAGMA cache_size = -64000;"  // 64MB cache
-        ).map_err(|e| {
-            ToolError::ExecutionFailed(format!("Failed to set pragmas: {}", e))
-        })?;
+             PRAGMA cache_size = -64000;", // 64MB cache
+        )
+        .map_err(|e| ToolError::ExecutionFailed(format!("Failed to set pragmas: {}", e)))?;
 
         let mut db = Self {
             conn,
@@ -111,7 +108,8 @@ impl SymbolDatabase {
         let start = Instant::now();
 
         // Check if schema exists
-        let table_exists: bool = self.conn
+        let table_exists: bool = self
+            .conn
             .query_row(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='files'",
                 [],
@@ -134,7 +132,9 @@ impl SymbolDatabase {
     /// Create the database schema.
     fn create_schema(&self) -> Result<(), ToolError> {
         // Create tables and indexes first (no parameters needed)
-        self.conn.execute_batch(r#"
+        self.conn
+            .execute_batch(
+                r#"
             -- Files table
             CREATE TABLE IF NOT EXISTS files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,13 +200,17 @@ impl SymbolDatabase {
             CREATE INDEX IF NOT EXISTS idx_imports_resolved ON imports(resolved_file_id);
             CREATE INDEX IF NOT EXISTS idx_deps_from ON file_dependencies(from_file_id);
             CREATE INDEX IF NOT EXISTS idx_deps_to ON file_dependencies(to_file_id);
-        "#).map_err(|e| ToolError::ExecutionFailed(format!("Failed to create schema: {}", e)))?;
+        "#,
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create schema: {}", e)))?;
 
         // Insert metadata with parameters (separate statements)
-        self.conn.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('version', ?1)",
-            params![INDEX_VERSION],
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to set version: {}", e)))?;
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES ('version', ?1)",
+                params![INDEX_VERSION],
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to set version: {}", e)))?;
 
         self.conn.execute(
             "INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_full_rebuild', datetime('now'))",
@@ -231,22 +235,27 @@ impl SymbolDatabase {
         let start = Instant::now();
 
         // Try to insert, on conflict update
-        self.conn.execute(
-            "INSERT INTO files (path, hash, extraction_method, last_indexed)
+        self.conn
+            .execute(
+                "INSERT INTO files (path, hash, extraction_method, last_indexed)
              VALUES (?1, ?2, ?3, datetime('now'))
              ON CONFLICT(path) DO UPDATE SET
                 hash = excluded.hash,
                 extraction_method = excluded.extraction_method,
                 last_indexed = datetime('now')",
-            params![path, hash, method.as_str()],
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to upsert file: {}", e)))?;
+                params![path, hash, method.as_str()],
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to upsert file: {}", e)))?;
 
         // Always query for the actual ID (last_insert_rowid is unreliable for upsert)
-        let file_id: i64 = self.conn.query_row(
-            "SELECT id FROM files WHERE path = ?1",
-            params![path],
-            |row| row.get(0),
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to get file id: {}", e)))?;
+        let file_id: i64 = self
+            .conn
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to get file id: {}", e)))?;
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.db.upsert_file", start.elapsed());
@@ -258,19 +267,23 @@ impl SymbolDatabase {
     pub fn get_file(&self, path: &str) -> Result<Option<IndexedFile>, ToolError> {
         let start = Instant::now();
 
-        let result = self.conn.query_row(
-            "SELECT id, path, hash, extraction_method, last_indexed FROM files WHERE path = ?1",
-            params![path],
-            |row| {
-                Ok(IndexedFile {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    hash: row.get(2)?,
-                    extraction_method: ExtractionMethod::from_str(&row.get::<_, String>(3)?),
-                    last_indexed: row.get(4)?,
-                })
-            },
-        ).optional().map_err(|e| ToolError::ExecutionFailed(format!("Failed to get file: {}", e)))?;
+        let result = self
+            .conn
+            .query_row(
+                "SELECT id, path, hash, extraction_method, last_indexed FROM files WHERE path = ?1",
+                params![path],
+                |row| {
+                    Ok(IndexedFile {
+                        id: row.get(0)?,
+                        path: row.get(1)?,
+                        hash: row.get(2)?,
+                        extraction_method: ExtractionMethod::from_str(&row.get::<_, String>(3)?),
+                        last_indexed: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to get file: {}", e)))?;
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.db.get_file", start.elapsed());
@@ -283,10 +296,9 @@ impl SymbolDatabase {
         let start = Instant::now();
 
         // Cascading deletes handle symbols, imports, etc.
-        self.conn.execute(
-            "DELETE FROM files WHERE id = ?1",
-            params![file_id],
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to delete file: {}", e)))?;
+        self.conn
+            .execute("DELETE FROM files WHERE id = ?1", params![file_id])
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to delete file: {}", e)))?;
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.db.delete_file", start.elapsed());
@@ -299,10 +311,11 @@ impl SymbolDatabase {
         let start = Instant::now();
 
         // Delete existing symbols for this file
-        self.conn.execute(
-            "DELETE FROM symbols WHERE file_id = ?1",
-            params![file_id],
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to delete old symbols: {}", e)))?;
+        self.conn
+            .execute("DELETE FROM symbols WHERE file_id = ?1", params![file_id])
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to delete old symbols: {}", e))
+            })?;
 
         // Insert new symbols
         let mut stmt = self.conn.prepare(
@@ -323,7 +336,8 @@ impl SymbolDatabase {
                 symbol.signature,
                 symbol.doc_summary,
                 metadata_json,
-            ]).map_err(|e| ToolError::ExecutionFailed(format!("Failed to insert symbol: {}", e)))?;
+            ])
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to insert symbol: {}", e)))?;
         }
 
         #[cfg(feature = "telemetry")]
@@ -333,43 +347,69 @@ impl SymbolDatabase {
     }
 
     /// Insert imports for a file.
-    pub fn insert_imports(&self, file_id: i64, imports: &[ImportStatement]) -> Result<(), ToolError> {
+    pub fn insert_imports(
+        &self,
+        file_id: i64,
+        imports: &[ImportStatement],
+    ) -> Result<(), ToolError> {
         let start = Instant::now();
 
         // Delete existing imports for this file
-        self.conn.execute(
-            "DELETE FROM imports WHERE file_id = ?1",
-            params![file_id],
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to delete old imports: {}", e)))?;
+        self.conn
+            .execute("DELETE FROM imports WHERE file_id = ?1", params![file_id])
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to delete old imports: {}", e))
+            })?;
 
-        let mut import_stmt = self.conn.prepare(
-            "INSERT INTO imports (file_id, source_path, is_type_only, line)
-             VALUES (?1, ?2, ?3, ?4)"
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare import statement: {}", e)))?;
+        let mut import_stmt = self
+            .conn
+            .prepare(
+                "INSERT INTO imports (file_id, source_path, is_type_only, line)
+             VALUES (?1, ?2, ?3, ?4)",
+            )
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to prepare import statement: {}", e))
+            })?;
 
-        let mut symbol_stmt = self.conn.prepare(
-            "INSERT INTO import_symbols (import_id, name, alias, is_default, is_namespace)
-             VALUES (?1, ?2, ?3, ?4, ?5)"
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare import symbol statement: {}", e)))?;
+        let mut symbol_stmt = self
+            .conn
+            .prepare(
+                "INSERT INTO import_symbols (import_id, name, alias, is_default, is_namespace)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!(
+                    "Failed to prepare import symbol statement: {}",
+                    e
+                ))
+            })?;
 
         for import in imports {
-            import_stmt.execute(params![
-                file_id,
-                import.source,
-                import.is_type_only as i32,
-                import.line,
-            ]).map_err(|e| ToolError::ExecutionFailed(format!("Failed to insert import: {}", e)))?;
+            import_stmt
+                .execute(params![
+                    file_id,
+                    import.source,
+                    import.is_type_only as i32,
+                    import.line,
+                ])
+                .map_err(|e| {
+                    ToolError::ExecutionFailed(format!("Failed to insert import: {}", e))
+                })?;
 
             let import_id = self.conn.last_insert_rowid();
 
             for sym in &import.symbols {
-                symbol_stmt.execute(params![
-                    import_id,
-                    sym.name,
-                    sym.alias,
-                    sym.is_default as i32,
-                    sym.is_namespace as i32,
-                ]).map_err(|e| ToolError::ExecutionFailed(format!("Failed to insert import symbol: {}", e)))?;
+                symbol_stmt
+                    .execute(params![
+                        import_id,
+                        sym.name,
+                        sym.alias,
+                        sym.is_default as i32,
+                        sym.is_namespace as i32,
+                    ])
+                    .map_err(|e| {
+                        ToolError::ExecutionFailed(format!("Failed to insert import symbol: {}", e))
+                    })?;
             }
         }
 
@@ -380,7 +420,11 @@ impl SymbolDatabase {
     }
 
     /// Search for symbols by name (fuzzy search).
-    pub fn find_symbols(&self, query: &str, limit: usize) -> Result<Vec<SymbolSearchResult>, ToolError> {
+    pub fn find_symbols(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SymbolSearchResult>, ToolError> {
         let start = Instant::now();
 
         // Use LIKE for simple fuzzy search
@@ -402,35 +446,35 @@ impl SymbolDatabase {
         let exact_pattern = query;
         let starts_with_pattern = format!("{}%", query);
 
-        let results = stmt.query_map(
-            params![pattern, exact_pattern, starts_with_pattern, limit as i64],
-            |row| {
-                let name: String = row.get(0)?;
-                let score = if name == query {
-                    1.0
-                } else if name.starts_with(query) {
-                    0.8
-                } else {
-                    0.5
-                };
+        let results = stmt
+            .query_map(
+                params![pattern, exact_pattern, starts_with_pattern, limit as i64],
+                |row| {
+                    let name: String = row.get(0)?;
+                    let score = if name == query {
+                        1.0
+                    } else if name.starts_with(query) {
+                        0.8
+                    } else {
+                        0.5
+                    };
 
-                Ok(SymbolSearchResult {
-                    name,
-                    kind: SymbolKind::from_str(&row.get::<_, String>(1)?),
-                    file: row.get(2)?,
-                    line: row.get(3)?,
-                    end_line: row.get(4)?,
-                    visibility: SymbolVisibility::from_str(&row.get::<_, String>(5)?),
-                    signature: row.get(6)?,
-                    doc_summary: row.get(7)?,
-                    score,
-                })
-            },
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Query failed: {}", e)))?;
+                    Ok(SymbolSearchResult {
+                        name,
+                        kind: SymbolKind::from_str(&row.get::<_, String>(1)?),
+                        file: row.get(2)?,
+                        line: row.get(3)?,
+                        end_line: row.get(4)?,
+                        visibility: SymbolVisibility::from_str(&row.get::<_, String>(5)?),
+                        signature: row.get(6)?,
+                        doc_summary: row.get(7)?,
+                        score,
+                    })
+                },
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Query failed: {}", e)))?;
 
-        let results: Vec<_> = results
-            .filter_map(|r| r.ok())
-            .collect();
+        let results: Vec<_> = results.filter_map(|r| r.ok()).collect();
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.db.find_symbols", start.elapsed());
@@ -442,32 +486,55 @@ impl SymbolDatabase {
     pub fn get_stats(&self) -> Result<IndexStats, ToolError> {
         let start = Instant::now();
 
-        let total_files: u32 = self.conn
+        let total_files: u32 = self
+            .conn
             .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to count files: {}", e)))?;
 
-        let total_symbols: u32 = self.conn
+        let total_symbols: u32 = self
+            .conn
             .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to count symbols: {}", e)))?;
 
-        let total_imports: u32 = self.conn
+        let total_imports: u32 = self
+            .conn
             .query_row("SELECT COUNT(*) FROM imports", [], |row| row.get(0))
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to count imports: {}", e)))?;
 
-        let total_dependencies: u32 = self.conn
-            .query_row("SELECT COUNT(*) FROM file_dependencies", [], |row| row.get(0))
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to count dependencies: {}", e)))?;
+        let total_dependencies: u32 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM file_dependencies", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to count dependencies: {}", e))
+            })?;
 
-        let version: String = self.conn
-            .query_row("SELECT value FROM metadata WHERE key = 'version'", [], |row| row.get(0))
+        let version: String = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'version'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or_else(|_| INDEX_VERSION.to_string());
 
-        let last_full_rebuild: String = self.conn
-            .query_row("SELECT value FROM metadata WHERE key = 'last_full_rebuild'", [], |row| row.get(0))
+        let last_full_rebuild: String = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'last_full_rebuild'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or_else(|_| "never".to_string());
 
-        let last_update: String = self.conn
-            .query_row("SELECT value FROM metadata WHERE key = 'last_update'", [], |row| row.get(0))
+        let last_update: String = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'last_update'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or_else(|_| "never".to_string());
 
         let index_size_bytes = std::fs::metadata(&self.db_path)
@@ -492,26 +559,186 @@ impl SymbolDatabase {
 
     /// Update the last_update timestamp.
     pub fn touch_update(&self) -> Result<(), ToolError> {
-        self.conn.execute(
-            "UPDATE metadata SET value = datetime('now') WHERE key = 'last_update'",
-            [],
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to update timestamp: {}", e)))?;
+        self.conn
+            .execute(
+                "UPDATE metadata SET value = datetime('now') WHERE key = 'last_update'",
+                [],
+            )
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to update timestamp: {}", e))
+            })?;
         Ok(())
+    }
+
+    /// Get all indexed file paths.
+    pub fn get_all_files(&self) -> Result<Vec<String>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, path FROM files")
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let files = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to query files: {}", e)))?;
+
+        let mut result = Vec::new();
+        for file in files {
+            if let Ok((_, path)) = file {
+                result.push(path);
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS.record_operation("symbol_index.db.get_all_files", start.elapsed());
+
+        Ok(result)
+    }
+
+    /// Find all imports that reference a symbol name.
+    pub fn find_imports_with_symbol(
+        &self,
+        symbol_name: &str,
+    ) -> Result<Vec<(String, String, u32)>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.path, i.source_path, i.line
+             FROM import_symbols s
+             JOIN imports i ON s.import_id = i.id
+             JOIN files f ON i.file_id = f.id
+             WHERE s.name = ?1",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![symbol_name], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, u32>(2)?,
+                ))
+            })
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to query imports: {}", e)))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            if let Ok((file_path, source, line)) = row {
+                result.push((file_path, source, line));
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS
+            .record_operation("symbol_index.db.find_imports_with_symbol", start.elapsed());
+
+        Ok(result)
+    }
+
+    /// Get file dependencies (imports) for a file.
+    pub fn get_file_dependencies(
+        &self,
+        file_id: i64,
+    ) -> Result<Vec<(i64, String, String)>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.id, f.path, i.source_path
+             FROM imports i
+             JOIN files f ON i.resolved_file_id = f.id
+             WHERE i.file_id = ?1 AND i.resolved_file_id IS NOT NULL",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![file_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to query dependencies: {}", e))
+            })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            if let Ok((id, path, source)) = row {
+                result.push((id, path, source));
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS.record_operation("symbol_index.db.get_file_dependencies", start.elapsed());
+
+        Ok(result)
+    }
+
+    /// Get files that depend on a given file (reverse dependencies).
+    pub fn get_file_dependents(
+        &self,
+        file_id: i64,
+    ) -> Result<Vec<(i64, String, String)>, ToolError> {
+        let start = Instant::now();
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.id, f.path, i.source_path
+             FROM imports i
+             JOIN files f ON i.file_id = f.id
+             WHERE i.resolved_file_id = ?1",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![file_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to query dependents: {}", e))
+            })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            if let Ok((id, path, source)) = row {
+                result.push((id, path, source));
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        GLOBAL_METRICS.record_operation("symbol_index.db.get_file_dependents", start.elapsed());
+
+        Ok(result)
     }
 
     /// Clear the entire index.
     pub fn clear(&self) -> Result<(), ToolError> {
         let start = Instant::now();
 
-        self.conn.execute_batch(
-            "DELETE FROM file_dependencies;
+        self.conn
+            .execute_batch(
+                "DELETE FROM file_dependencies;
              DELETE FROM import_symbols;
              DELETE FROM imports;
              DELETE FROM symbols;
              DELETE FROM files;
              UPDATE metadata SET value = datetime('now') WHERE key = 'last_full_rebuild';
-             UPDATE metadata SET value = datetime('now') WHERE key = 'last_update';"
-        ).map_err(|e| ToolError::ExecutionFailed(format!("Failed to clear index: {}", e)))?;
+             UPDATE metadata SET value = datetime('now') WHERE key = 'last_update';",
+            )
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to clear index: {}", e)))?;
 
         #[cfg(feature = "telemetry")]
         GLOBAL_METRICS.record_operation("symbol_index.db.clear", start.elapsed());
@@ -521,21 +748,24 @@ impl SymbolDatabase {
 
     /// Begin a transaction.
     pub fn begin_transaction(&mut self) -> Result<(), ToolError> {
-        self.conn.execute("BEGIN TRANSACTION", [])
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to begin transaction: {}", e)))?;
+        self.conn.execute("BEGIN TRANSACTION", []).map_err(|e| {
+            ToolError::ExecutionFailed(format!("Failed to begin transaction: {}", e))
+        })?;
         Ok(())
     }
 
     /// Commit the current transaction.
     pub fn commit(&mut self) -> Result<(), ToolError> {
-        self.conn.execute("COMMIT", [])
+        self.conn
+            .execute("COMMIT", [])
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to commit: {}", e)))?;
         Ok(())
     }
 
     /// Rollback the current transaction.
     pub fn rollback(&mut self) -> Result<(), ToolError> {
-        self.conn.execute("ROLLBACK", [])
+        self.conn
+            .execute("ROLLBACK", [])
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to rollback: {}", e)))?;
         Ok(())
     }
@@ -570,7 +800,9 @@ mod tests {
         let db = SymbolDatabase::open(project_root).unwrap();
 
         // Insert file
-        let file_id = db.upsert_file("src/main.rs", "abc123", ExtractionMethod::TreeSitter).unwrap();
+        let file_id = db
+            .upsert_file("src/main.rs", "abc123", ExtractionMethod::TreeSitter)
+            .unwrap();
         assert!(file_id > 0);
 
         // Get file
@@ -579,7 +811,9 @@ mod tests {
         assert_eq!(file.hash, "abc123");
 
         // Update file
-        let file_id2 = db.upsert_file("src/main.rs", "def456", ExtractionMethod::TreeSitter).unwrap();
+        let file_id2 = db
+            .upsert_file("src/main.rs", "def456", ExtractionMethod::TreeSitter)
+            .unwrap();
         assert_eq!(file_id, file_id2);
 
         let file = db.get_file("src/main.rs").unwrap().unwrap();
@@ -593,7 +827,9 @@ mod tests {
 
         let db = SymbolDatabase::open(project_root).unwrap();
 
-        let file_id = db.upsert_file("src/lib.rs", "hash", ExtractionMethod::TreeSitter).unwrap();
+        let file_id = db
+            .upsert_file("src/lib.rs", "hash", ExtractionMethod::TreeSitter)
+            .unwrap();
 
         let symbols = vec![
             CodeSymbol {
