@@ -408,6 +408,29 @@ mod tests {
         assert!(result.content().contains("timed out"));
     }
 
+    #[tokio::test]
+    async fn test_bash_invalid_arguments() {
+        let handler = BashHandler;
+        
+        // Test with empty command
+        let result = handler
+            .execute(serde_json::json!({
+                "command": ""
+            }))
+            .await;
+        
+        assert!(result.is_err());
+        
+        // Test with whitespace-only command
+        let result = handler
+            .execute(serde_json::json!({
+                "command": "   \t\n  "
+            }))
+            .await;
+        
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_format_bash_output_empty() {
         let result = BashResult {
