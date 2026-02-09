@@ -1070,4 +1070,66 @@ mod tests {
         assert_eq!(OpenAIProvider::detect_provider_name("https://mycompany.azure.com"), "Azure OpenAI");
         assert_eq!(OpenAIProvider::detect_provider_name("https://custom.example.com"), "OpenAI-Compatible");
     }
+
+    #[test]
+    fn test_openai_timeout_error() {
+        // Test timeout error handling
+        let timeout_error = ProviderError::Timeout(30000);
+        assert!(matches!(timeout_error, ProviderError::Timeout(_)));
+        assert!(timeout_error.is_retryable());
+    }
+
+    #[test]
+    fn test_openai_auth_error() {
+        // Test authentication error (401)
+        let auth_error = ProviderError::AuthError("Invalid API key".to_string());
+        assert!(matches!(auth_error, ProviderError::AuthError(_)));
+        assert!(!auth_error.is_retryable());
+    }
+
+    #[test]
+    fn test_openai_rate_limited() {
+        // Test rate limiting (429)
+        let rate_error = ProviderError::RateLimited("Too many requests".to_string());
+        assert!(rate_error.is_rate_limited());
+        assert!(rate_error.is_retryable());
+    }
+
+    #[test]
+    fn test_openai_api_error() {
+        // Test API errors with status codes
+        let server_error = ProviderError::api("Internal server error", 500);
+        assert!(matches!(server_error, ProviderError::ApiError { .. }));
+        
+        let bad_request = ProviderError::api("Bad request", 400);
+        assert!(matches!(bad_request, ProviderError::ApiError { .. }));
+    }
+
+    #[test]
+    fn test_openai_parse_error() {
+        // Test JSON parsing error
+        let parse_error = ProviderError::ParseError("Unexpected token".to_string());
+        assert!(matches!(parse_error, ProviderError::ParseError(_)));
+    }
+
+    #[test]
+    fn test_openai_network_error() {
+        // Test network connectivity error
+        let network_error = ProviderError::NetworkError("Connection refused".to_string());
+        assert!(network_error.is_retryable());
+    }
+
+    #[test]
+    fn test_openai_model_not_found() {
+        // Test 404 model not found
+        let model_error = ProviderError::ModelNotFound("gpt-99".to_string());
+        assert!(model_error.to_string().contains("gpt-99"));
+    }
+
+    #[test]
+    fn test_openai_context_window() {
+        // Test context window exceeded
+        let context_error = ProviderError::ContextWindowExceeded { used: 200000, limit: 128000 };
+        assert!(context_error.to_string().contains("200000"));
+    }
 }

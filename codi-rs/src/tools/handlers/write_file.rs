@@ -188,4 +188,60 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ToolError::InvalidInput(_)));
     }
+
+    #[tokio::test]
+    async fn test_write_file_permission_denied() {
+        // Create a read-only directory
+        let temp = tempdir().unwrap();
+        let ro_dir = temp.path().join("readonly");
+        std::fs::create_dir(&ro_dir).unwrap();
+        
+        // Make directory read-only
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+        
+        let file = ro_dir.join("test.txt");
+        
+        let handler = WriteFileHandler;
+        let result = handler
+            .execute(serde_json::json!({
+                "file_path": file.to_str().unwrap(),
+                "content": "test content"
+            }))
+            .await;
+
+        // Should fail due to permissions
+        assert!(result.is_err());
+        
+        #[cfg(unix)]
+        {
+            assert!(matches!(result.unwrap_err(), ToolError::PermissionDenied(_)));
+        }
+        
+        // Restore permissions for cleanup
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_file_invalid_path() {
+        // Try to write to an invalid path (non-existent parent that can't be created)
+        // On Unix, /proc/nonexistent is a good test case
+        let handler = WriteFileHandler;
+        let result = handler
+            .execute(serde_json::json!({
+                "file_path": "/proc/nonexistent_dir/test.txt",
+                "content": "test"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        // Could be IoError or PermissionDenied depending on the system
+    }
 }

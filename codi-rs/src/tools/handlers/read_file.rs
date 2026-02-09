@@ -294,6 +294,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_read_file_permission_denied() {
+        // Create a temp file and make it unreadable
+        let temp = NamedTempFile::new().unwrap();
+        let path = temp.path().to_str().unwrap();
+        
+        // Set permissions to 000 (no read access)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        
+        let handler = ReadFileHandler;
+        let result = handler
+            .execute(serde_json::json!({
+                "file_path": path
+            }))
+            .await;
+
+        // On Unix, this should fail with permission denied
+        // On Windows, the test may behave differently
+        assert!(result.is_err());
+        
+        #[cfg(unix)]
+        {
+            assert!(matches!(result.unwrap_err(), ToolError::PermissionDenied(_)));
+        }
+        
+        // Restore permissions for cleanup
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644));
+        }
+    }
+
+    #[tokio::test]
     async fn test_read_file_relative_path_rejected() {
         let handler = ReadFileHandler;
         let result = handler
