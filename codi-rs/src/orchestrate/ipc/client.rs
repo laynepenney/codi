@@ -497,4 +497,94 @@ mod tests {
         assert!(ack.accepted);
         assert_eq!(ack.timeout_ms, 123);
     }
+
+    #[tokio::test]
+    async fn test_connect_to_nonexistent_socket() {
+        let mut client = IpcClient::new("/nonexistent/path/test.sock", "worker-1");
+        let result = client.connect().await;
+        assert!(matches!(result, Err(IpcClientError::ConnectionFailed(_))));
+    }
+
+    #[tokio::test]
+    async fn test_send_status_not_connected() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let result = client
+            .send_status(&WorkerStatus::Thinking, TokenUsage::default())
+            .await;
+        assert!(matches!(result, Err(IpcClientError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_send_task_complete_not_connected() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let result = client
+            .send_task_complete(WorkerResult {
+                success: true,
+                response: "result".to_string(),
+                tool_count: 0,
+                duration_ms: 100,
+                commits: Vec::new(),
+                files_changed: Vec::new(),
+                branch: None,
+                usage: None,
+            })
+            .await;
+        assert!(matches!(result, Err(IpcClientError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_send_task_error_not_connected() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let result = client.send_task_error("test error", false).await;
+        assert!(matches!(result, Err(IpcClientError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_send_log_not_connected() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let result = client
+            .send_log(LogLevel::Info, "test message")
+            .await;
+        assert!(matches!(result, Err(IpcClientError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_send_pong_not_connected() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let result = client.send_pong().await;
+        assert!(matches!(result, Err(IpcClientError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_request_permission_not_connected() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+        let confirmation = ToolConfirmation {
+            tool_name: "read_file".to_string(),
+            input: serde_json::json!({"path": "/tmp/test"}),
+            is_dangerous: false,
+            danger_reason: None,
+        };
+        let result = client.request_permission(&confirmation).await;
+        assert!(matches!(result, Err(IpcClientError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_request_permission_cancelled() {
+        let mut client = IpcClient::new("/tmp/test.sock", "worker-1");
+
+        // Set cancelled flag
+        {
+            let mut cancelled = client.cancelled.lock().await;
+            *cancelled = true;
+        }
+
+        let confirmation = ToolConfirmation {
+            tool_name: "read_file".to_string(),
+            input: serde_json::json!({"path": "/tmp/test"}),
+            is_dangerous: false,
+            danger_reason: None,
+        };
+        let result = client.request_permission(&confirmation).await;
+        assert!(matches!(result, Err(IpcClientError::Cancelled)));
+    }
 }

@@ -63,10 +63,15 @@ pub use client::IpcClient;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use super::{CommanderMessage, IpcClient, IpcServer, PermissionResult, WorkerMessage};
+    #[cfg(windows)]
     use crate::agent::ToolConfirmation;
-    use crate::orchestrate::types::{WorkerConfig, WorkspaceInfo};
+    #[cfg(windows)]
+    use crate::orchestrate::types::WorkerConfig;
+    #[cfg(windows)]
     use std::path::PathBuf;
+    #[cfg(windows)]
     use std::sync::Arc;
 
     #[cfg(windows)]
