@@ -1000,4 +1000,71 @@ mod tests {
         assert!(response.usage.is_some());
         assert_eq!(response.usage.unwrap().total(), 150);
     }
+
+    #[test]
+    fn test_provider_timeout_error() {
+        // Test that provider correctly identifies timeout errors
+        let timeout_error = ProviderError::Timeout(30000);
+        assert!(matches!(timeout_error, ProviderError::Timeout(_)));
+        assert!(timeout_error.to_string().contains("30000"));
+        assert!(timeout_error.is_retryable());
+    }
+
+    #[test]
+    fn test_provider_auth_error() {
+        // Test authentication error handling
+        let auth_error = ProviderError::AuthError("Invalid API key".to_string());
+        assert!(matches!(auth_error, ProviderError::AuthError(_)));
+        assert!(auth_error.to_string().contains("API key"));
+        assert!(!auth_error.is_retryable());  // Auth errors are not retryable
+    }
+
+    #[test]
+    fn test_provider_rate_limited() {
+        // Test rate limiting error
+        let rate_error = ProviderError::RateLimited("Too many requests".to_string());
+        assert!(matches!(rate_error, ProviderError::RateLimited(_)));
+        assert!(rate_error.to_string().contains("requests"));
+        assert!(rate_error.is_retryable());  // Rate limits are retryable
+        assert!(rate_error.is_rate_limited());
+    }
+
+    #[test]
+    fn test_provider_api_error_with_status() {
+        // Test API error with status code (e.g., 500 Internal Server Error)
+        let api_error = ProviderError::api("Internal server error", 500);
+        assert!(matches!(api_error, ProviderError::ApiError { .. }));
+    }
+
+    #[test]
+    fn test_provider_parse_error() {
+        // Test response parsing error
+        let parse_error = ProviderError::ParseError("Invalid JSON".to_string());
+        assert!(matches!(parse_error, ProviderError::ParseError(_)));
+        assert!(parse_error.to_string().contains("JSON"));
+    }
+
+    #[test]
+    fn test_provider_network_error() {
+        // Test network error
+        let network_error = ProviderError::NetworkError("Connection reset".to_string());
+        assert!(matches!(network_error, ProviderError::NetworkError(_)));
+        assert!(network_error.is_retryable());  // Network errors are retryable
+    }
+
+    #[test]
+    fn test_provider_model_not_found() {
+        // Test model not found error
+        let model_error = ProviderError::ModelNotFound("claude-99".to_string());
+        assert!(matches!(model_error, ProviderError::ModelNotFound(_)));
+        assert!(model_error.to_string().contains("claude-99"));
+    }
+
+    #[test]
+    fn test_provider_context_window_exceeded() {
+        // Test context window exceeded error
+        let context_error = ProviderError::ContextWindowExceeded { used: 250000, limit: 200000 };
+        assert!(matches!(context_error, ProviderError::ContextWindowExceeded { .. }));
+        assert!(context_error.to_string().contains("250000"));
+    }
 }

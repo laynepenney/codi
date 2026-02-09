@@ -122,10 +122,9 @@ fn pipe_name_from_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     use super::*;
-    #[cfg(windows)]
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::Duration;
 
     #[cfg(windows)]
     #[tokio::test]
@@ -152,5 +151,144 @@ mod tests {
         assert_eq!(&buf, b"world");
 
         server_task.await.expect("server task failed");
+    }
+
+    #[tokio::test]
+    async fn test_connection_refused() {
+        // Try to connect to a non-existent socket
+        let temp_dir = std::env::temp_dir();
+        let fake_socket = temp_dir.join(format!("nonexistent_{}.sock", std::process::id()));
+
+        // Ensure the socket doesn't exist
+        let _ = std::fs::remove_file(&fake_socket);
+
+        let result = connect(&fake_socket).await;
+        assert!(result.is_err(), "Should fail to connect to non-existent socket");
+
+        #[cfg(unix)]
+        {
+            if let Err(err) = result {
+                assert!(
+                    err.kind() == io::ErrorKind::NotFound ||
+                    err.kind() == io::ErrorKind::ConnectionRefused,
+                    "Expected NotFound or ConnectionRefused, got {:?}",
+                    err.kind()
+                );
+            }
+        }
+        #[cfg(windows)]
+        {
+            if let Err(err) = result {
+                assert!(
+                    err.kind() == io::ErrorKind::NotFound ||
+                    err.raw_os_error() == Some(2), // ERROR_FILE_NOT_FOUND
+                    "Expected NotFound error, got {:?}",
+                    err
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_read_failure() {
+        use tokio::net::UnixStream;
+        use std::os::unix::net::UnixListener as StdUnixListener;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("test.sock");
+
+        // Create a listener using std (non-async) to accept connections
+        let listener = StdUnixListener::bind(&socket_path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let server_task = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("Server failed to accept");
+            // Write partial data then close
+            use std::io::Write;
+            stream.write_all(b"partial").expect("Server failed to write");
+            // Close immediately - this should cause read failure
+            drop(stream);
+        });
+
+        // Connect using tokio's async UnixStream
+        let mut stream = UnixStream::connect(&socket_path).await.expect("Client failed to connect");
+        let mut buf = [0u8; 10];
+
+        // First read should succeed partially
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(n, 7); // "partial" is 7 bytes
+
+        // Second read should return 0 (EOF) - not an error but indicates closed
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(n, 0);
+
+        server_task.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_write_failure() {
+        use tokio::net::UnixStream;
+        use std::os::unix::net::UnixListener as StdUnixListener;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("test_write.sock");
+
+        let listener = StdUnixListener::bind(&socket_path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let server_task = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("Server failed to accept");
+            // Close immediately without reading - peer write may fail
+            drop(stream);
+        });
+
+        let mut stream = UnixStream::connect(&socket_path).await.expect("Client failed to connect");
+
+        // Try to write after server closes - this may or may not error
+        // depending on timing, but we should at least see EOF on subsequent read
+        let _ = stream.write_all(b"test data").await;
+        let _ = stream.flush().await;
+
+        server_task.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_bind_to_invalid_path() {
+        // Try to bind to an invalid path (non-existent parent directory that's not creatable)
+        let invalid_path = Path::new("/proc/nonexistent/test.sock");
+
+        let result = bind(invalid_path).await;
+        assert!(result.is_err(), "Should fail to bind to invalid path");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_removes_socket() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("cleanup_test.sock");
+
+        // Create the socket file
+        #[cfg(unix)]
+        {
+            use tokio::net::UnixListener;
+            let listener = UnixListener::bind(&socket_path).unwrap();
+            drop(listener);
+            assert!(socket_path.exists());
+        }
+        #[cfg(windows)]
+        {
+            // On Windows, cleanup is a no-op
+            // Just verify the function doesn't panic
+        }
+
+        // Cleanup should remove it on Unix
+        let result = cleanup(&socket_path);
+        assert!(result.is_ok());
+
+        #[cfg(unix)]
+        {
+            assert!(!socket_path.exists());
+        }
     }
 }

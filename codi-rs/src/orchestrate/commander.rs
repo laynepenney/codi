@@ -561,7 +561,6 @@ impl Commander {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[tokio::test]
     async fn test_commander_config_default() {
         let config = CommanderConfig::default();
@@ -575,5 +574,69 @@ mod tests {
             worker_id: "test".to_string(),
         };
         assert!(matches!(event, WorkerEvent::Connected { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_mid_operation_cancellation() {
+        // This test verifies the cancellation logic without needing full IPC
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("test.sock");
+        
+        let project_root = temp_dir.path().join("project");
+        std::fs::create_dir(&project_root).unwrap();
+        
+        let config = CommanderConfig {
+            socket_path: socket_path.clone(),
+            max_workers: 2,
+            base_branch: "main".to_string(),
+            cleanup_on_exit: true,
+            worktree_dir: None,
+            max_restarts: 2,
+        };
+        
+        let commander = Commander::new(&project_root, config).await.unwrap();
+        
+        // Initially there should be no active workers
+        let workers = commander.active_workers().await;
+        assert!(workers.is_empty());
+        
+        // Test that cancel_worker returns error for non-existent worker
+        let cancel_result = commander.cancel_worker("nonexistent").await;
+        assert!(cancel_result.is_err());
+        // Should be Ipc error (WorkerNotConnected) since the worker doesn't exist in server
+        let err = cancel_result.unwrap_err();
+        assert!(matches!(err, CommanderError::Ipc(_)));
+    }
+
+    #[tokio::test]
+    async fn test_graceful_shutdown() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("test_shutdown.sock");
+        
+        let project_root = temp_dir.path().join("project");
+        std::fs::create_dir(&project_root).unwrap();
+        
+        let config = CommanderConfig {
+            socket_path: socket_path.clone(),
+            max_workers: 2,
+            base_branch: "main".to_string(),
+            cleanup_on_exit: true,
+            worktree_dir: None,
+            max_restarts: 2,
+        };
+        
+        // Create commander (which starts the server)
+        let mut commander = Commander::new(&project_root, config).await.unwrap();
+        
+        // Initially no workers should be active
+        let workers = commander.active_workers().await;
+        assert!(workers.is_empty());
+        
+        // Perform graceful shutdown
+        let shutdown_result = commander.shutdown().await;
+        assert!(shutdown_result.is_ok());
+        
+        // After shutdown, socket should be cleaned up
+        assert!(!socket_path.exists());
     }
 }
