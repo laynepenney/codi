@@ -286,4 +286,67 @@ mod tests {
         let workers = server.connected_workers().await;
         assert!(workers.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_server_not_started_error() {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("test.sock");
+
+        let server = IpcServer::new(&socket_path);
+        // Try to accept without starting - should fail with NotStarted
+        let result = server.accept().await;
+        assert!(matches!(result, Err(IpcError::NotStarted)));
+    }
+
+    #[tokio::test]
+    async fn test_bind_to_invalid_path() {
+        let invalid_path = Path::new("/nonexistent/directory/test.sock");
+
+        let result = transport::bind(invalid_path).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_send_to_nonexistent_worker() {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("test.sock");
+
+        let mut server = IpcServer::new(&socket_path);
+        server.start().await.unwrap();
+
+        let msg = CommanderMessage::Ping {
+            id: "ping-1".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let result = server.send("nonexistent-worker", &msg).await;
+        assert!(matches!(result, Err(IpcError::WorkerNotConnected(_))));
+    }
+
+    #[tokio::test]
+    async fn test_stop_without_start() {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("test.sock");
+
+        let mut server = IpcServer::new(&socket_path);
+        // Should not panic when stopping a server that was never started
+        let result = server.stop().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_no_workers() {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("test.sock");
+
+        let mut server = IpcServer::new(&socket_path);
+        server.start().await.unwrap();
+
+        // Broadcasting with no connected workers should succeed
+        let msg = CommanderMessage::Ping {
+            id: "test-1".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let result = server.broadcast(&msg).await;
+        assert!(result.is_ok());
+    }
 }

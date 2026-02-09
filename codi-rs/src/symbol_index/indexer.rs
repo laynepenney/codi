@@ -551,23 +551,35 @@ impl Indexer {
         let start = Instant::now();
 
         let project_root = Path::new(&self.options.project_root);
-        let db_lock = db.lock().await;
 
-        // Get all indexed files from database
-        let indexed_files = db_lock.get_all_files()?;
+        // Get all indexed files from database (lock held briefly)
+        let indexed_files = {
+            let db_lock = db.lock().await;
+            db_lock.get_all_files()?
+        };
 
+        // Collect paths to delete (no lock held during file I/O)
+        let paths_to_delete: Vec<String> = {
+            let mut to_delete = Vec::new();
+            for file_path in indexed_files {
+                let full_path = if file_path.starts_with('/') {
+                    PathBuf::from(&file_path)
+                } else {
+                    project_root.join(&file_path)
+                };
+
+                if !full_path.exists() {
+                    to_delete.push(file_path);
+                }
+            }
+            to_delete
+        };
+
+        // Delete files from database (lock held briefly per operation)
         let mut deleted_count = 0u32;
-
-        // Check which files no longer exist on disk
-        for file_path in indexed_files {
-            let full_path = if file_path.starts_with('/') {
-                PathBuf::from(&file_path)
-            } else {
-                project_root.join(&file_path)
-            };
-
-            if !full_path.exists() {
-                // Get file ID and delete
+        {
+            let db_lock = db.lock().await;
+            for file_path in paths_to_delete {
                 if let Ok(Some(file)) = db_lock.get_file(&file_path) {
                     db_lock.delete_file(file.id)?;
                     deleted_count += 1;

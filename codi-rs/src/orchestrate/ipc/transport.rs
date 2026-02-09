@@ -122,7 +122,9 @@ fn pipe_name_from_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use super::*;
+    #[cfg(windows)]
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[cfg(windows)]
