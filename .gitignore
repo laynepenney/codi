@@ -30,7 +30,8 @@ npm-debug.log*
 coverage/
 
 # Local settings
-.claude/
+.claude/*
+!.claude/skills/
 *.code-review
 .codi.local.json
 
