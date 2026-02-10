@@ -122,11 +122,14 @@ fn pipe_name_from_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     use super::*;
+    use tokio::time::Duration;
+
+    #[cfg(unix)]
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     #[cfg(windows)]
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::time::Duration;
 
     #[cfg(windows)]
     #[tokio::test]
