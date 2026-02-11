@@ -26,7 +26,7 @@ For organizations that want to:
 - Integrate Codi into SaaS platforms without providing source code to users
 - Receive priority support and custom development
 
-A commercial license is available. Contact [layne@codi.dev](mailto:layne@codi.dev) for pricing and terms.
+A commercial license is available. Contact [codi@layne.pro](mailto:codi@layne.pro) for pricing and terms.
 
 ## Which License Do I Need?
 
